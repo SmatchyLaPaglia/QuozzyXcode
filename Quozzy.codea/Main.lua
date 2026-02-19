@@ -351,6 +351,7 @@ end
 
 local __didLogFirstDraw = false
 local __drawFrames = 0
+local __touchPulse = { active = false, x = 0, y = 0, t = 0, duration = 0.35 }
 function draw()
   background(140, 140, 50)
   __drawFrames = __drawFrames + 1
@@ -364,9 +365,31 @@ function draw()
   fill(255, 255, 255)
   fontSize(28)
   text("DRAW OK " .. tostring(__drawFrames), WIDTH * 0.5, HEIGHT * 0.5)
+
+  if __touchPulse.active then
+    __touchPulse.t = __touchPulse.t + DeltaTime
+    local p = __touchPulse.t / __touchPulse.duration
+    if p >= 1 then
+      __touchPulse.active = false
+    else
+      pushStyle()
+      noFill()
+      stroke(255, 40, 40, 255 * (1 - p))
+      strokeWidth(7)
+      ellipseMode(CENTER)
+      local r = 20 + (120 * p)
+      ellipse(__touchPulse.x, __touchPulse.y, r, r)
+      popStyle()
+    end
+  end
 end
 
 function touched(t)
-  -- Touch handling code here
+  if t.state == BEGAN then
+    __touchPulse.active = true
+    __touchPulse.x = t.x
+    __touchPulse.y = t.y
+    __touchPulse.t = 0
+  end
   devLog("Touch event: state=" .. t.state .. " x=" .. t.x .. " y=" .. t.y)
 end

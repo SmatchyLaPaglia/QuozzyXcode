@@ -7,8 +7,6 @@
 //
 
 #import "ProjectAddon.h"
-#import <UIKit/UIKit.h>
-
 #include "ModuleIncludes.h"
 
 #import "ProjectModule.h"
@@ -32,6 +30,7 @@
 - (void)codea:(nonnull ThreadedRuntimeViewController *)controller didCreateLuaState:(nonnull struct lua_State *)L isValidating:(BOOL)validating {
     self.L = L;
     self.controller = controller;
+    NSLog(@"[Quozzy] didCreateLuaState (validating=%@)", validating ? @"YES" : @"NO");
     
     for(id<Module> mod in [ProjectAddon defaultModules]) {
         [mod registerForAddon:self];
@@ -42,16 +41,10 @@
     static NSUInteger frameCount = 0;
     frameCount += 1;
     
-    if (frameCount == 1 || frameCount % 120 == 0) {
-        CGRect bounds = controller.view.bounds;
-        CGRect frame = controller.view.frame;
-        UIScreen* screen = UIScreen.mainScreen;
-        NSLog(@"[Quozzy] Native frame heartbeat: %lu (dt=%f) view.bounds=%@ view.frame=%@ screen.bounds=%@",
+    if (frameCount <= 10 || frameCount % 60 == 0) {
+        NSLog(@"[Quozzy] Native frame heartbeat: %lu (dt=%f)",
               (unsigned long)frameCount,
-              deltaTime,
-              NSStringFromCGRect(bounds),
-              NSStringFromCGRect(frame),
-              NSStringFromCGRect(screen.bounds));
+              deltaTime);
     }
 }
     
