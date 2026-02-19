@@ -1,0 +1,46 @@
+function buildDictionaryFromString(str, label)
+    DICT = {}
+    for line in str:gmatch("[^\r\n]+") do
+        local word = line:match("^%s*(%S+)%s*$")
+        if word then
+            word = string.upper(word)
+            if word:match("^[A-Z]+$") and #word >= MIN_WORD_LEN then
+                DICT[word] = true
+            end
+        end
+    end
+    dictStatus = label
+end
+
+function tryLoadCachedSowpods()
+    local ok, data = pcall(readText, SOWPODS_LOCAL_NAME)
+    if ok and data and #data > 0 then
+        buildDictionaryFromString(data, "SOWPODS")
+        return true
+    end
+    return false
+end
+
+function startSowpodsDownload()
+    http.request(
+    SOWPODS_URL,
+    function(data, status, headers)
+        if status == 200 and data and #data > 0 then
+            saveText(SOWPODS_LOCAL_NAME, data)
+            buildDictionaryFromString(data, "SOWPODS (downloaded)")
+        end
+    end,
+    function(err)
+        -- silently ignore; fallback remains active
+    end
+    )
+end
+
+function initDictionary()
+    if not tryLoadCachedSowpods() then
+        -- use fallback immediately
+        buildDictionaryFromString(FALLBACK_WORDS, "Fallback")
+        -- start async download of SOWPODS
+        startSowpodsDownload()
+    end
+end

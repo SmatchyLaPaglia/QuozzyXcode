@@ -1,0 +1,15 @@
+{
+  "originHash" : "b9eac05a151fcf1964e1978848c34f2e30c3efab193defc598efac503ed9bd7b",
+  "pins" : [
+    {
+      "identity" : "runtime",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/twolivesleft/Runtime.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "924c512405ebc7c5c4694c66367d709d73aa287d"
+      }
+    }
+  ],
+  "version" : 3
+}

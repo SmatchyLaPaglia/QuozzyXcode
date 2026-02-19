@@ -1,0 +1,372 @@
+--[[require(asset.documents.CodeaTurnBasedMatches)
+
+local function bootstrapCTBM()
+  local attempts = {}
+  local function tryLoadAssetPath(assetPath, label)
+    local source = readText(assetPath)
+    if not source or #source == 0 then
+      attempts[#attempts + 1] = label .. ": missing source at " .. tostring(assetPath)
+      return false
+    end
+
+    local chunk, loadErr = load(source, label)
+    if not chunk then
+      attempts[#attempts + 1] = label .. ": compile error: " .. tostring(loadErr)
+      return false
+    end
+
+    local okChunk, errChunk = pcall(chunk)
+    if not okChunk then
+      attempts[#attempts + 1] = label .. ": runtime error: " .. tostring(errChunk)
+      return false
+    end
+
+    return true
+  end
+
+  -- Exported app primary path: keep dependency inside this .codea bundle.
+  local inProjectPath = asset .. "CodeaTurnBasedMatches.lua"
+  if tryLoadAssetPath(inProjectPath, "in-project CTBM") then return true end
+
+  -- Keep Codea-editor behavior first for local development.
+  local okDocs, errDocs = pcall(require, asset.documents.CodeaTurnBasedMatches)
+  if okDocs then return true end
+  attempts[#attempts + 1] = "asset.documents.CodeaTurnBasedMatches: " .. tostring(errDocs)
+
+  -- Legacy fallback kept for compatibility with prior layout assumptions.
+  local legacyBundledPath = asset .. "Assets/CodeaTurnBasedMatches.codea/CodeaTurnBasedMatches.lua"
+  if tryLoadAssetPath(legacyBundledPath, "legacy bundled CTBM") then return true end
+
+  devLog("CTBM bootstrap failed")
+  for i = 1, #attempts do
+    devLog("  " .. attempts[i])
+  end
+
+  error("Cannot load CodeaTurnBasedMatches dependency")
+end
+]]
+
+function devLog(...)
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[#parts + 1] = tostring(select(i, ...))
+  end
+  local msg = table.concat(parts, " ")
+  print(msg)
+  if objc and objc.log then
+    msg = "🧑‍💻 " .. msg
+    objc.log(msg)
+  end
+end
+
+--bootstrapCTBM()
+
+--print = devLog
+
+viewer.mode = FULLSCREEN
+-- AFTER
+MIN_WORD_LEN = 3
+SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
+SOWPODS_LOCAL_NAME = asset .. "SOWPODS.txt"
+
+recordsOverlay = false
+recordsScrollY = 0
+recordsScrollTouchId = nil
+recordsScrollPrevY = 0
+
+showInfoOverlay = false
+
+STATE_MENU   = "menu"
+STATE_PLAY   = "play"
+STATE_END    = "end"
+STATE_READY  = "ready"  
+
+previewMode = nil              -- nil, "board", or "end"
+previewSavedEndState = nil     -- used to restore real game state after end-preview
+
+state = STATE_MENU
+
+boardSize = 4
+timeOptions = {30, 180}
+timeOptionIndex = 2
+timeRemaining = timeOptions[timeOptionIndex]
+quitButtonRect = quitButtonRect or nil
+
+score = 0
+foundWords = {}
+foundWordsSet = {}
+
+board = {}
+tileRects = {}
+
+currentPath = {}
+pathActive = false
+touchIdActive = nil
+dragLastX = nil
+dragLastY = nil
+
+lastWord = ""
+lastWordValid = false
+
+DICT = {}
+dictStatus = "Fallback"
+
+endScrollY = 0
+endScrollTouchId = nil
+endScrollPrevY = 0
+
+topMargin    = 80
+bottomMargin = 80
+sideMargin   = 40
+
+-- Cached rounded overlay panel sprite
+-- Rounded overlay sprites, built per-theme in nextSeason()
+overlayPanelEnd      = nil   -- 0.8 x 0.8 panel (end screen)
+overlayPanelRecords  = nil   -- 0.85 x 0.85 panel (records screen)
+readyTapPanel        = nil   -- “Tap anywhere to start” panel
+--####################################################################
+-- Game Loop
+--####################################################################
+
+function setup()
+    print("started Main setup()")
+  math.randomseed(os.time())
+  useFunctionalEndScreen = useFunctionalEndScreen or true
+  
+  parameter.action("Clear Opponent Records", function()
+    saveLocalData("OpponentRecords", nil)
+    opponentRecords = {}
+    print("Opponent records cleared")
+  end)
+  parameter.boolean("useFunctionalEndScreen", useFunctionalEndScreen)
+  initDictionary()
+  applyStartingSeason()
+  
+  nextHaiku()
+  
+  tbm = CTBM()
+
+  tbm:uponDetectingAuthentication(function()
+    defineAvatarsAfterMicrodelay()
+    otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
+  end)
+
+  tbm:onReceivingTurn(function(gkMatch, dataTable)
+    print("GC → QUOZZY RECEIVE turnData:")
+    print(dataTable and json.encode(dataTable) or "nil dataTable")
+    
+    local q = makeQMatchFromGK(gkMatch, dataTable)
+    if q then
+      enterQMatch(q)
+    else
+      print("makeQMatchFromGK failed")
+    end
+  end)
+  tbm:onSettingCurrentMatch(function(gkMatch, data)
+    print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
+  end)
+
+  avatarMesh = mesh()
+  avatarMesh:addRect(0,0,1,1)
+  
+  avatarMesh.shader = shader(
+  CircleS.vertexShader,
+  CircleS.fragmentShader
+  )
+  
+  avatarMesh.shader.circleSize = 0.5   -- full circle
+  
+  loadPendingTurnSends()
+  setupSparklerParameters()
+  setupGCDebugParameters()
+end
+
+function setupSparklerParameters()
+  -- integer-ish (we snap to int)
+  parameter.number("Spark_spawnFrequency", 1, 30, Sparkler.spawnFrequency, function(v)
+    Sparkler.spawnFrequency = math.floor(v + 0.5)
+  end)
+  
+  parameter.number("Spark_spawnSize", 8, 60, Sparkler.spawnSize, function(v)
+    Sparkler.spawnSize = v
+  end)
+  
+  parameter.number("Spark_maxVelocity", 40, 1200, Sparkler.maxVelocity, function(v)
+    Sparkler.maxVelocity = v
+  end)
+  
+  parameter.number("Spark_maxSpin", 0, 720, Sparkler.maxSpin, function(v)
+    Sparkler.maxSpin = v
+  end)
+  
+  parameter.number("Spark_maxDistance", 40, 1200, Sparkler.maxDistance, function(v)
+    Sparkler.maxDistance = v
+  end)
+  
+  parameter.number("Spark_timeBeforeFade", 0, 1.5, Sparkler.timeBeforeFade, function(v)
+    Sparkler.timeBeforeFade = v
+  end)
+  
+  parameter.number("Spark_fadeEaseOut", 0.5, 4.0, Sparkler.fadeEaseOut, function(v)
+    Sparkler.fadeEaseOut = v
+  end)
+end
+
+function draw()
+  background(Color.bg)
+  updateSeasonTransition(DeltaTime)
+  updateConfetti(DeltaTime)
+  updateMatchBadge(DeltaTime)
+  
+  if state == STATE_MENU then
+    drawMenu()
+    drawRecordsOverlay()
+    drawMatchBadge()
+    drawInfoOverlay()
+    drawConfetti()        
+    -- Local avatar
+    if avatarTest then
+      if localPlayerAvatar then
+        sprite(localPlayerAvatar, 40, HEIGHT - 296, 256, 256)
+        drawAvatarCircle(localPlayerAvatar, 40, 90, 256, "Y")
+      end
+      -- Other avatar
+      if otherPlayerAvatar then
+        sprite(otherPlayerAvatar, 320, HEIGHT - 296, 256, 256)
+        drawAvatarCircle(otherPlayerAvatar, 320, 90, 256, "O")
+      end    
+    end
+      return
+  end
+  
+  updatePathParticles(DeltaTime)
+  
+  if state == STATE_PLAY then
+    timeRemaining = timeRemaining - DeltaTime
+    if timeRemaining <= 0 then
+      timeRemaining = 0
+      endGameRound()
+    end
+  end
+  
+  drawBoard()
+  drawSelectionPath()
+  drawPathParticles()
+  drawTopHUD()
+  
+  if state == STATE_READY then
+    drawReadyMessage()
+  end
+  
+  if state == STATE_PLAY then
+    drawInGameWordList()
+  end
+  
+  if state == STATE_END then
+    drawEndScreen()
+  end
+  drawRecordsOverlay()
+  drawConfetti()
+end
+
+function handlePreviewTouch(t)
+  if not previewMode then return false end
+  
+  if t.state == BEGAN or t.state == ENDED then
+    if previewCloseX and previewCloseY and previewCloseSize then
+      if pointInRect(t.x, t.y,
+      previewCloseX, previewCloseY,
+      previewCloseSize, previewCloseSize) then
+        dismissPreview()
+        return true
+      end
+    end
+  end
+  
+  -- swallow all touches while preview is up
+  return true
+end
+
+function touched(t)
+  -- match badge tap gets first dibs on menu screen
+  if state == STATE_MENU and handleMatchBadgeTouch(t) then
+    return
+  end
+  
+  if showInfoOverlay and (t.state == ENDED or t.state == CANCELLED) then
+    showInfoOverlay = false
+    return
+  end
+  
+  if seasonTransition and seasonTransition.active then
+    -- block all input during palette fade + confetti
+    return
+  end
+  
+  if recordsOverlay and handleRecordsTouch(t) then
+    return
+  end
+  
+  -- existing preview overlay handling
+  if previewMode and handlePreviewTouch(t) then
+    return
+  end
+  
+  -- READY: any tap starts the round
+  if state == STATE_READY then
+    if handleQuitButtonTouch(t) then 
+      endGameRound()
+      return 
+    end
+    if t.state == BEGAN then
+      state = STATE_PLAY
+    end
+    return
+  end
+  
+  if state == STATE_MENU then
+    handleMenuTouch(t)
+    return
+  end
+  
+  if state == STATE_PLAY then
+    if handleQuitButtonTouch(t) then 
+      endGameRound()
+      return 
+    end
+    handleGameTouch(t)
+    return
+  end
+  
+  if state == STATE_END then
+    handleEndScreenTouch(t)
+    return
+  end
+end
+
+function setup()
+  devLog("Main setup() called")
+  -- Initialization code here
+end
+
+local __didLogFirstDraw = false
+local __drawFrames = 0
+function draw()
+  background(140, 140, 50)
+  __drawFrames = __drawFrames + 1
+  if not __didLogFirstDraw then
+    __didLogFirstDraw = true
+    devLog("Main first draw() frame rendered", "WIDTH=", WIDTH, "HEIGHT=", HEIGHT)
+  elseif __drawFrames % 120 == 0 then
+    devLog("Main draw() frames=" .. __drawFrames, "WIDTH=", WIDTH, "HEIGHT=", HEIGHT)
+  end
+
+  fill(255, 255, 255)
+  fontSize(28)
+  text("DRAW OK " .. tostring(__drawFrames), WIDTH * 0.5, HEIGHT * 0.5)
+end
+
+function touched(t)
+  -- Touch handling code here
+  devLog("Touch event: state=" .. t.state .. " x=" .. t.x .. " y=" .. t.y)
+end

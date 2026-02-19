@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Buffer Order</key>
+	<array>
+		<string>Main</string>
+		<string>FALLBACK_WORDS</string>
+		<string>ScrollList</string>
+		<string>qMatch_qPlayer</string>
+		<string>Themes</string>
+		<string>Avatars</string>
+		<string>EndScreen</string>
+		<string>EndScreenFuncs</string>
+		<string>EndScreenFP</string>
+		<string>Dictionary</string>
+		<string>RecordsUI</string>
+		<string>GameCenter</string>
+		<string>WordLogic</string>
+		<string>MenuUI</string>
+		<string>HaikuMenu</string>
+		<string>HaikuTable</string>
+		<string>Board</string>
+		<string>OverlayPanels </string>
+		<string>ConfettiEffectsEtc</string>
+		<string>Badges</string>
+		<string>MatchSelection</string>
+		<string>Helpers</string>
+		<string>fontDescenderDepth</string>
+		<string>opponentRecords</string>
+		<string>Scratch</string>
+		<string>TextGoPoof</string>
+	</array>
+	<key>Selected Buffer</key>
+	<dict>
+		<key>bufferId</key>
+		<string>Main.lua</string>
+	</dict>
+</dict>
+</plist>
