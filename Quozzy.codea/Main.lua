@@ -129,69 +129,10 @@ readyTapPanel        = nil   -- “Tap anywhere to start” panel
 -- true  = keep menu/draw/touch flow, skip heavy runtime integrations
 -- false = full game boot
 SAFE_BOOT = false
-GC_STAGED_BOOT = true
-GC_ENABLE_PENDING_SENDS = true
-GC_ENABLE_DEBUG_PARAMS = true
 
 --####################################################################
 -- Game Loop
 --####################################################################
-
-local function runStep(name, fn)
-  devLog("GC step start:", name)
-  local ok, err = pcall(fn)
-  if ok then
-    devLog("GC step ok:", name)
-    return true
-  end
-  devLog("GC step ERROR:", name, tostring(err))
-  return false
-end
-
-local function initializeGameCenterBridge()
-  if not runStep("CTBM init", function()
-    tbm = CTBM()
-  end) then return end
-
-  if not runStep("uponDetectingAuthentication", function()
-    tbm:uponDetectingAuthentication(function()
-      defineAvatarsAfterMicrodelay()
-      otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
-    end)
-  end) then return end
-
-  if not runStep("onReceivingTurn callback", function()
-    tbm:onReceivingTurn(function(gkMatch, dataTable)
-      print("GC → QUOZZY RECEIVE turnData:")
-      print(dataTable and json.encode(dataTable) or "nil dataTable")
-      
-      local q = makeQMatchFromGK(gkMatch, dataTable)
-      if q then
-        enterQMatch(q)
-      else
-        print("makeQMatchFromGK failed")
-      end
-    end)
-  end) then return end
-
-  if not runStep("onSettingCurrentMatch callback", function()
-    tbm:onSettingCurrentMatch(function(gkMatch, data)
-      print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
-    end)
-  end) then return end
-
-  if GC_ENABLE_PENDING_SENDS then
-    runStep("loadPendingTurnSends", function()
-      loadPendingTurnSends()
-    end)
-  end
-
-  if GC_ENABLE_DEBUG_PARAMS then
-    runStep("setupGCDebugParameters", function()
-      setupGCDebugParameters()
-    end)
-  end
-end
 
 function setup()
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
@@ -225,15 +166,31 @@ function setup()
     devLog("SAFE_BOOT active: skipping CTBM/GameCenter wiring")
     return
   end
+  
+  tbm = CTBM()
 
-  if GC_STAGED_BOOT then
-    devLog("GC staged boot scheduled")
-    tween.delay(0.05, function()
-      initializeGameCenterBridge()
-    end)
-  else
-    initializeGameCenterBridge()
-  end
+  tbm:uponDetectingAuthentication(function()
+    defineAvatarsAfterMicrodelay()
+    otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
+  end)
+
+  tbm:onReceivingTurn(function(gkMatch, dataTable)
+    print("GC → QUOZZY RECEIVE turnData:")
+    print(dataTable and json.encode(dataTable) or "nil dataTable")
+    
+    local q = makeQMatchFromGK(gkMatch, dataTable)
+    if q then
+      enterQMatch(q)
+    else
+      print("makeQMatchFromGK failed")
+    end
+  end)
+  tbm:onSettingCurrentMatch(function(gkMatch, data)
+    print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
+  end)
+
+  loadPendingTurnSends()
+  setupGCDebugParameters()
 end
 
 function setupSparklerParameters()

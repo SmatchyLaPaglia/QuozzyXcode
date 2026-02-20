@@ -383,7 +383,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Quozzy/Quozzy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = T95NG6LKAU;
+				DEVELOPMENT_TEAM = 9JKF54FFAZ;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Quozzy/Frameworks",
@@ -395,7 +395,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jessewonderclark.quozzy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jessewonderclark.quozzyseasons;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Quozzy/Quozzy-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -412,7 +412,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Quozzy/Quozzy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = T95NG6LKAU;
+				DEVELOPMENT_TEAM = 9JKF54FFAZ;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Quozzy/Frameworks",
@@ -424,7 +424,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.jessewonderclark.quozzy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jessewonderclark.quozzyseasons;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Quozzy/Quozzy-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
