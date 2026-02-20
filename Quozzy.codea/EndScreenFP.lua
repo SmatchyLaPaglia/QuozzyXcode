@@ -276,4 +276,3 @@ function drawEndScreenButton(rect, label, action)
   
   endScreenButtonAction = action
 end
-

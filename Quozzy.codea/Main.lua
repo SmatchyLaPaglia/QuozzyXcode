@@ -187,6 +187,12 @@ function setup()
   end)
   tbm:onSettingCurrentMatch(function(gkMatch, data)
     print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
+    if not (tbm and tbm._getEndStateFromMatch) then return end
+    local endState = tbm:_getEndStateFromMatch(gkMatch)
+    if endState then
+      devLog("Selected GC match is finished", "endState=", endState)
+      state = STATE_END
+    end
   end)
 
   loadPendingTurnSends()
@@ -225,6 +231,15 @@ function setupSparklerParameters()
 end
 
 function draw()
+  local function safeDrawCall(name, fn)
+    local ok, err = pcall(fn)
+    if not ok then
+      devLog("DRAW ERROR in", name, tostring(err), "state=", state)
+      return false
+    end
+    return true
+  end
+
   background(Color.bg)
   updateSeasonTransition(DeltaTime)
   updateConfetti(DeltaTime)
@@ -262,24 +277,26 @@ function draw()
     end
   end
   
-  drawBoard()
-  drawSelectionPath()
-  drawPathParticles()
-  drawTopHUD()
+  if state == STATE_READY or state == STATE_PLAY then
+    safeDrawCall("drawBoard", drawBoard)
+    safeDrawCall("drawSelectionPath", drawSelectionPath)
+    safeDrawCall("drawPathParticles", drawPathParticles)
+    safeDrawCall("drawTopHUD", drawTopHUD)
+  end
   
   if state == STATE_READY then
-    drawReadyMessage()
+    safeDrawCall("drawReadyMessage", drawReadyMessage)
   end
   
   if state == STATE_PLAY then
-    drawInGameWordList()
+    safeDrawCall("drawInGameWordList", drawInGameWordList)
   end
   
   if state == STATE_END then
-    drawEndScreen()
+    safeDrawCall("drawEndScreen", drawEndScreen)
   end
-  drawRecordsOverlay()
-  drawConfetti()
+  safeDrawCall("drawRecordsOverlay", drawRecordsOverlay)
+  safeDrawCall("drawConfetti", drawConfetti)
 end
 
 function handlePreviewTouch(t)

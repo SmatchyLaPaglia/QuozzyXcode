@@ -16,6 +16,17 @@ function enterQMatch(q)
   opponentAlias     = q.otherName or q.opponentName or opponentAlias
   
   defineAvatarsAfterMicrodelay()
+
+  -- Gate round start when user selected an already-ended Game Center match.
+  if tbm and tbm.currentMatch and tbm._getEndStateFromMatch then
+    local endState = tbm:_getEndStateFromMatch(tbm.currentMatch)
+    if endState then
+      devLog("enterQMatch: selected match already ended; staying on end screen", "endState=", endState)
+      state = STATE_END
+      return
+    end
+  end
+
   startRoundFromCurrentSettings()
 end
 

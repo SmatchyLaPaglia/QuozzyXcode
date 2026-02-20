@@ -46,8 +46,10 @@ function captureBoardTilesFromBoard()
     if not board or not boardSize then return tiles end
     
     for r = 1, boardSize do
+        local row = board[r]
         for c = 1, boardSize do
-            tiles[#tiles + 1] = board[r][c]
+            local v = row and row[c] or "?"
+            tiles[#tiles + 1] = v
         end
     end
     return tiles
