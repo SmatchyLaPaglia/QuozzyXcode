@@ -32,9 +32,14 @@ function defineAvatars()
   local pl = gkMatch and firstNonLocalParticipant(gkMatch)
   
   if pl then
+    local oppId = pl.gamePlayerID or pl.playerID or currentOpponentID
+    local oppAlias = pl.alias or pl.displayName or opponentAlias
     loadPlayerPhoto(pl, function(photo)
       if photo then
         otherPlayerAvatar = photo   -- square UIImage proxy
+        if saveOpponentAvatarForRecord then
+          saveOpponentAvatarForRecord(oppId, oppAlias, photo)
+        end
         print("otherPlayerAvatar = photo")
       else 
         print("loadPlayerPhoto for otherPlayer failed")

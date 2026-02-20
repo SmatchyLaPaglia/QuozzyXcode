@@ -178,65 +178,94 @@ function drawRecordsOverlay()
     
     -- title
     fontSize(30)
-    text("Opponent Records", innerLeft, innerTop - 32)
-    
-    -- small summary
-    local totalMatches = 0
-    local totalWins, totalLosses, totalTies = 0, 0, 0
+    text("Games Won", innerLeft, innerTop - 32)
     
     local entries = {}
     for id, rec in pairs(opponentRecords) do
         local w = rec.wins   or 0
         local l = rec.losses or 0
-        local t = rec.ties   or 0
         table.insert(entries, {
+            id = id,
             alias = rec.alias or id,
             wins  = w,
-            losses= l,
-            ties  = t
+            losses= l
         })
-        totalWins   = totalWins   + w
-        totalLosses = totalLosses + l
-        totalTies   = totalTies   + t
     end
-    totalMatches = totalWins + totalLosses + totalTies
     
     table.sort(entries, function(a, b)
         return (a.alias or "") < (b.alias or "")
     end)
-    
-    fontSize(20)
-    local summary = string.format(
-    "Overall: %d-%d-%d  (matches: %d)",
-    totalWins, totalLosses, totalTies, totalMatches
-    )
-    text(summary, innerLeft, innerTop - 64)
-    
-    -- list area
+
+    -- Grid area
     local listTop    = innerTop - 100
-    local listBottom = innerBottom + 70
+    local listBottom = innerBottom + 72
     local listHeight = listTop - listBottom
     local listWidth  = innerRight - innerLeft
     
     clip(innerLeft, listBottom, listWidth, listHeight)
     
-    local lineH = 26
-    local y = listTop - recordsScrollY
-    
+    local columns = 3
+    local colGap = 12
+    local rowGap = 30
+    local cellW = (listWidth - colGap * (columns - 1)) / columns
+    local avatarSize = math.max(74, math.min(128, cellW * 0.94))
+    local rowH = avatarSize + 112
+
+    local function drawLabelValueCentered(cx, y, label, value)
+        pushStyle()
+        textMode(CORNER)
+        textAlign(LEFT)
+
+        font("HelveticaNeue")
+        fontSize(16)
+        local wLabel = textSize(label)
+
+        font("HelveticaNeue-Bold")
+        fontSize(16)
+        local wValue = textSize(tostring(value))
+
+        local x = cx - (wLabel + wValue) * 0.5
+
+        font("HelveticaNeue")
+        fill(Color.tileText)
+        text(label, x, y)
+
+        font("HelveticaNeue-Bold")
+        fill(Color.tileText)
+        text(tostring(value), x + wLabel, y)
+        popStyle()
+    end
+
     for i, e in ipairs(entries) do
-        local line = string.format("%s   %d-%d-%d",
-        e.alias,
-        e.wins,
-        e.losses,
-        e.ties
-        )
-        text(line, innerLeft, y - (i-1)*lineH)
+        local row = math.floor((i - 1) / columns)
+        local col = (i - 1) % columns
+        local cx = innerLeft + col * (cellW + colGap) + cellW * 0.5
+        local rowTop = listTop - recordsScrollY - row * (rowH + rowGap)
+        local avatarCY = rowTop - avatarSize * 0.5
+        local avatar = getOpponentRecordAvatar and getOpponentRecordAvatar(e.id) or nil
+
+        drawAvatarCircle(avatar, cx, avatarCY, avatarSize, "O")
+
+        pushStyle()
+        textMode(CENTER)
+        textAlign(CENTER)
+        font("HelveticaNeue")
+        fontSize(16)
+        fill(Color.tileText)
+        text(e.alias or e.id, cx, avatarCY - avatarSize * 0.72)
+        popStyle()
+
+        local lineY1 = avatarCY - avatarSize * 0.72 - 26
+        local lineY2 = lineY1 - 22
+        drawLabelValueCentered(cx, lineY1, "you: ", e.wins or 0)
+        drawLabelValueCentered(cx, lineY2, "them: ", e.losses or 0)
     end
     
     clip()
     
     -- clamp scroll
-    local totalH = #entries * lineH
+    local rows = math.ceil(#entries / columns)
+    local totalH = rows * rowH + math.max(0, rows - 1) * rowGap
     local maxScroll = math.max(0, totalH - listHeight)
     if recordsScrollY < 0 then recordsScrollY = 0 end
     if recordsScrollY > maxScroll then recordsScrollY = maxScroll end
