@@ -62,12 +62,27 @@ end
 -- n       = optional boardSize for these tiles (4 or 5). Defaults to global boardSize.
 function drawBoardPreview(cx, cy, side, tiles, n)
     n = n or boardSize or 4
-    if not n or n <= 0 then return end
     
-    -- tiles: fall back to the live board if nothing passed in
+    -- Prefer match snapshot tiles for end-screen/replay contexts.
+    if (not tiles or #tiles == 0) and currentQMatch and currentQMatch.boardTiles and #currentQMatch.boardTiles > 0 then
+        tiles = currentQMatch.boardTiles
+        n = currentQMatch.boardSize or n
+    end
+    
+    -- Fall back to live board if no explicit/snapshot tiles are available.
     if not tiles or #tiles == 0 then
         tiles = captureBoardTilesFromBoard()
     end
+    
+    -- Last resort: infer n from tile count when possible.
+    if tiles and #tiles > 0 then
+        local inferred = math.floor(math.sqrt(#tiles))
+        if inferred > 0 and inferred * inferred == #tiles then
+            n = inferred
+        end
+    end
+    
+    if not n or n <= 0 then return end
     
     -- keep a small margin inside the preview rect
     local gridSide = side
