@@ -182,8 +182,8 @@ local function getButtonGridHitRects(r)
   }
 end
 
-local pressedButton = pressedButton or nil
-local pressedInside = pressedInside or false
+pressedButton = pressedButton or nil
+pressedInside = pressedInside or false
 
 function handleMenuTouch(t)
   
@@ -242,8 +242,17 @@ function handleMenuTouch(t)
     startRoundFromCurrentSettings()
     
   elseif key == "versus" then
-    if tbm and tbm.showMatchmaker then
+    if not (tbm and tbm.showMatchmaker) then
+      openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
+      return
+    end
+    
+    local ok, err = pcall(function()
       tbm:showMatchmaker()
+    end)
+    
+    if not ok then
+      openGCMatchmakerErrorOverlay(err)
     end
     
   elseif key == "records" then

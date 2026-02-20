@@ -59,7 +59,7 @@ end
 function drawInfoOverlay()
   if not showInfoOverlay then return end
   local HAIKU_ATTRIBUTION_TEXT =
-  "haiku from translation by Peter Beilenson, \"Japanese Haiku\" (1955)\n\nvia sacred-texts.com"
+  "haiku from translation by Peter Beilenson, \"Japanese Haiku\" (1955)"
   ------------------------------------------------------------
   -- Dim background (same as records overlay)
   ------------------------------------------------------------
@@ -117,5 +117,90 @@ function drawInfoOverlay()
   
   text(HAIKU_ATTRIBUTION_TEXT, textX, textY)
   
+  popStyle()
+end
+
+gcMatchmakerErrorOverlay = gcMatchmakerErrorOverlay or false
+gcMatchmakerErrorText = gcMatchmakerErrorText or "Could not open Game Center matchmaking."
+
+function openGCMatchmakerErrorOverlay(details)
+  gcMatchmakerErrorOverlay = true
+  if details and details ~= "" then
+    gcMatchmakerErrorText = "Could not open Game Center matchmaking.\n\n" .. tostring(details)
+  else
+    gcMatchmakerErrorText = "Could not open Game Center matchmaking."
+  end
+end
+
+function drawGCMatchmakerErrorOverlay()
+  if not gcMatchmakerErrorOverlay then return end
+
+  pushStyle()
+  fill(Color.panelDim)
+  noStroke()
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+  popStyle()
+
+  pushStyle()
+  textMode(CORNER)
+  local margin = 28
+  local panelW = math.min(WIDTH * 0.86, 560)
+  local innerW = panelW - margin * 2
+  local panelMaxH = HEIGHT * 0.86
+  local panelX = WIDTH / 2
+  local panelY = HEIGHT / 2
+  
+  local title = "Game Center Error"
+  local footer = "Tap anywhere to dismiss"
+  local titleFont = 22
+  local bodyFont = 20
+  local footerFont = 16
+  
+  local titleH, bodyH, footerH
+  while true do
+    fontSize(titleFont)
+    textWrapWidth(innerW)
+    local _, tH = textSize(title)
+    
+    fontSize(bodyFont)
+    textWrapWidth(innerW)
+    local _, bH = textSize(gcMatchmakerErrorText)
+    
+    fontSize(footerFont)
+    textWrapWidth(innerW)
+    local _, fH = textSize(footer)
+    
+    titleH, bodyH, footerH = tH, bH, fH
+    local needed = margin + titleH + 18 + bodyH + 18 + footerH + margin
+    if needed <= panelMaxH or bodyFont <= 16 then break end
+    bodyFont = bodyFont - 1
+  end
+  
+  local panelH = margin + titleH + 18 + bodyH + 18 + footerH + margin
+
+  rectMode(CENTER)
+  noStroke()
+  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
+
+  fill(Color.tileText or color(255))
+  local left = panelX - panelW/2 + margin
+  local yTop = panelY + panelH/2 - margin
+  
+  fontSize(titleFont)
+  textWrapWidth(innerW)
+  text(title, left, yTop - titleH)
+  
+  fontSize(bodyFont)
+  textWrapWidth(innerW)
+  local textY = yTop - titleH - 18 - bodyH
+  text(gcMatchmakerErrorText, left, textY)
+
+  fill(Color.uiAccent2 or color(255, 120, 120))
+  fontSize(footerFont)
+  textWrapWidth(innerW)
+  local footerY = panelY - panelH/2 + margin
+  text(footer, left, footerY)
   popStyle()
 end

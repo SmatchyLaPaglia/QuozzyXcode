@@ -124,12 +124,77 @@ sideMargin   = 40
 overlayPanelEnd      = nil   -- 0.8 x 0.8 panel (end screen)
 overlayPanelRecords  = nil   -- 0.85 x 0.85 panel (records screen)
 readyTapPanel        = nil   -- “Tap anywhere to start” panel
+
+-- Toggle this during simulator bring-up:
+-- true  = keep menu/draw/touch flow, skip heavy runtime integrations
+-- false = full game boot
+SAFE_BOOT = false
+GC_STAGED_BOOT = true
+GC_ENABLE_PENDING_SENDS = true
+GC_ENABLE_DEBUG_PARAMS = true
+
 --####################################################################
 -- Game Loop
 --####################################################################
 
+local function runStep(name, fn)
+  devLog("GC step start:", name)
+  local ok, err = pcall(fn)
+  if ok then
+    devLog("GC step ok:", name)
+    return true
+  end
+  devLog("GC step ERROR:", name, tostring(err))
+  return false
+end
+
+local function initializeGameCenterBridge()
+  if not runStep("CTBM init", function()
+    tbm = CTBM()
+  end) then return end
+
+  if not runStep("uponDetectingAuthentication", function()
+    tbm:uponDetectingAuthentication(function()
+      defineAvatarsAfterMicrodelay()
+      otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
+    end)
+  end) then return end
+
+  if not runStep("onReceivingTurn callback", function()
+    tbm:onReceivingTurn(function(gkMatch, dataTable)
+      print("GC → QUOZZY RECEIVE turnData:")
+      print(dataTable and json.encode(dataTable) or "nil dataTable")
+      
+      local q = makeQMatchFromGK(gkMatch, dataTable)
+      if q then
+        enterQMatch(q)
+      else
+        print("makeQMatchFromGK failed")
+      end
+    end)
+  end) then return end
+
+  if not runStep("onSettingCurrentMatch callback", function()
+    tbm:onSettingCurrentMatch(function(gkMatch, data)
+      print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
+    end)
+  end) then return end
+
+  if GC_ENABLE_PENDING_SENDS then
+    runStep("loadPendingTurnSends", function()
+      loadPendingTurnSends()
+    end)
+  end
+
+  if GC_ENABLE_DEBUG_PARAMS then
+    runStep("setupGCDebugParameters", function()
+      setupGCDebugParameters()
+    end)
+  end
+end
+
 function setup()
-    print("started Main setup()")
+  devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
   math.randomseed(os.time())
   useFunctionalEndScreen = useFunctionalEndScreen or true
   
@@ -143,28 +208,6 @@ function setup()
   applyStartingSeason()
   
   nextHaiku()
-  
-  tbm = CTBM()
-
-  tbm:uponDetectingAuthentication(function()
-    defineAvatarsAfterMicrodelay()
-    otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
-  end)
-
-  tbm:onReceivingTurn(function(gkMatch, dataTable)
-    print("GC → QUOZZY RECEIVE turnData:")
-    print(dataTable and json.encode(dataTable) or "nil dataTable")
-    
-    local q = makeQMatchFromGK(gkMatch, dataTable)
-    if q then
-      enterQMatch(q)
-    else
-      print("makeQMatchFromGK failed")
-    end
-  end)
-  tbm:onSettingCurrentMatch(function(gkMatch, data)
-    print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
-  end)
 
   avatarMesh = mesh()
   avatarMesh:addRect(0,0,1,1)
@@ -176,9 +219,21 @@ function setup()
   
   avatarMesh.shader.circleSize = 0.5   -- full circle
   
-  loadPendingTurnSends()
   setupSparklerParameters()
-  setupGCDebugParameters()
+  
+  if SAFE_BOOT then
+    devLog("SAFE_BOOT active: skipping CTBM/GameCenter wiring")
+    return
+  end
+
+  if GC_STAGED_BOOT then
+    devLog("GC staged boot scheduled")
+    tween.delay(0.05, function()
+      initializeGameCenterBridge()
+    end)
+  else
+    initializeGameCenterBridge()
+  end
 end
 
 function setupSparklerParameters()
@@ -223,6 +278,7 @@ function draw()
     drawRecordsOverlay()
     drawMatchBadge()
     drawInfoOverlay()
+    drawGCMatchmakerErrorOverlay()
     drawConfetti()        
     -- Local avatar
     if avatarTest then
@@ -297,6 +353,11 @@ function touched(t)
     showInfoOverlay = false
     return
   end
+
+  if gcMatchmakerErrorOverlay and (t.state == ENDED or t.state == CANCELLED) then
+    gcMatchmakerErrorOverlay = false
+    return
+  end
   
   if seasonTransition and seasonTransition.active then
     -- block all input during palette fade + confetti
@@ -342,54 +403,4 @@ function touched(t)
     handleEndScreenTouch(t)
     return
   end
-end
-
-function setup()
-  devLog("Main setup() called")
-  -- Initialization code here
-end
-
-local __didLogFirstDraw = false
-local __drawFrames = 0
-local __touchPulse = { active = false, x = 0, y = 0, t = 0, duration = 0.35 }
-function draw()
-  background(140, 140, 50)
-  __drawFrames = __drawFrames + 1
-  if not __didLogFirstDraw then
-    __didLogFirstDraw = true
-    devLog("Main first draw() frame rendered", "WIDTH=", WIDTH, "HEIGHT=", HEIGHT)
-  elseif __drawFrames % 120 == 0 then
-    devLog("Main draw() frames=" .. __drawFrames, "WIDTH=", WIDTH, "HEIGHT=", HEIGHT)
-  end
-
-  fill(255, 255, 255)
-  fontSize(28)
-  text("DRAW OK " .. tostring(__drawFrames), WIDTH * 0.5, HEIGHT * 0.5)
-
-  if __touchPulse.active then
-    __touchPulse.t = __touchPulse.t + DeltaTime
-    local p = __touchPulse.t / __touchPulse.duration
-    if p >= 1 then
-      __touchPulse.active = false
-    else
-      pushStyle()
-      noFill()
-      stroke(255, 40, 40, 255 * (1 - p))
-      strokeWidth(7)
-      ellipseMode(CENTER)
-      local r = 20 + (120 * p)
-      ellipse(__touchPulse.x, __touchPulse.y, r, r)
-      popStyle()
-    end
-  end
-end
-
-function touched(t)
-  if t.state == BEGAN then
-    __touchPulse.active = true
-    __touchPulse.x = t.x
-    __touchPulse.y = t.y
-    __touchPulse.t = 0
-  end
-  devLog("Touch event: state=" .. t.state .. " x=" .. t.x .. " y=" .. t.y)
 end
