@@ -130,6 +130,103 @@ readyTapPanel        = nil   -- “Tap anywhere to start” panel
 -- false = full game boot
 SAFE_BOOT = false
 
+gcBadgePermissionRequested = gcBadgePermissionRequested or false
+
+local function setHomeScreenBadgeCount(count)
+  count = math.max(0, math.floor(tonumber(count) or 0))
+  local app = objc and objc.UIApplication and (objc.UIApplication.sharedApplication or (objc.UIApplication.sharedApplication and objc.UIApplication:sharedApplication()))
+  if not app then return false end
+  local ok = pcall(function()
+    app.applicationIconBadgeNumber = count
+  end)
+  if not ok then
+    ok = pcall(function()
+      app:setApplicationIconBadgeNumber_(count)
+    end)
+  end
+  if ok then
+    devLog("Home badge set to", count)
+  end
+  return ok
+end
+
+local function requestHomeScreenBadgePermission()
+  if gcBadgePermissionRequested then return end
+  gcBadgePermissionRequested = true
+  
+  local ok = pcall(function()
+    local UN = objc and objc.UNUserNotificationCenter
+    if not UN then
+      devLog("Badge permission request skipped (UNUserNotificationCenter unavailable)")
+      return
+    end
+    local center = UN.currentNotificationCenter or (UN.currentNotificationCenter and UN:currentNotificationCenter())
+    if not center then
+      devLog("Badge permission request skipped (notification center unavailable)")
+      return
+    end
+    local opts = nil
+    if objc.enum and objc.enum.UNAuthorizationOptions then
+      opts = objc.enum.UNAuthorizationOptions.badge
+    end
+    if not opts then
+      -- badge-only is bit 1 << 0 on iOS
+      opts = 1
+    end
+    center:requestAuthorizationWithOptions_completionHandler_(opts, function(granted, err)
+      objc.async(function()
+        local grantedBool = (granted == true or granted == 1)
+        devLog("Badge permission callback", "granted=", grantedBool, "err=", err ~= nil)
+      end)
+    end)
+  end)
+  if not ok then
+    devLog("Badge permission request failed (bridge call)")
+  end
+end
+
+local function refreshHomeScreenBadgeFromGCMatches(reason)
+  if SAFE_BOOT then return end
+  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then
+    return
+  end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  if not GKTurnBasedMatch then return end
+  
+  local localId = tbm.localPlayer.playerID
+  local localGamePlayerId = tbm.localPlayer.gamePlayerID
+  
+  local ok = pcall(function()
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        if o__err then
+          devLog("Home badge refresh GC load error", o__err.localizedDescription or tostring(o__err))
+          return
+        end
+        local pending = 0
+        local matches = o__matches or {}
+        for i = 1, #matches do
+          local m = matches[i]
+          local isEnded = (tbm and tbm._isMatchEnded and tbm:_isMatchEnded(m)) or false
+          if not isEnded then
+            local cp = m and m.currentParticipant
+            local cpId = cp and cp.playerID
+            local cpGameId = cp and cp.gamePlayerID
+            if (cpId and localId and cpId == localId) or (cpGameId and localGamePlayerId and cpGameId == localGamePlayerId) then
+              pending = pending + 1
+            end
+          end
+        end
+        setHomeScreenBadgeCount(pending)
+        devLog("Home badge refresh", "pendingMatches=", pending, "reason=", reason or "?")
+      end)
+    end)
+  end)
+  if not ok then
+    devLog("Home badge refresh failed (bridge call)", reason or "?")
+  end
+end
+
 --####################################################################
 -- Game Loop
 --####################################################################
@@ -172,6 +269,8 @@ function setup()
   tbm:uponDetectingAuthentication(function()
     defineAvatarsAfterMicrodelay()
     otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
+    requestHomeScreenBadgePermission()
+    refreshHomeScreenBadgeFromGCMatches("auth")
   end)
 
   tbm:onReceivingTurn(function(gkMatch, dataTable)
@@ -184,7 +283,13 @@ function setup()
     else
       print("makeQMatchFromGK failed")
     end
+    refreshHomeScreenBadgeFromGCMatches("receivingTurn")
   end)
+
+  tbm:onTurnEnded(function(gkMatch, dataTable)
+    refreshHomeScreenBadgeFromGCMatches("turnEnded")
+  end)
+
   tbm:onSettingCurrentMatch(function(gkMatch, data)
     print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
     if not (tbm and tbm._getEndStateFromMatch) then return end
@@ -193,6 +298,7 @@ function setup()
       devLog("Selected GC match is finished", "endState=", endState)
       state = STATE_END
     end
+    refreshHomeScreenBadgeFromGCMatches("settingCurrentMatch")
   end)
 
   loadPendingTurnSends()
