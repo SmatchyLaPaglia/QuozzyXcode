@@ -472,8 +472,10 @@ function CTBM:_makeLocalPlayerListener()
       thisCTBM:log(
       "CTBM: received turn event while not in match, setting as current match"
       )
-      thisCTBM:_setCurrentMatch(o__match, "player listener")
+    else
+      thisCTBM:log("CTBM: refreshing current match from turn event", o__match and o__match.matchID)
     end
+    thisCTBM:_setCurrentMatch(o__match, "player listener")
     
     local dataTable = thisCTBM:_matchWithNSDataToDataTable(o__match)
     

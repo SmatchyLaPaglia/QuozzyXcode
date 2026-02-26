@@ -14,6 +14,14 @@ function enterQMatch(q)
   currentMatchID    = q.id
   currentOpponentID = q.otherId or q.opponentId or currentOpponentID
   opponentAlias     = q.otherName or q.opponentName or opponentAlias
+
+  -- Apply match-specific rules from Game Center payload (e.g. 5x5 boards).
+  if q.boardSize and tonumber(q.boardSize) then
+    boardSize = math.floor(tonumber(q.boardSize))
+  end
+  if q.minWordLen and tonumber(q.minWordLen) then
+    MIN_WORD_LEN = math.floor(tonumber(q.minWordLen))
+  end
   
   defineAvatarsAfterMicrodelay()
 
@@ -25,6 +33,48 @@ function enterQMatch(q)
       state = STATE_END
       return
     end
+  end
+
+  -- If this is an open match but not our turn, show the end/waiting screen
+  -- with our submitted words/score instead of starting a fresh round.
+  if tbm and tbm.currentMatch and tbm.isMyTurn == false then
+    local myId = localPID()
+    local meP = q.players and q.players[myId] or nil
+    local otherId, otherP = nil, nil
+    if q.players then
+      for pid, pdata in pairs(q.players) do
+        if pid ~= myId then
+          otherId, otherP = pid, pdata
+          break
+        end
+      end
+    end
+    
+    if meP then
+      score = tonumber(meP.score) or 0
+      q.players[myId].words = q.players[myId].words or {}
+      q.players[myId].wordTimes = q.players[myId].wordTimes or {}
+      foundWords = q.players[myId].words
+      foundWordsSet = {}
+      for _, w in ipairs(foundWords) do
+        if type(w) == "string" then foundWordsSet[w] = true end
+      end
+    end
+    
+    if meP and meP.didPlay == true then
+      opponentScore = tonumber(otherP and otherP.score) or 0
+      devLog("enterQMatch: selected open match not on my turn after I played; showing end/waiting screen",
+        "myDidPlay=", meP and meP.didPlay,
+        "otherDidPlay=", otherP and otherP.didPlay,
+        "otherId=", otherId)
+      state = STATE_END
+      return
+    end
+
+    devLog("enterQMatch: selected open match not on my turn and I have not played; not forcing end screen",
+      "myDidPlay=", meP and meP.didPlay,
+      "otherDidPlay=", otherP and otherP.didPlay,
+      "otherId=", otherId)
   end
 
   startRoundFromCurrentSettings()

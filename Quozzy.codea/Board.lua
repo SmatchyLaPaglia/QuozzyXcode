@@ -165,8 +165,12 @@ function ensureBoardTilesForQMatch(q)
 end
 
 function generateBoard(currentQMatch)
-    local tiles = ensureBoardTilesForQMatch(currentQMatch)
-    buildBoardFromTiles(tiles, boardSize)
+    local q = currentQMatch
+    local size = (q and q.boardSize) or boardSize or 4
+    local tiles = ensureBoardTilesForQMatch(q)
+    -- Keep global layout state aligned with the match we are rendering.
+    boardSize = size
+    buildBoardFromTiles(tiles, size)
 end
 
 --####################################################################
