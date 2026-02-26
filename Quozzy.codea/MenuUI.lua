@@ -103,6 +103,7 @@ function handleMenuTouch(t)
   if pointInRect(t.x, t.y, sizeX, sizeY, btnW, btnH) then
     -- toggle board size
     if boardSize == 4 then boardSize = 5 else boardSize = 4 end
+    if persistGameplaySettings then persistGameplaySettings() end
     return
   end
   
@@ -118,4 +119,3 @@ function handleMenuTouch(t)
     return
   end
 end
-

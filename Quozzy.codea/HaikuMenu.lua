@@ -232,10 +232,12 @@ function handleMenuTouch(t)
   
   if key == "size" then
     boardSize = (boardSize == 4) and 5 or 4
+    if persistGameplaySettings then persistGameplaySettings() end
     
   elseif key == "min" then
     MIN_WORD_LEN = MIN_WORD_LEN + 1
     if MIN_WORD_LEN > 5 then MIN_WORD_LEN = 3 end
+    if persistGameplaySettings then persistGameplaySettings() end
     
   elseif key == "solo" then
     setTurnBasedEnabled(false)

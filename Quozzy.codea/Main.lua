@@ -92,6 +92,36 @@ timeOptionIndex = 2
 timeRemaining = timeOptions[timeOptionIndex]
 quitButtonRect = quitButtonRect or nil
 
+local BOARD_SIZE_KEY = "SelectedBoardSize"
+local MIN_WORD_LEN_KEY = "SelectedMinWordLen"
+
+local function _sanitizeBoardSize(v)
+  v = math.floor(tonumber(v) or 4)
+  if v ~= 4 and v ~= 5 then return 4 end
+  return v
+end
+
+local function _sanitizeMinWordLen(v)
+  v = math.floor(tonumber(v) or 3)
+  if v < 3 then v = 3 end
+  if v > 5 then v = 5 end
+  return v
+end
+
+function persistGameplaySettings()
+  boardSize = _sanitizeBoardSize(boardSize)
+  MIN_WORD_LEN = _sanitizeMinWordLen(MIN_WORD_LEN)
+  saveLocalData(BOARD_SIZE_KEY, boardSize)
+  saveLocalData(MIN_WORD_LEN_KEY, MIN_WORD_LEN)
+end
+
+function loadGameplaySettings()
+  local savedBoardSize = readLocalData(BOARD_SIZE_KEY)
+  local savedMinWordLen = readLocalData(MIN_WORD_LEN_KEY)
+  boardSize = _sanitizeBoardSize(savedBoardSize or boardSize)
+  MIN_WORD_LEN = _sanitizeMinWordLen(savedMinWordLen or MIN_WORD_LEN)
+end
+
 score = 0
 foundWords = {}
 foundWordsSet = {}
@@ -235,6 +265,7 @@ function setup()
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
   math.randomseed(os.time())
   useFunctionalEndScreen = useFunctionalEndScreen or true
+  loadGameplaySettings()
   
   parameter.action("Clear Opponent Records", function()
     saveLocalData("OpponentRecords", nil)
