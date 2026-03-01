@@ -1,5 +1,55 @@
 local DEFAULT_AVATAR_SIZE = 128
 local genericOpponentAvatarImage = genericOpponentAvatarImage or nil
+OpponentRecordAvatarCache = OpponentRecordAvatarCache or {}
+
+local function _safeAvatarKey(oppId)
+  local raw = tostring(oppId or "unknown")
+  raw = raw:gsub("[^%w_%-]", "_")
+  if raw == "" then raw = "unknown" end
+  return "QB_OppAvatar_" .. raw
+end
+
+local function _writeAvatarToDisk(key, img)
+  if not key or not img then return nil end
+  local path = "Documents:" .. key
+  local ok = pcall(function() saveImage(path, img) end)
+  if ok then return path end
+  return nil
+end
+
+local function _coerceToPersistableImage(src)
+  if not src then return nil end
+
+  -- Render whatever sprite-compatible source we received into a square
+  -- Codea image so saveImage can persist it.
+  local w = math.floor(tonumber(src.width) or DEFAULT_AVATAR_SIZE)
+  local h = math.floor(tonumber(src.height) or DEFAULT_AVATAR_SIZE)
+  local side = math.max(64, math.min(512, math.max(w, h)))
+  
+  local dst = image(side, side)
+  local okRender = pcall(function()
+    setContext(dst)
+    background(0, 0, 0, 0)
+    spriteMode(CENTER)
+    sprite(src, side * 0.5, side * 0.5, side, side)
+    setContext()
+  end)
+  
+  if okRender then
+    return dst
+  end
+  
+  pcall(setContext)
+  return nil
+end
+
+local function _readAvatarFromDisk(key)
+  if not key then return nil end
+  local path = "Documents:" .. key
+  local ok, img = pcall(function() return readImage(path) end)
+  if ok and img then return img end
+  return nil
+end
 
 function genericOpponentAvatar()
   if genericOpponentAvatarImage then
@@ -172,19 +222,99 @@ function defineAvatarsAfterMicrodelay()
 end
 
 function buildDefaultAvatarImage(initial)
-  print("[STUB] buildDefaultAvatarImage")
+  return unknownPlayerAvatar(256, Color.uiAccent)
+end
+
+function getOpponentRecordAvatar(oppId)
+  if not oppId then return nil end
+  
+  local cached = OpponentRecordAvatarCache[oppId]
+  if cached then return cached end
+  
+  local qp = qPlayersById and qPlayersById[oppId]
+  if qp and qp.avatar then
+    OpponentRecordAvatarCache[oppId] = qp.avatar
+    return qp.avatar
+  end
+  
+  local rec = opponentRecords and opponentRecords[oppId]
+  local key = rec and rec.avatarKey
+  if not key then return nil end
+  
+  local img = _readAvatarFromDisk(key)
+  if img then
+    OpponentRecordAvatarCache[oppId] = img
+    return img
+  end
+  
+  return nil
+end
+
+function saveOpponentAvatarForRecord(oppId, alias, photo)
+  if not oppId or not photo then return false end
+  local persistable = _coerceToPersistableImage(photo)
+  if not persistable then
+    print("saveOpponentAvatarForRecord: could not coerce image for", tostring(oppId))
+    return false
+  end
+  
+  local key = _safeAvatarKey(oppId)
+  local writtenPath = _writeAvatarToDisk(key, persistable)
+  if not writtenPath then
+    print("saveOpponentAvatarForRecord: failed to save image for", tostring(oppId))
+    return false
+  end
+  
+  OpponentRecordAvatarCache[oppId] = persistable
+  
+  if qPlayersById and qPlayersById[oppId] then
+    qPlayersById[oppId].avatar = persistable
+    qPlayersById[oppId].avatarStatus = "ready"
+  end
+  
+  if opponentRecords then
+    local rec = opponentRecords[oppId] or { wins = 0, losses = 0, ties = 0 }
+    rec.alias = alias or rec.alias or opponentAlias or "Opponent"
+    rec.avatarKey = key
+    rec.avatarUpdatedAt = os.time()
+    opponentRecords[oppId] = rec
+    if saveOpponentRecords then saveOpponentRecords() end
+  end
+  
+  return true
 end
 
 function ensureAvatarForOpponent(oppId, alias)
-  print("[STUB] ensureAvatarForOpponent")
+  if not oppId then return nil end
+  
+  local cached = getOpponentRecordAvatar(oppId)
+  if cached then
+    local qp = getOrCreateQPlayer and getOrCreateQPlayer(oppId, alias)
+    if qp then
+      qp.avatar = cached
+      qp.avatarStatus = "ready"
+    end
+    return cached
+  end
+  
+  return nil
 end
 
 function loadAvatarsForOpponents()
-  print("[STUB] loadAvatarsForOpponents")
+  if not opponentRecords then return end
+  for oppId, _ in pairs(opponentRecords) do
+    getOpponentRecordAvatar(oppId)
+  end
 end
 
 function refreshQPlayerAvatarFromGK(qp, gkPlayer)
-  print("[STUB] refreshQPlayerAvatarFromGK")
+  if not qp or not gkPlayer then return end
+  loadPlayerPhoto(gkPlayer, function(photo)
+    if not photo then return end
+    qp.avatar = photo
+    qp.avatarStatus = "ready"
+    saveOpponentAvatarForRecord(qp.id, qp.name, photo)
+  end)
 end
 
 GCPlayerPhotosById     = GCPlayerPhotosById     or {}
