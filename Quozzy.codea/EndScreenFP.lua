@@ -20,6 +20,31 @@ function buildEndScreenModel()
   local endState = currentEndScreenState()
   local is2P     = (endState ~= END_STATE_SINGLE)
   local complete = (endState == END_STATE_2P_COMPLETE)
+  local assignedOpponent = (otherId ~= nil and otherId ~= "")
+  local rawOppName = (q and (q.otherName or q.opponentName)) or opponentAlias or ""
+  local oppDisplayName = assignedOpponent and rawOppName or ""
+  local remoteSlotState = q and q.remoteSlotState or nil
+
+  local waitingWords
+  if not complete then
+    if assignedOpponent or remoteSlotState == "invited" then
+      waitingWords = {
+        "waiting for",
+        "opponent",
+        "to play",
+      }
+    elseif remoteSlotState == "matching" then
+      waitingWords = {
+        "automatching",
+        "in progress",
+      }
+    else
+      waitingWords = {
+        "waiting for",
+        "opponent",
+      }
+    end
+  end
   
   local scoreA = (pLocal and pLocal.score) or (score or 0)
   local scoreB = (pOther and pOther.score) or 0
@@ -27,11 +52,20 @@ function buildEndScreenModel()
   local wins   = opponentRecords and opponentRecords[otherId] and opponentRecords[otherId].wins or 0
   local losses = opponentRecords and opponentRecords[otherId] and opponentRecords[otherId].losses or 0
   
-  local line1 = complete
-  and string.format("Score this game: %d / %d", scoreA, scoreB)
-  or nil
+  local line1 = nil
+  if complete then
+    if scoreA > scoreB then
+      line1 = string.format("You won %d to %d!", scoreA, scoreB)
+    elseif scoreA < scoreB then
+      line1 = string.format("You lost %d to %d!", scoreA, scoreB)
+    else
+      line1 = string.format("Tie game, %d all!", scoreA)
+    end
+  end
   
-  local line2 = string.format("Win/Loss vs This Player: %d / %d", wins, losses)
+  local line2 = (complete and assignedOpponent)
+  and string.format("Win/Loss vs This Player: %d / %d", wins, losses)
+  or nil
   
   return {
     
@@ -39,7 +73,7 @@ function buildEndScreenModel()
     
     headers = is2P and {
       column1 = "you",
-      column2 = opponentAlias or "Opponent",
+      column2 = oppDisplayName,
       color   = Color.tileText or color(40,80,60,255)
     } or nil,
     
@@ -54,9 +88,7 @@ function buildEndScreenModel()
     column2 = is2P and {
       words = complete
       and ((pOther and pOther.words) or {})
-      or {
-        " automatching",
-        "  in progress"}
+      or waitingWords
     } or nil,
     
     totals = {

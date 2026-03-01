@@ -142,8 +142,12 @@ function defineAvatarsAfterMicrodelay()
     return
   end
   
-  -- Defer one frame — VERY important
+  -- Defer one frame — VERY important; retry once in case GameKit participant
+  -- details arrive slightly after the initial callback.
   tween.delay(0.2, function()
+    defineAvatars()
+  end)
+  tween.delay(1.0, function()
     defineAvatars()
   end)
   

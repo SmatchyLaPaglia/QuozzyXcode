@@ -193,6 +193,40 @@ function firstNonLocalParticipant(gkMatch)
     end
 end
 
+local function firstNonLocalParticipantSlot(gkMatch)
+    if not (gkMatch and gkMatch.participants) then return nil end
+    for i = 1, #gkMatch.participants do
+        local p = gkMatch.participants[i]
+        local pl = p and p.player
+        if pl then
+            if not pl.isLocalPlayer then return p end
+        else
+            -- No player object yet; this is still a non-local slot candidate.
+            return p
+        end
+    end
+end
+
+local function nonLocalSlotState(gkMatch)
+  local p = firstNonLocalParticipantSlot(gkMatch)
+  if not p then return nil end
+  
+  if p.player then
+    return "assigned"
+  end
+  
+  local enum = objc and objc.enum and objc.enum.GKTurnBasedParticipantStatus
+  local s = p.status
+  if enum and s then
+    if enum.matching and s == enum.matching then return "matching" end
+    if enum.invited and s == enum.invited then return "invited" end
+    if enum.declined and s == enum.declined then return "declined" end
+    if enum.done and s == enum.done then return "done" end
+  end
+  
+  return "unresolved"
+end
+
 function makeQMatchFromGK(gkMatch, dataTable)
   if dataTable and type(dataTable) ~= "table" then
     print("GC WARN: dataTable is not a table, type=", type(dataTable))
@@ -214,9 +248,9 @@ function makeQMatchFromGK(gkMatch, dataTable)
   end
   
   local opponentId =
-  (pl and (pl.gamePlayerID or pl.playerID)) or currentOpponentID
+  (pl and (pl.gamePlayerID or pl.playerID)) or nil
   local opponentName =
-  (pl and (pl.alias or pl.displayName)) or opponentAlias or "Opponent"
+  (pl and (pl.alias or pl.displayName)) or nil
   
   -- shell qMatch
   local q = newQMatch(
@@ -231,6 +265,7 @@ function makeQMatchFromGK(gkMatch, dataTable)
   
   q.boardTiles   = dataTable and dataTable.boardTiles or q.boardTiles
   q.lastUpdated  = (dataTable and dataTable.lastUpdated) or os.time()
+  q.remoteSlotState = nonLocalSlotState(gkMatch)
   
   -- apply players patch (THIS is the important part)
   if dataTable and type(dataTable.players) == "table" then

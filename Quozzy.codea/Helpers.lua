@@ -5,6 +5,27 @@
 -- currentVel: pixels per second (set from swipe speed)
 -- minY, maxY: scroll bounds
 -- dt: DeltaTime
+function drawButton(x, y, w, h, label, selected)
+    pushStyle()
+    rectMode(CENTER)
+    textMode(CENTER)
+    fontSize(22)
+    
+    local fillCol   = selected and Color.uiAccent2 or Color.uiAccent
+    local borderCol = fillCol
+    drawRoundedRect(x, y, w, h, 10, fillCol, borderCol)
+    
+    fill(255, 255, 255, 255)
+    text(label, x, y)
+    
+    popStyle()
+end
+
+function pointInRect(px, py, x, y, w, h)
+    return px >= x - w/2 and px <= x + w/2 and
+           py >= y - h/2 and py <= y + h/2
+end
+
 function applyScrollInertia(scrollY, currentVel, minY, maxY, dt)
     -- no inertia if we have no meaningful velocity
     if not currentVel or math.abs(currentVel) < 5 then

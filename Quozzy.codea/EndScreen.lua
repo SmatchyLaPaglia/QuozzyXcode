@@ -360,8 +360,7 @@ end
 
 function drawEndScreen()
   ensureEndScreenLayout()
-  
-  if useFunctionalEndScreen then
+  if true then
     drawEndScreenFP()
     return
   end

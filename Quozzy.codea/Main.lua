@@ -94,6 +94,9 @@ quitButtonRect = quitButtonRect or nil
 
 local BOARD_SIZE_KEY = "SelectedBoardSize"
 local MIN_WORD_LEN_KEY = "SelectedMinWordLen"
+local INSTALL_SIGNATURE_KEY = "LastInstalledBundleSignature"
+local INSTALL_EPOCH_KEY = "LastInstalledAtEpoch"
+local INSTALL_TEXT_KEY = "LastInstalledAtText"
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
@@ -120,6 +123,35 @@ function loadGameplaySettings()
   local savedMinWordLen = readLocalData(MIN_WORD_LEN_KEY)
   boardSize = _sanitizeBoardSize(savedBoardSize or boardSize)
   MIN_WORD_LEN = _sanitizeMinWordLen(savedMinWordLen or MIN_WORD_LEN)
+end
+
+local function _currentInstallSignature()
+  local bundlePath = nil
+  local ok = pcall(function()
+    local bundle = objc and objc.NSBundle and objc.NSBundle.mainBundle
+    bundlePath = bundle and bundle.bundlePath
+  end)
+  if not ok then
+    bundlePath = nil
+  end
+  return tostring(bundlePath or "?")
+end
+
+function trackInstallTimestampForXcodeLoad()
+  -- On iOS, each install typically gets a new bundle container path:
+  -- /var/containers/Bundle/Application/<UUID>/Quozzy.app
+  -- Using this lets us detect "new app payload installed" even when build/version
+  -- values are unchanged.
+  local sig = _currentInstallSignature()
+  local prevSig = readLocalData(INSTALL_SIGNATURE_KEY)
+  if prevSig == sig then return end
+  
+  local now = os.time()
+  local text = os.date("%Y-%m-%d %H:%M:%S", now)
+  saveLocalData(INSTALL_SIGNATURE_KEY, sig)
+  saveLocalData(INSTALL_EPOCH_KEY, now)
+  saveLocalData(INSTALL_TEXT_KEY, text)
+  devLog("Install timestamp updated", "bundlePath=", sig, "at=", text)
 end
 
 score = 0
@@ -264,15 +296,14 @@ end
 function setup()
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
   math.randomseed(os.time())
-  useFunctionalEndScreen = useFunctionalEndScreen or true
   loadGameplaySettings()
+  trackInstallTimestampForXcodeLoad()
   
   parameter.action("Clear Opponent Records", function()
     saveLocalData("OpponentRecords", nil)
     opponentRecords = {}
     print("Opponent records cleared")
   end)
-  parameter.boolean("useFunctionalEndScreen", useFunctionalEndScreen)
   initDictionary()
   applyStartingSeason()
   
@@ -307,6 +338,9 @@ function setup()
   tbm:onReceivingTurn(function(gkMatch, dataTable)
     print("GC → QUOZZY RECEIVE turnData:")
     print(dataTable and json.encode(dataTable) or "nil dataTable")
+    if mergeOpponentRecordFromTurnData then
+      mergeOpponentRecordFromTurnData(gkMatch, dataTable)
+    end
     
     local q = makeQMatchFromGK(gkMatch, dataTable)
     if q then

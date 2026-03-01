@@ -12,8 +12,8 @@ function enterQMatch(q)
   
   useTurnBased      = true
   currentMatchID    = q.id
-  currentOpponentID = q.otherId or q.opponentId or currentOpponentID
-  opponentAlias     = q.otherName or q.opponentName or opponentAlias
+  currentOpponentID = q.otherId or q.opponentId or nil
+  opponentAlias     = q.otherName or q.opponentName or ""
 
   -- Apply match-specific rules from Game Center payload (e.g. 5x5 boards).
   if q.boardSize and tonumber(q.boardSize) then
@@ -157,6 +157,14 @@ function endGameRound()
         opponentPlayed = true
       end
       break
+    end
+  end
+
+  if oppId and buildRecordSyncForOpponent then
+    local alias = q.otherName or q.opponentName or opponentAlias
+    local sync = buildRecordSyncForOpponent(oppId, alias, pid)
+    if sync then
+      turnData.recordSync = sync
     end
   end
   
