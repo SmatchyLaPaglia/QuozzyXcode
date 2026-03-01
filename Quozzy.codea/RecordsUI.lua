@@ -176,9 +176,27 @@ function drawRecordsOverlay()
     textMode(CORNER)
     fill(Color.tileText)
     
-    -- title
-    fontSize(30)
-    text("Games Won", innerLeft, innerTop - 32)
+    -- title (auto-size so it nearly fills width with a small side margin)
+    local titleLine1 = "Total Wins"
+    local titleLine2 = "vs Opponents"
+    local titleSideMargin = 14
+    local titleMaxW = (innerRight - innerLeft) - (titleSideMargin * 2)
+    local titleSize = 64
+    font("HelveticaNeue-Bold")
+    while titleSize > 20 do
+        fontSize(titleSize)
+        local w1 = textSize(titleLine1)
+        local w2 = textSize(titleLine2)
+        if w1 <= titleMaxW and w2 <= titleMaxW then break end
+        titleSize = titleSize - 1
+    end
+    fontSize(titleSize)
+    local titleLineH = math.floor(titleSize * 1.06)
+    local titleTopY = innerTop - 8
+    local titleLine1Y = titleTopY - titleLineH
+    local titleLine2Y = titleLine1Y - titleLineH
+    text(titleLine1, innerLeft + titleSideMargin, titleLine1Y)
+    text(titleLine2, innerLeft + titleSideMargin, titleLine2Y)
     
     local entries = {}
     for id, rec in pairs(opponentRecords) do
@@ -197,7 +215,8 @@ function drawRecordsOverlay()
     end)
 
     -- Grid area
-    local listTop    = innerTop - 100
+    local titleToGridGap = titleSideMargin
+    local listTop    = titleLine2Y - titleToGridGap
     local listBottom = innerBottom + 72
     local listHeight = listTop - listBottom
     local listWidth  = innerRight - innerLeft
@@ -209,31 +228,104 @@ function drawRecordsOverlay()
     local rowGap = 30
     local cellW = (listWidth - colGap * (columns - 1)) / columns
     local avatarSize = math.max(74, math.min(128, cellW * 0.94))
-    local rowH = avatarSize + 112
+    local rowH = avatarSize + 126
     local rowTopInset = math.max(4, math.floor(avatarSize * 0.08))
 
-    local function drawLabelValueCentered(cx, y, label, value)
+    local function truncateWithEllipsis(s, maxW)
+        if not s or s == "" then return "" end
+        local ell = "..."
+        if textSize(s) <= maxW then return s end
+        local i = #s
+        while i > 0 do
+            local candidate = string.sub(s, 1, i) .. ell
+            if textSize(candidate) <= maxW then
+                return candidate
+            end
+            i = i - 1
+        end
+        return ell
+    end
+
+    local function fitAliasLines(alias, maxW)
+        local s = tostring(alias or "")
+        if s == "" then return "", nil end
+        if textSize(s) <= maxW then return s, nil end
+
+        local spaces = {}
+        for i = 1, #s do
+            if string.sub(s, i, i) == " " then
+                table.insert(spaces, i)
+            end
+        end
+
+        if #spaces > 0 then
+            local bestL1, bestL2, bestScore = nil, nil, nil
+            for _, splitAt in ipairs(spaces) do
+                local l1 = string.sub(s, 1, splitAt - 1)
+                local l2 = string.sub(s, splitAt + 1)
+                if l1 ~= "" and l2 ~= "" then
+                    local w1 = textSize(l1)
+                    local w2 = textSize(l2)
+                    if w1 <= maxW and w2 <= maxW then
+                        local score = math.abs(w1 - w2)
+                        if (not bestScore) or score < bestScore then
+                            bestScore = score
+                            bestL1, bestL2 = l1, l2
+                        end
+                    end
+                end
+            end
+            if bestL1 then return bestL1, bestL2 end
+        end
+
+        return truncateWithEllipsis(s, maxW), nil
+    end
+
+    local function drawScoreBadges(cx, y, wins, losses)
         pushStyle()
-        textMode(CORNER)
-        textAlign(LEFT)
+        textMode(CENTER)
+        textAlign(CENTER)
+        font("HelveticaNeue-Bold")
+        fontSize(14)
+
+        local wText = tostring(wins or 0)
+        local lText = tostring(losses or 0)
+        local minR = 14
+        local maxR = 20
+        local badgePad = 7
+        local gap = 3
+        local toText = "to"
+        local wTextW = textSize(wText)
+        local lTextW = textSize(lText)
+        local leftR = math.max(minR, math.min(maxR, math.floor((wTextW * 0.5) + badgePad)))
+        local rightR = math.max(minR, math.min(maxR, math.floor((lTextW * 0.5) + badgePad)))
 
         font("HelveticaNeue")
         fontSize(16)
-        local wLabel = textSize(label)
+        local toW = textSize(toText)
+
+        local totalW = (leftR * 2) + gap + toW + gap + (rightR * 2)
+        local leftCx = cx - totalW * 0.5 + leftR
+        local rightCx = cx + totalW * 0.5 - rightR
+        local toX = cx
+
+        fill(220, 63, 63, 255)
+        noStroke()
+        ellipseMode(CENTER)
+        ellipse(leftCx, y, leftR * 2)
+        ellipse(rightCx, y, rightR * 2)
 
         font("HelveticaNeue-Bold")
-        fontSize(16)
-        local wValue = textSize(tostring(value))
-
-        local x = cx - (wLabel + wValue) * 0.5
+        fontSize(14)
+        fill(255, 255, 255, 255)
+        text(wText, leftCx, y)
+        text(lText, rightCx, y)
 
         font("HelveticaNeue")
+        fontSize(16)
         fill(Color.tileText)
-        text(label, x, y)
-
-        font("HelveticaNeue-Bold")
-        fill(Color.tileText)
-        text(tostring(value), x + wLabel, y)
+        local badgeBottomY = math.min(y - leftR, y - rightR)
+        drawTextIgnoringDescendersWithBottomAt(toText, toX - toW * 0.5, badgeBottomY)
         popStyle()
     end
 
@@ -250,16 +342,19 @@ function drawRecordsOverlay()
         pushStyle()
         textMode(CENTER)
         textAlign(CENTER)
-        font("HelveticaNeue")
+        font("HelveticaNeue-Bold")
         fontSize(16)
         fill(Color.tileText)
-        text(e.alias or e.id, cx, avatarCY - avatarSize * 0.72)
+        local aliasMaxW = avatarSize
+        local alias1, alias2 = fitAliasLines(e.alias or e.id, aliasMaxW)
+        local badgesY = avatarCY - avatarSize * 0.56
+        drawScoreBadges(cx, badgesY, e.wins or 0, e.losses or 0)
+        local aliasY1 = badgesY - 28
+        text(alias1, cx, aliasY1)
+        if alias2 then
+            text(alias2, cx, aliasY1 - 20)
+        end
         popStyle()
-
-        local lineY1 = avatarCY - avatarSize * 0.72 - 26
-        local lineY2 = lineY1 - 22
-        drawLabelValueCentered(cx, lineY1, "you: ", e.wins or 0)
-        drawLabelValueCentered(cx, lineY2, "them: ", e.losses or 0)
     end
     
     clip()
