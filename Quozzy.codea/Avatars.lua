@@ -1,4 +1,22 @@
 local DEFAULT_AVATAR_SIZE = 128
+local genericOpponentAvatarImage = genericOpponentAvatarImage or nil
+
+function genericOpponentAvatar()
+  if genericOpponentAvatarImage then
+    return genericOpponentAvatarImage
+  end
+  
+  local ok, img = pcall(function()
+    return readImage(asset .. "genericAvatar.png")
+  end)
+  
+  if ok and img then
+    genericOpponentAvatarImage = img
+  else
+    genericOpponentAvatarImage = unknownPlayerAvatar(256, Color.uiAccent)
+  end
+  return genericOpponentAvatarImage
+end
 
 function defineAvatars()
   

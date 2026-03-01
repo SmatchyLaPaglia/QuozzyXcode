@@ -169,7 +169,8 @@ function drawEndTopRowContent(boardCX, boardCY, boardSide,
       rightCX = rightCX,
       areaCY  = areaCY,
       rightW  = rightW,
-      areaH   = areaH
+      areaH   = areaH,
+      opponentAvatar = avatars and avatars.opponentAvatar or nil
     }
   end
   

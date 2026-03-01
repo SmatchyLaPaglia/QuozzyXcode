@@ -23,20 +23,18 @@ function buildEndScreenModel()
   local assignedOpponent = (otherId ~= nil and otherId ~= "")
   local rawOppName = (q and (q.otherName or q.opponentName)) or opponentAlias or ""
   local oppDisplayName = assignedOpponent and rawOppName or ""
-  local remoteSlotState = q and q.remoteSlotState or nil
+  local opponentAvatarOverride = nil
+  if not assignedOpponent and genericOpponentAvatar then
+    opponentAvatarOverride = genericOpponentAvatar()
+  end
 
   local waitingWords
   if not complete then
-    if assignedOpponent or remoteSlotState == "invited" then
+    if assignedOpponent then
       waitingWords = {
         "waiting for",
         "opponent",
         "to play",
-      }
-    elseif remoteSlotState == "matching" then
-      waitingWords = {
-        "automatching",
-        "in progress",
       }
     else
       waitingWords = {
@@ -76,6 +74,7 @@ function buildEndScreenModel()
       column2 = oppDisplayName,
       color   = Color.tileText or color(40,80,60,255)
     } or nil,
+    opponentAvatar = opponentAvatarOverride,
     
     -- SINGLE PLAYER LIST
     singleList = (not is2P) and (currentFoundWords() or {}) or nil,
@@ -157,7 +156,8 @@ function drawEndScreenWith(model, layout)
   layout.boardCX, layout.boardCY, layout.boardSide,
   layout.rightCX, layout.rightW,
   layout.msgCY, layout.msgH,
-  layout.scoreCY, layout.scoreH
+  layout.scoreCY, layout.scoreH,
+  model
   )
   ------------------------------------------------------------
   -- headers

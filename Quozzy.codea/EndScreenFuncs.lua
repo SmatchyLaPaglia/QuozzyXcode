@@ -11,8 +11,10 @@ function drawEndUpperRightAvatarsOnly(args)
   local c2x = args.rightCX + dx + xNudge2
   local c2y = args.areaCY - dy * 0.45
   
+  local oppImg = args.opponentAvatar or otherPlayerAvatar
+  
   pushStyle()
-  drawAvatarCircle(otherPlayerAvatar, c2x, c2y, cameoSize * 0.92, "O")
+  drawAvatarCircle(oppImg, c2x, c2y, cameoSize * 0.92, "O")
   drawAvatarCircle(localPlayerAvatar,  c1x, c1y, cameoSize,        "Y")
   popStyle()
 end
