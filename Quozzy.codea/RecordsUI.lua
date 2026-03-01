@@ -210,6 +210,7 @@ function drawRecordsOverlay()
     local cellW = (listWidth - colGap * (columns - 1)) / columns
     local avatarSize = math.max(74, math.min(128, cellW * 0.94))
     local rowH = avatarSize + 112
+    local rowTopInset = math.max(4, math.floor(avatarSize * 0.08))
 
     local function drawLabelValueCentered(cx, y, label, value)
         pushStyle()
@@ -240,7 +241,7 @@ function drawRecordsOverlay()
         local row = math.floor((i - 1) / columns)
         local col = (i - 1) % columns
         local cx = innerLeft + col * (cellW + colGap) + cellW * 0.5
-        local rowTop = listTop - recordsScrollY - row * (rowH + rowGap)
+        local rowTop = listTop - rowTopInset - recordsScrollY - row * (rowH + rowGap)
         local avatarCY = rowTop - avatarSize * 0.5
         local avatar = getOpponentRecordAvatar and getOpponentRecordAvatar(e.id) or nil
 
@@ -265,7 +266,7 @@ function drawRecordsOverlay()
     
     -- clamp scroll
     local rows = math.ceil(#entries / columns)
-    local totalH = rows * rowH + math.max(0, rows - 1) * rowGap
+    local totalH = rowTopInset + rows * rowH + math.max(0, rows - 1) * rowGap
     local maxScroll = math.max(0, totalH - listHeight)
     if recordsScrollY < 0 then recordsScrollY = 0 end
     if recordsScrollY > maxScroll then recordsScrollY = maxScroll end
