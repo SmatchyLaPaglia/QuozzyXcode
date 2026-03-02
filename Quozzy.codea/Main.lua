@@ -97,6 +97,13 @@ local MIN_WORD_LEN_KEY = "SelectedMinWordLen"
 local INSTALL_SIGNATURE_KEY = "LastInstalledBundleSignature"
 local INSTALL_EPOCH_KEY = "LastInstalledAtEpoch"
 local INSTALL_TEXT_KEY = "LastInstalledAtText"
+local LOADING_ART_VERSION_KEY = "LoadingArtVersion"
+local LOADING_ART_VERSION = 6
+local LOADING_ART_NAME = "Loading_QuozzySeasons"
+local ENABLE_LOADING_ART_GENERATOR = false -- set true temporarily when you want to regenerate
+local MENU_CAPTURE_NAME = "MenuFrameCapture"
+menuFrameCapturePending = menuFrameCapturePending == nil and false or menuFrameCapturePending
+loadingArtGenerationPending = loadingArtGenerationPending == nil and ENABLE_LOADING_ART_GENERATOR or loadingArtGenerationPending
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
@@ -152,6 +159,149 @@ function trackInstallTimestampForXcodeLoad()
   saveLocalData(INSTALL_EPOCH_KEY, now)
   saveLocalData(INSTALL_TEXT_KEY, text)
   devLog("Install timestamp updated", "bundlePath=", sig, "at=", text)
+end
+
+local function _buildLoadingEmojiPool()
+  local pool = {}
+  if type(SeasonConfettiEmoji) == "table" then
+    for _, arr in pairs(SeasonConfettiEmoji) do
+      if type(arr) == "table" then
+        for i = 1, #arr do
+          pool[#pool + 1] = arr[i]
+        end
+      end
+    end
+  end
+  if type(genericConfettiEmoji) == "table" then
+    for i = 1, #genericConfettiEmoji do
+      pool[#pool + 1] = genericConfettiEmoji[i]
+    end
+  end
+  if #pool == 0 then
+    pool = { "✨", "⭐️", "🎉", "🍁", "🌸", "❄️", "☀️" }
+  end
+  return pool
+end
+
+function generateLoadingScreenImage(force)
+  local existingVersion = tonumber(readLocalData(LOADING_ART_VERSION_KEY) or 0) or 0
+  if not force and existingVersion >= LOADING_ART_VERSION then return end
+
+  -- Render at current drawable size; avoids oversized offscreen buffers.
+  local targetW = WIDTH
+  local targetH = HEIGHT
+
+  local img = image(targetW, targetH)
+  local ok = pcall(function()
+    setContext(img)
+    background(Color.panelBG or color(239, 238, 229, 255))
+
+    local cx = targetW * 0.5
+    local cy = targetH * 0.5
+
+    -- subtle watermark layer
+    pushStyle()
+    textMode(CENTER)
+    textAlign(CENTER)
+    font("Georgia-Bold")
+    fill(Color.tileText.r, Color.tileText.g, Color.tileText.b, 22)
+    fontSize(targetH * 0.17)
+    for row = -1, 1 do
+      for col = -1, 1 do
+        local x = cx + col * (targetW * 0.50)
+        local y = cy + row * (targetH * 0.32)
+        text("Quozzy", x, y + targetH * 0.03)
+        fontSize(targetH * 0.085)
+        text("SEASONS", x, y - targetH * 0.09)
+        fontSize(targetH * 0.17)
+      end
+    end
+    popStyle()
+
+    -- main centered text block
+    pushStyle()
+    textMode(CENTER)
+    textAlign(CENTER)
+    font("Georgia-Bold")
+    fill(Color.tileText)
+    -- Match menu-title proportions exactly (see drawTitleSection):
+    -- Quozzy size = 0.55*h, Seasons size = 0.25*h
+    -- Quozzy y = +0.15*h, Seasons y = -0.2*h
+    local titleSideMargin = math.floor(targetW * 0.055)
+    local maxTitleW = targetW - (titleSideMargin * 2)
+    local titleBlockH = math.floor(targetH * 0.34)
+
+    while titleBlockH > 120 do
+      local qSize = math.floor(titleBlockH * 0.55)
+      local sSize = math.floor(titleBlockH * 0.25)
+      fontSize(qSize)
+      local qW = textSize("Quozzy")
+      fontSize(sSize)
+      local sW = textSize("SEASONS")
+      if qW <= maxTitleW and sW <= maxTitleW then
+        break
+      end
+      titleBlockH = titleBlockH - 2
+    end
+
+    local qSize = math.floor(titleBlockH * 0.55)
+    local sSize = math.floor(titleBlockH * 0.25)
+    local qY = cy + titleBlockH * 0.15
+    local sY = cy - titleBlockH * 0.20
+
+    fontSize(qSize)
+    text("Quozzy", cx, qY)
+    fontSize(sSize)
+    text("SEASONS", cx, sY)
+    popStyle()
+
+    -- seasonal emoji scatter around the title block
+    local pool = _buildLoadingEmojiPool()
+    local emojiCount = 30
+    local safeHalfW = targetW * 0.32
+    local safeHalfH = targetH * 0.18
+    pushStyle()
+    textMode(CENTER)
+    textAlign(CENTER)
+    for i = 1, emojiCount do
+      local ch = pool[math.random(1, #pool)]
+      local x, y
+      local tries = 0
+      repeat
+        x = math.random(math.floor(targetW * 0.07), math.floor(targetW * 0.93))
+        y = math.random(math.floor(targetH * 0.08), math.floor(targetH * 0.92))
+        tries = tries + 1
+      until ((math.abs(x - cx) > safeHalfW or math.abs(y - cy) > safeHalfH) or tries > 18)
+
+      local fs = math.random(math.floor(targetH * 0.022), math.floor(targetH * 0.038))
+      fontSize(fs)
+      fill(255, 255, 255, math.random(170, 235))
+      text(ch, x, y)
+    end
+    popStyle()
+
+    setContext()
+  end)
+
+  pcall(setContext)
+  if not ok then
+    devLog("Loading art generation failed")
+    return
+  end
+
+  local outName = LOADING_ART_NAME .. "_v" .. tostring(LOADING_ART_VERSION)
+  local saveOk = pcall(function()
+    saveImage("Documents:" .. outName, img)
+  end)
+  if saveOk then
+    pcall(function()
+      saveImage("Documents:" .. LOADING_ART_NAME, img)
+    end)
+    saveLocalData(LOADING_ART_VERSION_KEY, LOADING_ART_VERSION)
+    devLog("Generated loading image", "Documents:" .. outName, targetW .. "x" .. targetH)
+  else
+    devLog("Failed to save loading image", "Documents:" .. outName)
+  end
 end
 
 score = 0
@@ -417,6 +567,35 @@ function draw()
   updateMatchBadge(DeltaTime)
   
   if state == STATE_MENU then
+    if ENABLE_LOADING_ART_GENERATOR and loadingArtGenerationPending then
+      generateLoadingScreenImage(true)
+      loadingArtGenerationPending = false
+    end
+
+    if menuFrameCapturePending then
+      local cap = image(WIDTH, HEIGHT)
+      local okCapture = pcall(function()
+        setContext(cap)
+        drawMenu()
+        setContext()
+      end)
+      pcall(setContext)
+      
+      local okSave = false
+      if okCapture then
+        okSave = pcall(function()
+          saveImage("Documents:" .. MENU_CAPTURE_NAME, cap)
+        end)
+      end
+      
+      if okCapture and okSave then
+        devLog("Saved one-shot menu capture", "Documents:" .. MENU_CAPTURE_NAME, tostring(WIDTH) .. "x" .. tostring(HEIGHT))
+      else
+        devLog("Menu capture failed", "captureOk=", tostring(okCapture), "saveOk=", tostring(okSave))
+      end
+      menuFrameCapturePending = false
+    end
+
     drawMenu()
     drawRecordsOverlay()
     drawMatchBadge()

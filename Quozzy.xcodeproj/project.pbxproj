@@ -16,6 +16,7 @@
 		DB83FB3A223DBDA3005750D2 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = DB83FB38223DBDA3005750D2 /* LaunchScreen.storyboard */; };
 		DB83FB54223DBF71005750D2 /* ProjectAddon.mm in Sources */ = {isa = PBXBuildFile; fileRef = DB83FB53223DBF71005750D2 /* ProjectAddon.mm */; };
 		DB83FB7B223DC2E5005750D2 /* ProjectModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = DB83FB7A223DC2E5005750D2 /* ProjectModule.mm */; };
+		E496AD252F553969000C3E05 /* Loading_QuozzySeasons.png in Resources */ = {isa = PBXBuildFile; fileRef = E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -63,6 +64,7 @@
 		DB83FB79223DC2E5005750D2 /* ProjectModule.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ProjectModule.h; sourceTree = "<group>"; };
 		DB83FB7A223DC2E5005750D2 /* ProjectModule.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ProjectModule.mm; sourceTree = "<group>"; };
 		DBE4204D260B8B0D002BF271 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Loading_QuozzySeasons.png; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +100,7 @@
 		DB83FB2E223DBDA2005750D2 /* Quozzy */ = {
 			isa = PBXGroup;
 			children = (
+				E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */,
 				2D6C56ED2F47881400C84D04 /* Quozzy.entitlements */,
 				DB83FB45223DBE5C005750D2 /* Addon */,
 				DBE4204D260B8B0D002BF271 /* README.md */,
@@ -229,6 +232,7 @@
 				DB0F615B2270A0FB0024AE28 /* Assets in Resources */,
 				DB83FB37223DBDA3005750D2 /* Assets.xcassets in Resources */,
 				DB0F615922709F060024AE28 /* Quozzy.codea in Resources */,
+				E496AD252F553969000C3E05 /* Loading_QuozzySeasons.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

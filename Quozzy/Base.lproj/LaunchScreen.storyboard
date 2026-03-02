@@ -13,7 +13,18 @@
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
                         <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <subviews>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="Loading_QuozzySeasons" translatesAutoresizingMaskIntoConstraints="NO" id="wHx-T9-y2a">
+                                <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+                            </imageView>
+                        </subviews>
+                        <color key="backgroundColor" red="0.93725490196078431" green="0.93333333333333335" blue="0.90196078431372551" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="wHx-T9-y2a" firstAttribute="top" secondItem="Ze5-6b-2t3" secondAttribute="top" id="5MO-yF-jNq"/>
+                            <constraint firstAttribute="bottom" secondItem="wHx-T9-y2a" secondAttribute="bottom" id="cdl-QD-v5L"/>
+                            <constraint firstItem="wHx-T9-y2a" firstAttribute="leading" secondItem="Ze5-6b-2t3" secondAttribute="leading" id="kNc-jW-odP"/>
+                            <constraint firstAttribute="trailing" secondItem="wHx-T9-y2a" secondAttribute="trailing" id="xmR-pI-VZV"/>
+                        </constraints>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
                     </view>
                 </viewController>
@@ -22,4 +33,7 @@
             <point key="canvasLocation" x="53" y="375"/>
         </scene>
     </scenes>
+    <resources>
+        <image name="Loading_QuozzySeasons" width="1170" height="2532"/>
+    </resources>
 </document>
