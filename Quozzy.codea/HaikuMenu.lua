@@ -87,7 +87,10 @@ function drawSeasonScatter(r, seed)
   fill(Color.uiAccent)
   noStroke()
   
-  if seed then math.randomseed(seed) end
+  local function seededUnit(s, i, salt)
+    local v = math.sin((s or 0) * 12.9898 + i * 78.233 + salt * 37.719) * 43758.5453
+    return v - math.floor(v)
+  end
   
   local count = 8
   
@@ -96,13 +99,13 @@ function drawSeasonScatter(r, seed)
   local xSpread = r.w * 0.45
   
   for i = 1, count do
-    local rx = math.random(-1000, 1000) / 1000
-    local ry = math.random(-1000, 1000) / 1000
+    local rx = seededUnit(seed, i, 1) * 2 - 1
+    local ry = seededUnit(seed, i, 2) * 2 - 1
     
     local x = r.cx + rx * xSpread
     local y = yCenter + ry * ySpread
     
-    local d = math.random(2, 5)
+    local d = 2 + math.floor(seededUnit(seed, i, 3) * 4)
     ellipse(x, y, d, d)
   end
   
