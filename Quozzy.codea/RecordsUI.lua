@@ -223,11 +223,11 @@ function drawRecordsOverlay()
     
     clip(innerLeft, listBottom, listWidth, listHeight)
     
-    local columns = 3
+    local columns = 2
     local colGap = 12
     local rowGap = 30
     local cellW = (listWidth - colGap * (columns - 1)) / columns
-    local avatarSize = math.max(74, math.min(128, cellW * 0.94))
+    local avatarSize = math.max(74, math.min(220, cellW * 0.94))
     local rowH = avatarSize + 126
     local rowTopInset = math.max(4, math.floor(avatarSize * 0.08))
 
@@ -325,7 +325,9 @@ function drawRecordsOverlay()
         fontSize(16)
         fill(Color.tileText)
         local badgeBottomY = math.min(y - leftR, y - rightR)
-        drawTextIgnoringDescendersWithBottomAt(toText, toX - toW * 0.5, badgeBottomY)
+        local avgBadgeDiameter = (leftR + rightR)
+        local toLift = avgBadgeDiameter * 0.10
+        drawTextIgnoringDescendersWithBottomAt(toText, toX - toW * 0.5, badgeBottomY + toLift)
         popStyle()
     end
 
