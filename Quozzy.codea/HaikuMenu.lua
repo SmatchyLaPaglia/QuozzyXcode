@@ -166,10 +166,13 @@ end
 local function getButtonGridHitRects(r)
   local gapY = r.h * 0.06
   local btnH = (r.h - gapY * 3) / 4
-  local btnW = r.w * 0.47
+  local targetBtnW = (r.w * 0.47) * 1.25
+  local gutterX = r.w * 0.03
+  local btnW = targetBtnW
   
-  local leftX  = r.cx - r.w * 0.25
-  local rightX = r.cx + r.w * 0.25
+  local halfCenterSpan = btnW * 0.5 + gutterX * 0.5
+  local leftX  = r.cx - halfCenterSpan
+  local rightX = r.cx + halfCenterSpan
   
   local y1 = r.y + r.h - btnH * 0.5
   local y2 = y1 - (btnH + gapY)
@@ -425,10 +428,13 @@ function drawButtonGridSection(r)
   
   local gapY = r.h * 0.06
   local btnH = (r.h - gapY * 3) / 4
-  local btnW = r.w * 0.47
+  local targetBtnW = (r.w * 0.47) * 1.25
+  local gutterX = r.w * 0.03
+  local btnW = targetBtnW
   
-  local leftX  = r.cx - r.w * 0.25
-  local rightX = r.cx + r.w * 0.25
+  local halfCenterSpan = btnW * 0.5 + gutterX * 0.5
+  local leftX  = r.cx - halfCenterSpan
+  local rightX = r.cx + halfCenterSpan
   
   local y = r.y + r.h - btnH * 0.5
   
@@ -438,13 +444,13 @@ function drawButtonGridSection(r)
   
   drawButton(
   leftX, y, btnW, btnH,
-  string.format("%d x %d", boardSize, boardSize),
+  string.format("size %d x %d", boardSize, boardSize),
   pressedButton == "size"
   )
   
   drawButton(
   rightX, y, btnW, btnH,
-  string.format("min %d", MIN_WORD_LEN),
+  string.format("minimum %d", MIN_WORD_LEN),
   pressedButton == "min"
   )
   
