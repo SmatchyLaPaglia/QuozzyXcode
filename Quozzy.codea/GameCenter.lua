@@ -199,6 +199,8 @@ function endGameRound()
   end
   
   updateOpponentRecord(outcome)
+  q.recordOutcomeApplied = true
+  q.recordOutcome = outcome
 end
 
 useTurnBased     = false   -- NEW: master toggle for opponent / records

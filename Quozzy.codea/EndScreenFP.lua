@@ -47,8 +47,9 @@ function buildEndScreenModel()
   local scoreA = (pLocal and pLocal.score) or (score or 0)
   local scoreB = (pOther and pOther.score) or 0
   
-  local wins   = opponentRecords and opponentRecords[otherId] and opponentRecords[otherId].wins or 0
-  local losses = opponentRecords and opponentRecords[otherId] and opponentRecords[otherId].losses or 0
+  local rec = opponentRecords and opponentRecords[otherId] or nil
+  local wins   = rec and rec.wins or 0
+  local losses = rec and rec.losses or 0
   
   local line1 = nil
   if complete then
@@ -58,6 +59,29 @@ function buildEndScreenModel()
       line1 = string.format("You lost %d to %d!", scoreA, scoreB)
     else
       line1 = string.format("Tie game, %d all!", scoreA)
+    end
+  end
+
+  -- Ensure W/L summary reflects the just-finished match even if persistence
+  -- hasn't been updated yet.
+  if complete and assignedOpponent then
+    local alreadyCounted = false
+    if q and q.recordOutcomeApplied then
+      alreadyCounted = true
+    else
+      local recUpdatedAt = math.floor(tonumber(rec and rec.updatedAt) or 0)
+      local matchUpdatedAt = math.floor(tonumber(q and q.lastUpdated) or 0)
+      if matchUpdatedAt > 0 and recUpdatedAt >= matchUpdatedAt then
+        alreadyCounted = true
+      end
+    end
+
+    if not alreadyCounted then
+      if scoreA > scoreB then
+        wins = wins + 1
+      elseif scoreA < scoreB then
+        losses = losses + 1
+      end
     end
   end
   
