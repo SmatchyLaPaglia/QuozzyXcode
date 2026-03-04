@@ -445,7 +445,6 @@ end
 
 function setup()
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
-  math.randomseed(os.time())
   loadGameplaySettings()
   trackInstallTimestampForXcodeLoad()
   

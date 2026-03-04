@@ -264,6 +264,12 @@ function makeQMatchFromGK(gkMatch, dataTable)
   )
   
   q.boardTiles   = dataTable and dataTable.boardTiles or q.boardTiles
+  do
+    local inferred = inferBoardSizeFromTiles and inferBoardSizeFromTiles(q.boardTiles) or nil
+    if inferred and areBoardTilesValidForSize and areBoardTilesValidForSize(q.boardTiles, inferred) then
+      q.boardSize = inferred
+    end
+  end
   q.lastUpdated  = (dataTable and dataTable.lastUpdated) or os.time()
   q.remoteSlotState = nonLocalSlotState(gkMatch)
   

@@ -134,6 +134,27 @@ function generateBoardTiles(n, dice4x4, dice5x5)
     return tiles
 end
 
+function inferBoardSizeFromTiles(tiles)
+    if type(tiles) ~= "table" then return nil end
+    local len = #tiles
+    if len == 16 then return 4 end
+    if len == 25 then return 5 end
+    return nil
+end
+
+function areBoardTilesValidForSize(tiles, n)
+    if type(tiles) ~= "table" then return false end
+    if n ~= 4 and n ~= 5 then return false end
+    if #tiles ~= n * n then return false end
+    for i = 1, #tiles do
+        local t = tiles[i]
+        if type(t) ~= "string" or t == "" then
+            return false
+        end
+    end
+    return true
+end
+
 function buildBoardFromTiles(tiles, n)
     board = {}
     tileRects = {}
@@ -152,9 +173,13 @@ end
 function ensureBoardTilesForQMatch(q)
   local size = q.boardSize or boardSize or 4
   
-  if q.boardTiles
-  and type(q.boardTiles) == "table"
-  and #q.boardTiles == size * size then
+  if areBoardTilesValidForSize(q.boardTiles, size) then
+    return q.boardTiles
+  end
+
+  local inferred = inferBoardSizeFromTiles(q.boardTiles)
+  if inferred and areBoardTilesValidForSize(q.boardTiles, inferred) then
+    q.boardSize = inferred
     return q.boardTiles
   end
   

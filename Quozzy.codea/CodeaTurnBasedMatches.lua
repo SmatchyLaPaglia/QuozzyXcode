@@ -231,13 +231,57 @@ function CTBM:_matchWithNSDataToDataTable(o__match)
     return nil
   end
   
-  local str = objc.NSString:stringWithUTF8String_(data.bytes)
-  if str then
-    decodedTable = json.decode(str)
-    self._lastReceivedDataTable = decodedTable
+  local function decodeJSONString(str, label)
+    if not str or str == "" then return nil end
+    local okDecode, decodedOrErr = pcall(function()
+      return json.decode(str)
+    end)
+    if not okDecode then
+      self:log("CTBM:", label, "json.decode failed:", tostring(decodedOrErr), "len=", tostring(data.length))
+      return nil
+    end
+    if type(decodedOrErr) ~= "table" then
+      self:log("CTBM:", label, "decoded match data is not table", type(decodedOrErr), "len=", tostring(data.length))
+      return nil
+    end
+    return decodedOrErr
   end
-  
-  self:log("CTBM: decoded match data")
+
+  -- 1) Legacy path first for compatibility with previously written matches.
+  local legacyStr = nil
+  local okLegacyStr = pcall(function()
+    local nsLegacy = objc.NSString:stringWithUTF8String_(data.bytes)
+    if nsLegacy then legacyStr = tostring(nsLegacy) end
+  end)
+  if okLegacyStr then
+    decodedTable = decodeJSONString(legacyStr, "legacy")
+    if decodedTable then
+      self._lastReceivedDataTable = decodedTable
+      self:log("CTBM: decoded match data ok (legacy)", "len=", tostring(data.length))
+      return decodedTable
+    end
+  else
+    self:log("CTBM: legacy decode string conversion failed", "len=", tostring(data.length))
+  end
+
+  -- 2) Fallback: length-aware path (correct for NSData).
+  local str = nil
+  local okStr, errStr = pcall(function()
+    local ns = objc.NSString:alloc():initWithData_encoding_(data, 4) -- NSUTF8StringEncoding
+    if ns then str = tostring(ns) end
+  end)
+  if not okStr then
+    self:log("CTBM: fallback decode string conversion failed:", tostring(errStr), "len=", tostring(data.length))
+    return nil
+  end
+
+  decodedTable = decodeJSONString(str, "fallback")
+  if not decodedTable then
+    return nil
+  end
+
+  self._lastReceivedDataTable = decodedTable
+  self:log("CTBM: decoded match data ok (fallback)", "len=", tostring(data.length))
   return decodedTable
 end
 
