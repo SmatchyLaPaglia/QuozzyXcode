@@ -6,6 +6,9 @@ function enterQMatch(q)
     print("enterQMatch: nil q or id")
     return
   end
+  if endReplayMatchmakingBusy then
+    endReplayMatchmakingBusy()
+  end
   
   currentQMatch = ensureQMatchPlayers(q, localPID(), q.otherId or q.opponentId)
   dbgDidPlay("enterQMatch", currentQMatch)
@@ -21,6 +24,9 @@ function enterQMatch(q)
   end
   if q.minWordLen and tonumber(q.minWordLen) then
     MIN_WORD_LEN = math.floor(tonumber(q.minWordLen))
+  end
+  if persistLastMatchReplaySettingsFromQMatch then
+    persistLastMatchReplaySettingsFromQMatch(currentQMatch)
   end
   
   defineAvatarsAfterMicrodelay()
@@ -201,6 +207,9 @@ function endGameRound()
   updateOpponentRecord(outcome)
   q.recordOutcomeApplied = true
   q.recordOutcome = outcome
+  if persistLastMatchReplaySettingsFromQMatch then
+    persistLastMatchReplaySettingsFromQMatch(q)
+  end
 end
 
 useTurnBased     = false   -- NEW: master toggle for opponent / records

@@ -281,6 +281,10 @@ function saveOpponentAvatarForRecord(oppId, alias, photo)
     if saveOpponentRecords then saveOpponentRecords() end
   end
   
+  if updateLastMatchReplayAvatarForOpponent then
+    updateLastMatchReplayAvatarForOpponent(oppId, persistable)
+  end
+  
   return true
 end
 

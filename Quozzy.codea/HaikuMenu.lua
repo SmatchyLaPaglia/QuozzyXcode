@@ -177,8 +177,11 @@ local function getButtonGridHitRects(r)
   local y1 = r.y + r.h - btnH * 0.5
   local y2 = y1 - (btnH + gapY)
   local y3 = y2 - (btnH + gapY)
+  local y4 = y3 - (btnH + gapY)
+  local fullW = btnW * 2 + gutterX
+  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
   
-  return {
+  local out = {
     size    = { cx=leftX,  cy=y1, w=btnW, h=btnH },
     min     = { cx=rightX, cy=y1, w=btnW, h=btnH },
     solo    = { cx=leftX,  cy=y2, w=btnW, h=btnH },
@@ -186,6 +189,51 @@ local function getButtonGridHitRects(r)
     records = { cx=leftX,  cy=y3, w=btnW, h=btnH },
     info    = { cx=rightX, cy=y3, w=btnW, h=btnH },  -- same size as others
   }
+  if replaySettings and replaySettings.opponentId then
+    out.playAgain = { cx=r.cx, cy=y4, w=fullW, h=btnH }
+  end
+  return out
+end
+
+local function drawPlayAgainButton(cx, cy, w, h, selected)
+  pushStyle()
+  rectMode(CENTER)
+  local fillCol   = selected and Color.uiAccent2 or Color.uiAccent
+  local borderCol = fillCol
+  drawRoundedRect(cx, cy, w, h, 10, fillCol, borderCol)
+  
+  local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
+  if not avatar and genericOpponentAvatar then
+    avatar = genericOpponentAvatar()
+  end
+  
+  local labelLeft = "play"
+  local labelRight = "again"
+  local textSizePx = math.floor(h * 0.38)
+  local avatarSize = h * 0.62
+  local gap = h * 0.20
+  
+  font("Helvetica")
+  fontSize(textSizePx)
+  fill(255, 255, 255, 255)
+  textMode(CENTER)
+  textAlign(CENTER)
+  
+  local leftW = textSize(labelLeft)
+  local rightW = textSize(labelRight)
+  local totalW = leftW + gap + avatarSize + gap + rightW
+  local x0 = cx - totalW * 0.5
+  
+  local leftCx = x0 + leftW * 0.5
+  local avatarCx = x0 + leftW + gap + avatarSize * 0.5
+  local rightCx = x0 + leftW + gap + avatarSize + gap + rightW * 0.5
+  
+  text(labelLeft, leftCx, cy)
+  if drawAvatarCircle then
+    drawAvatarCircle(avatar, avatarCx, cy, avatarSize, nil)
+  end
+  text(labelRight, rightCx, cy)
+  popStyle()
 end
 
 pressedButton = pressedButton or nil
@@ -268,6 +316,11 @@ function handleMenuTouch(t)
     
   elseif key == "info" then
     showInfoOverlay = true
+    
+  elseif key == "playAgain" then
+    if startLastMatchReplayFromMenu then
+      startLastMatchReplayFromMenu()
+    end
   end
 end
 
@@ -278,6 +331,7 @@ end
 
 function getGuideLines()
   -- Fractions of screen; change these numbers only.
+  local yShift = 0.04 -- move full menu stack upward by ~half a button height
   local xFrac = {
     0.125, -- v1
     0.175, -- v2
@@ -301,7 +355,9 @@ function getGuideLines()
   for i = 1, 4 do x[i] = WIDTH * xFrac[i] end
   
   local y = {}
-  for i = 1, 9 do y[i] = HEIGHT * yFrac[i] end
+  for i = 1, 9 do
+    y[i] = HEIGHT * math.min(1, yFrac[i] + yShift)
+  end
   
   return x, y
 end
@@ -437,6 +493,7 @@ function drawButtonGridSection(r)
   local rightX = r.cx + halfCenterSpan
   
   local y = r.y + r.h - btnH * 0.5
+  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
   
   ----------------------------------------------------------
   -- Row 1
@@ -472,6 +529,13 @@ function drawButtonGridSection(r)
   drawButton(leftX,  y, btnW, btnH, "records", pressedButton == "records")
   drawButton(rightX, y, btnW, btnH, "i",       pressedButton == "info")
   
+  y = y - (btnH + gapY)
+  
+  if replaySettings and replaySettings.opponentId then
+    local fullW = btnW * 2 + gutterX
+    drawPlayAgainButton(r.cx, y, fullW, btnH, pressedButton == "playAgain")
+  end
+  
   popStyle()
 end
 
@@ -503,10 +567,11 @@ function drawFooterSection(r)
   textMode(CENTER)
   textAlign(CENTER)
   textWrapWidth(WIDTH*0.9)
+  local footerRestoreOffset = HEIGHT * 0.04
   text(
   "Seasons have no effect on gameplay\n they're just pretty pretty",
   r.cx,
-  r.cy
+  r.cy - footerRestoreOffset
   )
   
   popStyle()

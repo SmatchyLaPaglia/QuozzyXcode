@@ -94,6 +94,8 @@ quitButtonRect = quitButtonRect or nil
 
 local BOARD_SIZE_KEY = "SelectedBoardSize"
 local MIN_WORD_LEN_KEY = "SelectedMinWordLen"
+local LAST_MATCH_REPLAY_KEY = "LastMatchReplayV1"
+local LAST_MATCH_REPLAY_AVATAR_KEY = "QB_LastMatchReplayAvatar"
 local INSTALL_SIGNATURE_KEY = "LastInstalledBundleSignature"
 local INSTALL_EPOCH_KEY = "LastInstalledAtEpoch"
 local INSTALL_TEXT_KEY = "LastInstalledAtText"
@@ -104,6 +106,10 @@ local ENABLE_LOADING_ART_GENERATOR = false -- set true temporarily when you want
 local MENU_CAPTURE_NAME = "MenuFrameCapture"
 menuFrameCapturePending = menuFrameCapturePending == nil and false or menuFrameCapturePending
 loadingArtGenerationPending = loadingArtGenerationPending == nil and ENABLE_LOADING_ART_GENERATOR or loadingArtGenerationPending
+lastMatchReplaySettings = lastMatchReplaySettings or nil
+lastMatchReplayAvatar = lastMatchReplayAvatar or nil
+replayMatchmakingBusy = replayMatchmakingBusy or false
+replayMatchmakingBusyMessage = replayMatchmakingBusyMessage or "matching..."
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
@@ -130,6 +136,210 @@ function loadGameplaySettings()
   local savedMinWordLen = readLocalData(MIN_WORD_LEN_KEY)
   boardSize = _sanitizeBoardSize(savedBoardSize or boardSize)
   MIN_WORD_LEN = _sanitizeMinWordLen(savedMinWordLen or MIN_WORD_LEN)
+end
+
+function getLastMatchReplaySettings()
+  if lastMatchReplaySettings ~= nil then return lastMatchReplaySettings end
+  local raw = readLocalData(LAST_MATCH_REPLAY_KEY)
+  if not raw or raw == "" then
+    lastMatchReplaySettings = false
+    return nil
+  end
+  local ok, decoded = pcall(json.decode, raw)
+  if ok and type(decoded) == "table" then
+    lastMatchReplaySettings = decoded
+    return decoded
+  end
+  lastMatchReplaySettings = false
+  return nil
+end
+
+function getLastMatchReplayAvatar()
+  if lastMatchReplayAvatar ~= nil then return lastMatchReplayAvatar end
+  local ok, img = pcall(function()
+    return readImage("Documents:" .. LAST_MATCH_REPLAY_AVATAR_KEY)
+  end)
+  if ok and img then
+    lastMatchReplayAvatar = img
+    return img
+  end
+  lastMatchReplayAvatar = false
+  return nil
+end
+
+function persistLastMatchReplaySettingsFromQMatch(q)
+  if not q or not q.players then return false end
+  local myId = localPID and localPID() or nil
+  if not myId then return false end
+
+  local oppId = q.otherId or q.opponentId or currentOpponentID
+  if not oppId or oppId == "" then
+    for pid, _ in pairs(q.players) do
+      if pid ~= myId then
+        oppId = pid
+        break
+      end
+    end
+  end
+  if not oppId or oppId == "" then return false end
+
+  local oppName = q.otherName or q.opponentName or opponentAlias or ""
+  if oppName == "" then
+    local qp = qPlayersById and qPlayersById[oppId]
+    oppName = (qp and qp.name) or ""
+  end
+
+  local payload = {
+    matchId = q.id,
+    opponentId = oppId,
+    opponentName = oppName,
+    boardSize = _sanitizeBoardSize(q.boardSize or boardSize),
+    minWordLen = _sanitizeMinWordLen(q.minWordLen or MIN_WORD_LEN),
+    updatedAt = os.time(),
+  }
+
+  local avatar = nil
+  if getOpponentRecordAvatar then
+    avatar = getOpponentRecordAvatar(oppId)
+  end
+  if (not avatar) and qPlayersById and qPlayersById[oppId] then
+    avatar = qPlayersById[oppId].avatar
+  end
+
+  if avatar then
+    local okSave = pcall(function()
+      saveImage("Documents:" .. LAST_MATCH_REPLAY_AVATAR_KEY, avatar)
+    end)
+    if okSave then
+      lastMatchReplayAvatar = avatar
+    end
+  end
+
+  local okEncode, s = pcall(json.encode, payload)
+  if okEncode and s then
+    saveLocalData(LAST_MATCH_REPLAY_KEY, s)
+    lastMatchReplaySettings = payload
+    return true
+  end
+  return false
+end
+
+function updateLastMatchReplayAvatarForOpponent(oppId, avatarImage)
+  if not oppId or not avatarImage then return false end
+  local settings = getLastMatchReplaySettings()
+  if not settings or settings.opponentId ~= oppId then return false end
+  local okSave = pcall(function()
+    saveImage("Documents:" .. LAST_MATCH_REPLAY_AVATAR_KEY, avatarImage)
+  end)
+  if okSave then
+    lastMatchReplayAvatar = avatarImage
+    return true
+  end
+  return false
+end
+
+function beginReplayMatchmakingBusy(message)
+  replayMatchmakingBusy = true
+  replayMatchmakingBusyMessage = message or "matching..."
+end
+
+function endReplayMatchmakingBusy()
+  replayMatchmakingBusy = false
+end
+
+local function _showGenericMatchmaker()
+  endReplayMatchmakingBusy()
+  if not (tbm and tbm.showMatchmaker) then
+    openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
+    return
+  end
+  local ok, err = pcall(function()
+    tbm:showMatchmaker()
+  end)
+  if not ok then
+    openGCMatchmakerErrorOverlay(err)
+  end
+end
+
+local function _tryRematchForLastReplay(settings)
+  if not settings or not settings.matchId then
+    _showGenericMatchmaker()
+    return
+  end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  if not GKTurnBasedMatch then
+    _showGenericMatchmaker()
+    return
+  end
+
+  local ok = pcall(function()
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        if o__err then
+          devLog("Replay rematch load error", o__err.localizedDescription or tostring(o__err))
+          _showGenericMatchmaker()
+          return
+        end
+        local sourceMatch = nil
+        for i = 1, #(o__matches or {}) do
+          local m = o__matches[i]
+          if m and m.matchID == settings.matchId then
+            sourceMatch = m
+            break
+          end
+        end
+        if not sourceMatch or not sourceMatch.rematchWithCompletionHandler_ then
+          _showGenericMatchmaker()
+          return
+        end
+        sourceMatch:rematchWithCompletionHandler_(function(o__match, o__rematchErr)
+          objc.async(function()
+            if o__rematchErr or not o__match then
+              devLog("Replay rematch failed", o__rematchErr and o__rematchErr.localizedDescription or "nil match")
+              _showGenericMatchmaker()
+              return
+            end
+            devLog("Replay rematch created", o__match.matchID or "?")
+            endReplayMatchmakingBusy()
+            if tbm and tbm._setCurrentMatch then
+              tbm:_setCurrentMatch(o__match, "menu-replay-rematch")
+            end
+            local dataTable = nil
+            if tbm and tbm._matchWithNSDataToDataTable then
+              dataTable = tbm:_matchWithNSDataToDataTable(o__match)
+            end
+            local q = makeQMatchFromGK and makeQMatchFromGK(o__match, dataTable) or nil
+            if q and enterQMatch then
+              enterQMatch(q)
+            else
+              devLog("Replay rematch: unable to build/start qMatch from rematch")
+            end
+          end)
+        end)
+      end)
+    end)
+  end)
+  if not ok then
+    _showGenericMatchmaker()
+  end
+end
+
+function startLastMatchReplayFromMenu()
+  local settings = getLastMatchReplaySettings()
+  if not settings then
+    return
+  end
+
+  boardSize = _sanitizeBoardSize(settings.boardSize or boardSize)
+  MIN_WORD_LEN = _sanitizeMinWordLen(settings.minWordLen or MIN_WORD_LEN)
+  if persistGameplaySettings then persistGameplaySettings() end
+
+  currentOpponentID = settings.opponentId or currentOpponentID
+  opponentAlias = settings.opponentName or opponentAlias
+  setTurnBasedEnabled(true)
+
+  beginReplayMatchmakingBusy("matching...")
+  _tryRematchForLastReplay(settings)
 end
 
 local function _currentInstallSignature()
@@ -550,6 +760,38 @@ function setupSparklerParameters()
   end)
 end
 
+function drawReplayMatchmakingOverlay()
+  if not replayMatchmakingBusy then return end
+  pushStyle()
+  rectMode(CORNER)
+  fill(0, 0, 0, 110)
+  noStroke()
+  rect(0, 0, WIDTH, HEIGHT)
+
+  local w = math.min(WIDTH * 0.60, 420)
+  local h = math.min(HEIGHT * 0.18, 160)
+  local cx, cy = WIDTH * 0.5, HEIGHT * 0.5
+  drawRoundedRect(cx, cy, w, h, 18, Color.panelBG, Color.panelBG)
+
+  local dotR = math.max(4, math.floor(h * 0.06))
+  local orbit = h * 0.22
+  local phase = ElapsedTime * 3.0
+  for i = 1, 8 do
+    local a = phase + (i - 1) * (math.pi * 0.25)
+    local alpha = math.floor(60 + 195 * ((i - 1) / 7))
+    fill(255, 255, 255, alpha)
+    ellipse(cx + math.cos(a) * orbit, cy + h * 0.14 + math.sin(a) * orbit, dotR * 2)
+  end
+
+  fill(Color.tileText)
+  font("Helvetica-Bold")
+  fontSize(math.floor(h * 0.22))
+  textMode(CENTER)
+  textAlign(CENTER)
+  text(replayMatchmakingBusyMessage or "matching...", cx, cy - h * 0.20)
+  popStyle()
+end
+
 function draw()
   local function safeDrawCall(name, fn)
     local ok, err = pcall(fn)
@@ -600,6 +842,7 @@ function draw()
     drawMatchBadge()
     drawInfoOverlay()
     drawGCMatchmakerErrorOverlay()
+    drawReplayMatchmakingOverlay()
     drawConfetti()        
     -- Local avatar
     if avatarTest then
@@ -667,6 +910,10 @@ function handlePreviewTouch(t)
 end
 
 function touched(t)
+  if replayMatchmakingBusy then
+    return
+  end
+
   -- match badge tap gets first dibs on menu screen
   if state == STATE_MENU and handleMatchBadgeTouch(t) then
     return
