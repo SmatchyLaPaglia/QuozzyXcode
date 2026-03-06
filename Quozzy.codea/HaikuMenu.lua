@@ -198,9 +198,11 @@ end
 local function drawPlayAgainButton(cx, cy, w, h, selected)
   pushStyle()
   rectMode(CENTER)
-  local fillCol   = selected and Color.uiAccent2 or Color.uiAccent
-  local borderCol = fillCol
-  drawRoundedRect(cx, cy, w, h, 10, fillCol, borderCol)
+  local accentCol = selected and Color.uiAccent2 or Color.uiAccent
+  local bgCol = Color.bg
+  local borderPx = 2
+  drawRoundedRect(cx, cy, w, h, 10, accentCol, accentCol)
+  drawRoundedRect(cx, cy, w - borderPx * 2, h - borderPx * 2, 8, bgCol, bgCol)
   
   local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
   if not avatar and genericOpponentAvatar then
@@ -215,7 +217,7 @@ local function drawPlayAgainButton(cx, cy, w, h, selected)
   
   font("Helvetica")
   fontSize(textSizePx)
-  fill(255, 255, 255, 255)
+  fill(accentCol)
   textMode(CENTER)
   textAlign(CENTER)
   
