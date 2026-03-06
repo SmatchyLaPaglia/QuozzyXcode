@@ -366,17 +366,50 @@ function drawReadyMessage()
     local panelX = bgX
     local panelY = bgY + bgH/2
     
-    -- Draw sprite exactly where the rect used to be
-    spriteMode(CENTER)
-    tint(255, 241)
-    sprite(readyTapPanel, panelX, panelY)
-    
-    -- Draw the text on top (same font size as before)
-    fill(Color.tileLetter)
     local fs = tileSize * 0.35
     fontSize(fs)
-    
-    text("Tap anywhere\nto start", panelX, panelY)
+
+    local knownOpponent =
+      useTurnBased and
+      currentOpponentID and currentOpponentID ~= "" and currentOpponentID ~= "?" and
+      opponentAlias and opponentAlias ~= "" and opponentAlias ~= "Opponent"
+
+    if knownOpponent then
+      local line1 = "Match ready versus"
+      local line2 = tostring(opponentAlias)
+      local w1, h1 = textSize(line1)
+      local w2, h2 = textSize(line2)
+      local padX = tileSize * 0.8
+      local padY = tileSize * 0.55
+      local panelW = math.max(w1, w2) + padX * 2
+      local panelH = (h1 + h2) + padY * 2 + (tileSize * 0.12)
+      local panelR = tileSize * 0.25
+
+      tint(255, 241)
+      drawRoundedRect(
+        panelX, panelY,
+        panelW, panelH,
+        panelR,
+        Color.selectLineAlsoWeirdlyTileHighlight,
+        Color.selectLineAlsoWeirdlyTileHighlight
+      )
+
+      fill(Color.tileLetter)
+      local lineGap = tileSize * 0.08
+      local y1 = panelY + (h2 + lineGap) * 0.5
+      local y2 = panelY - (h1 + lineGap) * 0.5
+      text(line1, panelX, y1)
+      text(line2, panelX, y2)
+    else
+      -- Draw sprite exactly where the rect used to be
+      spriteMode(CENTER)
+      tint(255, 241)
+      sprite(readyTapPanel, panelX, panelY)
+      
+      -- Draw the text on top (same font size as before)
+      fill(Color.tileLetter)
+      text("Tap anywhere\nto start", panelX, panelY)
+    end
     
     popStyle()
 end
