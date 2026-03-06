@@ -96,6 +96,8 @@ local BOARD_SIZE_KEY = "SelectedBoardSize"
 local MIN_WORD_LEN_KEY = "SelectedMinWordLen"
 local LAST_MATCH_REPLAY_KEY = "LastMatchReplayV1"
 local LAST_MATCH_REPLAY_AVATAR_KEY = "QB_LastMatchReplayAvatar"
+local LAST_VIEWED_FINISHED_MATCH_ID_KEY = "LastViewedFinishedMatchID"
+local AUTO_OPEN_FINISHED_MATCH_ENABLED = true
 local INSTALL_SIGNATURE_KEY = "LastInstalledBundleSignature"
 local INSTALL_EPOCH_KEY = "LastInstalledAtEpoch"
 local INSTALL_TEXT_KEY = "LastInstalledAtText"
@@ -110,6 +112,9 @@ lastMatchReplaySettings = lastMatchReplaySettings or nil
 lastMatchReplayAvatar = lastMatchReplayAvatar or nil
 replayMatchmakingBusy = replayMatchmakingBusy or false
 replayMatchmakingBusyMessage = replayMatchmakingBusyMessage or "matching..."
+appWasActiveLastFrame = appWasActiveLastFrame == nil and true or appWasActiveLastFrame
+finishedMatchAutoCheckInFlight = finishedMatchAutoCheckInFlight or false
+finishedMatchAutoCheckPendingReason = finishedMatchAutoCheckPendingReason or nil
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
@@ -340,6 +345,149 @@ function startLastMatchReplayFromMenu()
 
   beginReplayMatchmakingBusy("matching...")
   _tryRematchForLastReplay(settings)
+end
+
+local function requestAutoOpenFinishedMatchCheck(reason)
+  if not AUTO_OPEN_FINISHED_MATCH_ENABLED then return end
+  finishedMatchAutoCheckPendingReason = reason or "unknown"
+end
+
+local function _extractMatchSortTime(gkMatch, dataTable)
+  local ts = nil
+  local ok = pcall(function()
+    local d = gkMatch and (gkMatch.lastTurnDate or gkMatch.date)
+    if d and d.timeIntervalSince1970 then
+      ts = tonumber(d.timeIntervalSince1970)
+    end
+  end)
+  if not ok then ts = nil end
+  if not ts and dataTable and dataTable.lastUpdated then
+    ts = tonumber(dataTable.lastUpdated)
+  end
+  return ts or 0
+end
+
+local function _safeObjCString(v)
+  if v == nil then return nil end
+  local ok, s = pcall(function() return tostring(v) end)
+  if not ok then return nil end
+  if not s or s == "" then return nil end
+  return s
+end
+
+local function _safeArrayCount(arr)
+  if not arr then return 0 end
+  if type(arr) == "table" then
+    local okLen, n = pcall(function() return #arr end)
+    if okLen and type(n) == "number" then return n end
+    return 0
+  end
+  local okCount, n = pcall(function()
+    if arr.respondsToSelector_ and arr:respondsToSelector_("count") then
+      return tonumber(arr.count) or tonumber(arr:count()) or 0
+    end
+    return 0
+  end)
+  if okCount and type(n) == "number" then return n end
+  return 0
+end
+
+local function _safeArrayGet(arr, i)
+  if not arr or i < 1 then return nil end
+  if type(arr) == "table" then
+    return arr[i]
+  end
+  local ok, v = pcall(function()
+    if arr.respondsToSelector_ and arr:respondsToSelector_("objectAtIndex:") then
+      return arr:objectAtIndex_(i - 1) -- NSArray is 0-based
+    end
+    return nil
+  end)
+  if ok then return v end
+  return nil
+end
+
+local function maybeAutoOpenMostRecentFinishedMatch(reason)
+  if not AUTO_OPEN_FINISHED_MATCH_ENABLED then return end
+  if finishedMatchAutoCheckInFlight then return end
+  if replayMatchmakingBusy then return end
+  if state ~= STATE_MENU then return end
+  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then return end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  if not GKTurnBasedMatch then return end
+  
+  finishedMatchAutoCheckInFlight = true
+  local lastViewedId = readLocalData(LAST_VIEWED_FINISHED_MATCH_ID_KEY)
+  
+  local ok = pcall(function()
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        local okInner, errInner = pcall(function()
+          finishedMatchAutoCheckInFlight = false
+          if o__err then
+            local errText = _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "unknown"
+            devLog("Auto-open finished match: load error", errText)
+            return
+          end
+          local matches = o__matches
+          local matchCount = _safeArrayCount(matches)
+          if matchCount <= 0 then return end
+          local bestMatch, bestData, bestTs = nil, nil, -1
+          for i = 1, matchCount do
+            local m = _safeArrayGet(matches, i)
+            local ended = (tbm and tbm._getEndStateFromMatch and tbm:_getEndStateFromMatch(m)) or nil
+            if ended then
+              local dataTable = tbm and tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
+              local ts = _extractMatchSortTime(m, dataTable)
+              if ts > bestTs then
+                bestTs = ts
+                bestMatch = m
+                bestData = dataTable
+              end
+            end
+          end
+          
+          if not bestMatch then return end
+          local bestId = _safeObjCString(bestMatch.matchID)
+          if not bestId then return end
+          local lastViewed = _safeObjCString(lastViewedId)
+          if lastViewed and lastViewed == bestId then
+            return
+          end
+          
+          devLog("Auto-opening finished match", "match=", bestId, "reason=", reason or "?")
+          if tbm and tbm._setCurrentMatch then
+            tbm:_setCurrentMatch(bestMatch, "auto-open-finished")
+          end
+          local q = makeQMatchFromGK and makeQMatchFromGK(bestMatch, bestData) or nil
+          if q and enterQMatch then
+            saveLocalData(LAST_VIEWED_FINISHED_MATCH_ID_KEY, bestId)
+            enterQMatch(q)
+          else
+            devLog("Auto-open finished match: failed to build qMatch", bestId)
+          end
+        end)
+        if not okInner then
+          finishedMatchAutoCheckInFlight = false
+          devLog("Auto-open finished match crashed safely", tostring(errInner))
+        end
+      end)
+    end)
+  end)
+  
+  if not ok then
+    finishedMatchAutoCheckInFlight = false
+  end
+end
+
+local function isRunningOnSimulator()
+  local ok, yes = pcall(function()
+    local env = objc and objc.NSProcessInfo and objc.NSProcessInfo.processInfo and objc.NSProcessInfo.processInfo.environment
+    if not env then return false end
+    local name = env["SIMULATOR_DEVICE_NAME"]
+    return name ~= nil
+  end)
+  return ok and yes or false
 end
 
 local function _currentInstallSignature()
@@ -655,6 +803,10 @@ end
 
 function setup()
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
+  if isRunningOnSimulator() then
+    AUTO_OPEN_FINISHED_MATCH_ENABLED = false
+    devLog("Auto-open finished match disabled on Simulator")
+  end
   loadGameplaySettings()
   trackInstallTimestampForXcodeLoad()
   
@@ -692,6 +844,7 @@ function setup()
     otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
     requestHomeScreenBadgePermission()
     refreshHomeScreenBadgeFromGCMatches("auth")
+    requestAutoOpenFinishedMatchCheck("auth")
   end)
 
   tbm:onReceivingTurn(function(gkMatch, dataTable)
@@ -803,9 +956,29 @@ function draw()
   end
 
   background(Color.bg)
+  local appStateActive = true
+  local okAppState = pcall(function()
+    local app = objc and objc.UIApplication and (objc.UIApplication.sharedApplication or (objc.UIApplication.sharedApplication and objc.UIApplication:sharedApplication()))
+    if app and app.applicationState ~= nil then
+      appStateActive = (tonumber(app.applicationState) == 0)
+    end
+  end)
+  if not okAppState then appStateActive = true end
+  
+  if appStateActive and (not appWasActiveLastFrame) then
+    requestAutoOpenFinishedMatchCheck("foreground")
+  end
+  appWasActiveLastFrame = appStateActive
+  
   updateSeasonTransition(DeltaTime)
   updateConfetti(DeltaTime)
   updateMatchBadge(DeltaTime)
+  
+  if finishedMatchAutoCheckPendingReason then
+    local reason = finishedMatchAutoCheckPendingReason
+    finishedMatchAutoCheckPendingReason = nil
+    maybeAutoOpenMostRecentFinishedMatch(reason)
+  end
   
   if state == STATE_MENU then
     if ENABLE_LOADING_ART_GENERATOR and loadingArtGenerationPending then
