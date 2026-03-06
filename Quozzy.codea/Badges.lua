@@ -47,6 +47,10 @@ matchBadge = matchBadge or {
 }
 
 pendingMatchCount = pendingMatchCount or 0
+matchBadgeRefreshInFlight = matchBadgeRefreshInFlight or false
+matchBadgeLastPollAt = matchBadgeLastPollAt or 0
+matchBadgePollInterval = matchBadgePollInterval or 8.0
+matchBadgeWasMenuLastFrame = matchBadgeWasMenuLastFrame or false
 
 function pointInsideAvoidRect(px, py)
   local o   = matchBadge.avoidOrigin
@@ -136,6 +140,181 @@ function deactivateMatchBadge()
   matchBadge.phaseTime = 0
 end
 
+local function _safeObjCString(v)
+  if v == nil then return nil end
+  local ok, s = pcall(function() return tostring(v) end)
+  if not ok then return nil end
+  if not s or s == "" then return nil end
+  return s
+end
+
+local function _safeArrayCount(arr)
+  if not arr then return 0 end
+  if type(arr) == "table" then
+    local okLen, n = pcall(function() return #arr end)
+    if okLen and type(n) == "number" then return n end
+    return 0
+  end
+  local okCount, n = pcall(function()
+    if arr.respondsToSelector_ and arr:respondsToSelector_("count") then
+      return tonumber(arr.count) or tonumber(arr:count()) or 0
+    end
+    return 0
+  end)
+  if okCount and type(n) == "number" then return n end
+  return 0
+end
+
+local function _safeArrayGet(arr, i)
+  if not arr or i < 1 then return nil end
+  if type(arr) == "table" then
+    return arr[i]
+  end
+  local ok, v = pcall(function()
+    if arr.respondsToSelector_ and arr:respondsToSelector_("objectAtIndex:") then
+      return arr:objectAtIndex_(i - 1)
+    end
+    return nil
+  end)
+  if ok then return v end
+  return nil
+end
+
+local function _matchSortTime(gkMatch, dataTable)
+  local ts = nil
+  pcall(function()
+    local d = gkMatch and (gkMatch.lastTurnDate or gkMatch.date)
+    if d and d.timeIntervalSince1970 then
+      ts = tonumber(d.timeIntervalSince1970)
+    end
+  end)
+  if not ts and dataTable and dataTable.lastUpdated then
+    ts = tonumber(dataTable.lastUpdated)
+  end
+  return ts or 0
+end
+
+local function _isMyTurnOpenMatch(gkMatch)
+  if not (tbm and gkMatch and tbm.localPlayer) then return false end
+  if tbm._isMatchEnded and tbm:_isMatchEnded(gkMatch) then return false end
+  local cp = gkMatch.currentParticipant
+  if not cp then return false end
+  local localId = tbm.localPlayer.playerID
+  local localGameId = tbm.localPlayer.gamePlayerID
+  local cpId = cp.playerID
+  local cpGameId = cp.gamePlayerID
+  if localId and cpId and cpId == localId then return true end
+  if localGameId and cpGameId and cpGameId == localGameId then return true end
+  return false
+end
+
+function updateMatchBadgeStatus()
+  pendingMatchCount = pendingTurnMatches and #pendingTurnMatches or 0
+  if state ~= STATE_MENU then
+    deactivateMatchBadge()
+    return
+  end
+  if pendingMatchCount > 0 then
+    if not matchBadge.active then
+      activateMatchBadge()
+    end
+  else
+    deactivateMatchBadge()
+  end
+end
+
+function requestMatchBadgeRefresh(reason)
+  matchBadgeLastPollAt = 0
+  refreshPendingMatchesForBadge(reason or "manual")
+end
+
+function refreshPendingMatchesForBadge(reason)
+  if matchBadgeRefreshInFlight then return end
+  if SAFE_BOOT then return end
+  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then return end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  if not GKTurnBasedMatch then return end
+  
+  matchBadgeRefreshInFlight = true
+  local ok = pcall(function()
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        local okInner, errInner = pcall(function()
+          matchBadgeRefreshInFlight = false
+          matchBadgeLastPollAt = ElapsedTime or 0
+          if o__err then
+            devLog("Badge refresh GC load error", _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "?")
+            return
+          end
+          
+          local list = {}
+          local cnt = _safeArrayCount(o__matches)
+          for i = 1, cnt do
+            local m = _safeArrayGet(o__matches, i)
+            if _isMyTurnOpenMatch(m) then
+              local dataTable = tbm and tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
+              list[#list + 1] = {
+                id = _safeObjCString(m and m.matchID),
+                gkMatch = m,
+                dataTable = dataTable,
+                sortTs = _matchSortTime(m, dataTable),
+              }
+            end
+          end
+          
+          table.sort(list, function(a, b)
+            return (a.sortTs or 0) > (b.sortTs or 0)
+          end)
+          
+          pendingTurnMatches = list
+          pendingMatchCount = #list
+          updateMatchBadgeStatus()
+          devLog("Badge refresh", "pending=", pendingMatchCount, "reason=", reason or "?")
+        end)
+        if not okInner then
+          matchBadgeRefreshInFlight = false
+          devLog("Badge refresh crashed safely", tostring(errInner))
+        end
+      end)
+    end)
+  end)
+  if not ok then
+    matchBadgeRefreshInFlight = false
+  end
+end
+
+local function _openPendingMatchEntry(entry)
+  if not entry or not entry.gkMatch then return false end
+  local gkMatch = entry.gkMatch
+  if tbm and tbm._setCurrentMatch then
+    tbm:_setCurrentMatch(gkMatch, "badge-open-newest")
+  end
+  local dataTable = entry.dataTable
+  if not dataTable and tbm and tbm._matchWithNSDataToDataTable then
+    dataTable = tbm:_matchWithNSDataToDataTable(gkMatch)
+  end
+  local q = makeQMatchFromGK and makeQMatchFromGK(gkMatch, dataTable) or nil
+  if q and enterQMatch then
+    enterQMatch(q)
+    return true
+  end
+  return false
+end
+
+function openNewestAvailableMatchFromBadge()
+  if pendingTurnMatches and #pendingTurnMatches > 0 then
+    if _openPendingMatchEntry(pendingTurnMatches[1]) then
+      return true
+    end
+  end
+  
+  refreshPendingMatchesForBadge("badgeTap")
+  if pendingTurnMatches and #pendingTurnMatches > 0 then
+    return _openPendingMatchEntry(pendingTurnMatches[1])
+  end
+  return false
+end
+
 -- Call this from your Game Center layer whenever the number of
 -- pending turn-based matches changes.
 -- list of stored turn-based matches waiting for you
@@ -144,8 +323,19 @@ pendingTurnMatches = pendingTurnMatches or {}  -- each entry = qMatch or summary
 function updateMatchBadge(dt)
   -- Only show/hop the badge on the menu
   if state ~= STATE_MENU then
+    matchBadgeWasMenuLastFrame = false
     deactivateMatchBadge()
     return
+  end
+  
+  if not matchBadgeWasMenuLastFrame then
+    matchBadgeWasMenuLastFrame = true
+    refreshPendingMatchesForBadge("menuEntry")
+  end
+  
+  local now = ElapsedTime or 0
+  if (now - (matchBadgeLastPollAt or 0)) >= (matchBadgePollInterval or 8.0) then
+    refreshPendingMatchesForBadge("menuPeriodic")
   end
   
   -- See if there are any pending matches
@@ -316,12 +506,51 @@ function handleMatchBadgeTouch(t)
   local r  = matchBadge.radius
   
   if dx*dx + dy*dy <= r*r then
-    -- Delegate selection back to Game Center
-    if tbm and tbm.showMatchmaker then
-      tbm:showMatchmaker()
-    end
+    openNewestAvailableMatchFromBadge()
     return true
   end
   
   return false
+end
+
+function storePendingTurnMatch(q)
+  if not q or not q.id then return end
+  pendingTurnMatches = pendingTurnMatches or {}
+  local sid = tostring(q.id)
+  for i = 1, #pendingTurnMatches do
+    local item = pendingTurnMatches[i]
+    if item and tostring(item.id or "") == sid then
+      pendingTurnMatches[i] = q
+      updateMatchBadgeStatus()
+      return
+    end
+  end
+  pendingTurnMatches[#pendingTurnMatches + 1] = q
+  updateMatchBadgeStatus()
+end
+
+function removePendingMatchById(id)
+  if not id or not pendingTurnMatches then return end
+  local sid = tostring(id)
+  for i = #pendingTurnMatches, 1, -1 do
+    local item = pendingTurnMatches[i]
+    if item and tostring(item.id or "") == sid then
+      table.remove(pendingTurnMatches, i)
+      break
+    end
+  end
+  updateMatchBadgeStatus()
+end
+
+function clearPendingMatches()
+  pendingTurnMatches = {}
+  updateMatchBadgeStatus()
+end
+
+function loadPendingMatches()
+  refreshPendingMatchesForBadge("loadPendingMatches")
+end
+
+function persistPendingMatches()
+  -- Source of truth is Game Center; no-op.
 end

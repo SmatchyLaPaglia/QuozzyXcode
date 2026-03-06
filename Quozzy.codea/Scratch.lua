@@ -1,19 +1,19 @@
-storePendingTurnMatch = function(q)
+storePendingTurnMatch = storePendingTurnMatch or function(q)
   print("[STUB] storePendingTurnMatch", q and q.id)
 end
 
-removePendingMatchById = function(id)
+removePendingMatchById = removePendingMatchById or function(id)
   print("[STUB] removePendingMatchById", id)
 end
 
-clearPendingMatches = function()
+clearPendingMatches = clearPendingMatches or function()
   print("[STUB] clearPendingMatches")
 end
 
-loadPendingMatches = function()
+loadPendingMatches = loadPendingMatches or function()
   print("[STUB] loadPendingMatches")
 end
 
-persistPendingMatches = function()
+persistPendingMatches = persistPendingMatches or function()
   print("[STUB] persistPendingMatches")
 end
