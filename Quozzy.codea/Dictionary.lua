@@ -1,5 +1,6 @@
 function buildDictionaryFromString(str, label)
     DICT = {}
+    PREFIXES = {}
     for line in str:gmatch("[^\r\n]+") do
         local word = line:match("^%s*(%S+)%s*$")
         if word then
@@ -7,6 +8,11 @@ function buildDictionaryFromString(str, label)
             if word:match("^[A-Z]+$") and #word >= MIN_WORD_LEN then
                 DICT[word] = true
             end
+        end
+    end
+    for word, _ in pairs(DICT) do
+        for len = 1, #word - 1 do
+            PREFIXES[string.sub(word, 1, len)] = true
         end
     end
     dictStatus = label

@@ -44,6 +44,13 @@ function buildEndScreenModel()
     end
   end
   
+  -- Lazy compute missed words (cached on q so it only runs once per match)
+  local isSinglePlayer = (not otherId)
+  local matchComplete = complete or isSinglePlayer
+  if q and matchComplete and not q.missedWords then
+      q.missedWords = solveBoardMissedWords(q)
+  end
+
   local scoreA = (pLocal and pLocal.score) or (score or 0)
   local scoreB = (pOther and pOther.score) or 0
   
@@ -90,7 +97,9 @@ function buildEndScreenModel()
   or nil
   
   return {
-    
+
+    missedWords = (q and q.missedWords) or nil,
+
     dimColor = Color.panelDim,
     
     headers = is2P and {
@@ -139,6 +148,13 @@ end
 function drawEndScreenFP()
   scrollListCol1 = scrollListCol1 or ScrollList.new()
   scrollListCol2 = scrollListCol2 or ScrollList.new()
+  endScrollListMissed = endScrollListMissed or ScrollList.new()
+  -- Reset tab state when the match changes
+  local qid = currentQMatch and currentQMatch.id
+  if endScreenLastMatchId ~= qid then
+      endScreenLastMatchId = qid
+      endScreenShowMissed = false
+  end
   ensureEndScreenLayout()
   local model = buildEndScreenModel()
   drawEndScreenWith(model, endScreenLayout)
@@ -204,14 +220,64 @@ function drawEndScreenWith(model, layout)
 
   
   if model.singleList ~= nil then
-    renderList(endWordList, layout.singleListRect, model.singleList, model)
+    -- Single-player: tab toggle between "Your Words" and "Missed"
+    if model.missedWords then
+      local tabRect = drawMissedWordsTab(
+        layout.singleListRect.x,
+        layout.singleListRect.y + layout.singleListRect.h,
+        layout.singleListRect.w,
+        32,
+        endScreenShowMissed,
+        "Your Words", "Missed"
+      )
+      endScreenMissedTabRect = tabRect
+      local adjustedRect = {
+        x = layout.singleListRect.x,
+        y = layout.singleListRect.y,
+        w = layout.singleListRect.w,
+        h = layout.singleListRect.h - 36
+      }
+      if endScreenShowMissed then
+        renderList(endScrollListMissed, adjustedRect, model.missedWords, model)
+      else
+        renderList(endWordList, adjustedRect, model.singleList, model)
+      end
+    else
+      endScreenMissedTabRect = nil
+      renderList(endWordList, layout.singleListRect, model.singleList, model)
+    end
   else
     if model.column1 then
       renderList(scrollListCol1, layout.yourListRect, model.column1.words, model)
     end
-    
+
     if model.column2 then
-      renderList(scrollListCol2, layout.theirListRect, model.column2.words, model)
+      -- 2P: tab toggle on right column header between opponent words and missed words
+      if model.missedWords then
+        local tabRect = drawMissedWordsTab(
+          layout.theirListRect.x,
+          layout.theirListRect.y + layout.theirListRect.h,
+          layout.theirListRect.w,
+          32,
+          endScreenShowMissed,
+          "Theirs", "Missed"
+        )
+        endScreenMissedTabRect = tabRect
+        local adjustedRect = {
+          x = layout.theirListRect.x,
+          y = layout.theirListRect.y,
+          w = layout.theirListRect.w,
+          h = layout.theirListRect.h - 36
+        }
+        if endScreenShowMissed then
+          renderList(endScrollListMissed, adjustedRect, model.missedWords, model)
+        else
+          renderList(scrollListCol2, adjustedRect, model.column2.words, model)
+        end
+      else
+        endScreenMissedTabRect = nil
+        renderList(scrollListCol2, layout.theirListRect, model.column2.words, model)
+      end
     end
   end
   
@@ -268,6 +334,50 @@ function drawEndScreenWith(model, layout)
   fontSize(layout.closeSize * 0.75)
   text("×", layout.closeX, layout.closeY + 2)
   popStyle()
+end
+
+-- Draws a two-segment tab pill just above a list rect.
+-- Returns the rect of the entire tab strip (for touch detection).
+-- x, y: bottom-left of the list (tab is drawn above it)
+-- w: width of the list column
+-- h: height of the tab strip
+-- showSecond: true = second tab is active
+-- label1, label2: text for each tab
+function drawMissedWordsTab(x, y, w, h, showSecond, label1, label2)
+  local tabY = y  -- tab sits at the top of the list rect (passed as top edge)
+  local tabRect = { x = x, y = tabY - h, w = w, h = h }
+  local halfW = w * 0.5
+  local C = Color
+  local activeCol  = C.uiAccent or color(40, 80, 60, 255)
+  local inactiveCol = color(200, 200, 200, 180)
+  local radius = h * 0.4
+
+  pushStyle()
+  noStroke()
+  textMode(CENTER)
+  textAlign(CENTER)
+  fontSize(h * 0.42)
+
+  -- Left segment
+  local leftActive = not showSecond
+  fill(leftActive and activeCol or inactiveCol)
+  drawRoundedRect(x + halfW * 0.5, tabRect.y + h * 0.5, halfW, h, radius,
+                  leftActive and activeCol or inactiveCol,
+                  leftActive and activeCol or inactiveCol)
+  fill(leftActive and color(255, 255, 255) or color(80, 80, 80))
+  text(label1, x + halfW * 0.5, tabRect.y + h * 0.5)
+
+  -- Right segment
+  local rightActive = showSecond
+  fill(rightActive and activeCol or inactiveCol)
+  drawRoundedRect(x + halfW + halfW * 0.5, tabRect.y + h * 0.5, halfW, h, radius,
+                  rightActive and activeCol or inactiveCol,
+                  rightActive and activeCol or inactiveCol)
+  fill(rightActive and color(255, 255, 255) or color(80, 80, 80))
+  text(label2, x + halfW + halfW * 0.5, tabRect.y + h * 0.5)
+
+  popStyle()
+  return tabRect
 end
 
 function makeRowRenderer(entries,

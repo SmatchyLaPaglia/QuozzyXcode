@@ -1,4 +1,8 @@
 endWordList = endWordList or ScrollList.new()
+endScrollListMissed = endScrollListMissed or ScrollList.new()
+endScreenShowMissed = false
+endScreenMissedTabRect = nil
+endScreenLastMatchId = nil
 
 END_STATE_SINGLE        = 1
 END_STATE_2P_INCOMPLETE = 2
@@ -626,6 +630,22 @@ function handleEndScreenTouch(t)
     return true
   end
   
+  -- missed words tab toggle
+  if endScreenMissedTabRect and t.state == BEGAN then
+    local r = endScreenMissedTabRect
+    if t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h then
+      endScreenShowMissed = not endScreenShowMissed
+      endScrollListMissed.scroll = 0
+      endScrollListMissed.vel = 0
+      scrollListCol2 = scrollListCol2 or ScrollList.new()
+      scrollListCol2.scroll = 0
+      scrollListCol2.vel = 0
+      endWordList.scroll = 0
+      endWordList.vel = 0
+      return true
+    end
+  end
+
   -- lists
   if useTurnBased then
     if endScreenYourListRect and endWordListMine:touched(t,endScreenYourListRect) then return true end

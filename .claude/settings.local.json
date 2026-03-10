@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"DFS\\\\|backtrack\\\\|dfs\\\\|search\" /Users/jesse_macbook_clark/Documents/Xcode/QuozzyXcode/Quozzy.codea/*.lua)",
+      "Bash(grep -l \"findWord\\\\|validatePath\\\\|checkWord\\\\|solveBoard\" /Users/jesse_macbook_clark/Documents/Xcode/QuozzyXcode/Quozzy.codea/*.lua)",
+      "Bash(grep -r \"SOWPODS\\\\|DICT\\\\|dictionary\" /Users/jesse_macbook_clark/Documents/Xcode/QuozzyXcode/Quozzy.codea/*.lua)",
+      "Bash(grep -E \"\\(README|CLAUDE|\\\\.cursor|\\\\.md|\\\\.txt\\)$\")"
+    ]
+  }
+}
