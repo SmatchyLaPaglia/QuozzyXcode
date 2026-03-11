@@ -148,16 +148,51 @@ end
 function drawEndScreenFP()
   scrollListCol1 = scrollListCol1 or ScrollList.new()
   scrollListCol2 = scrollListCol2 or ScrollList.new()
-  endScrollListMissed = endScrollListMissed or ScrollList.new()
-  -- Reset tab state when the match changes
+  -- Animate card snap toward 0 (exponential decay)
+  if endCardAnimPx and math.abs(endCardAnimPx) > 0.5 then
+    endCardAnimPx = endCardAnimPx * 0.72
+  else
+    endCardAnimPx = 0
+  end
+  -- Reset card state when the match changes
   local qid = currentQMatch and currentQMatch.id
   if endScreenLastMatchId ~= qid then
-      endScreenLastMatchId = qid
-      endScreenShowMissed = false
+    endScreenLastMatchId     = qid
+    endCardIndex             = 1
+    endCardAnimPx            = 0
+    endCardDragPx            = 0
+    endScreenHighlightedPath = nil
+    endScreenHighlightedWord = nil
+    endScreenCurrentCardWords = {}
+    if endCardScrollLists then
+      for i = 1, #endCardScrollLists do
+        endCardScrollLists[i].scroll = 0
+        endCardScrollLists[i].vel    = 0
+      end
+    end
   end
   ensureEndScreenLayout()
   local model = buildEndScreenModel()
   drawEndScreenWith(model, endScreenLayout)
+end
+
+-- Builds the ordered list of swipeable cards from the end-screen model.
+-- Always: card 1 = yours. 2P adds theirs as card 2. Missed appended when available.
+function buildEndScreenCards(model)
+  local cards = {}
+  if model.singleList ~= nil then
+    cards[1] = { label = "Your Words", words = model.singleList }
+  else
+    cards[1] = { label = "Your Words", words = (model.column1 and model.column1.words) or {} }
+    if model.column2 then
+      local lbl = (model.headers and model.headers.column2 ~= "" and model.headers.column2) or "Theirs"
+      cards[2] = { label = lbl, words = model.column2.words }
+    end
+  end
+  if model.missedWords then
+    cards[#cards + 1] = { label = "Missed", words = model.missedWords }
+  end
+  return cards
 end
 
 function drawEndScreenWith(model, layout)
@@ -200,85 +235,78 @@ function drawEndScreenWith(model, layout)
   model
   )
   ------------------------------------------------------------
-  -- headers
+  -- cards (swipeable word lists: yours / theirs / missed)
   ------------------------------------------------------------
-  
-  if model.headers then
-    drawEndWordColumnHeaders{
-      yourCX   = layout.yourWordsCX,
-      theirCX  = layout.theirWordsCX,
-      titlesCY = layout.titlesCY,
-      oppName  = model.headers.column2,
-      titleH   = layout.titleH,
-      color    = model.headers.color
-    }
+
+  local cards    = buildEndScreenCards(model)
+  local numCards = #cards
+  endCardCount   = numCards
+  if endCardIndex > numCards then endCardIndex = numCards end
+  if endCardIndex < 1        then endCardIndex = 1        end
+  endScreenCurrentCardWords = (cards[endCardIndex] and cards[endCardIndex].words) or {}
+
+  -- Card header: centered label + word count for the currently visible card
+  if layout.cardHeaderCY and numCards > 0 then
+    local card = cards[endCardIndex]
+    if card then
+      pushStyle()
+      textAlign(CENTER)
+      textMode(CENTER)
+      fontSize(layout.cardHeaderH * 0.44)
+      fill(model.headers and model.headers.color or (Color.tileText or color(40,80,60,255)))
+      local headerLabel = card.label .. " (" .. #card.words .. ")"
+      text(headerLabel, layout.panelX, layout.cardHeaderCY)
+      popStyle()
+    end
   end
-  
-  ------------------------------------------------------------
-  -- lists (neutral columns)
-  ------------------------------------------------------------
 
-  
-  if model.singleList ~= nil then
-    -- Single-player: tab toggle between "Your Words" and "Missed"
-    if model.missedWords then
-      local tabRect = drawMissedWordsTab(
-        layout.singleListRect.x,
-        layout.singleListRect.y + layout.singleListRect.h,
-        layout.singleListRect.w,
-        32,
-        endScreenShowMissed,
-        "Your Words", "Missed"
-      )
-      endScreenMissedTabRect = tabRect
-      local adjustedRect = {
-        x = layout.singleListRect.x,
-        y = layout.singleListRect.y,
-        w = layout.singleListRect.w,
-        h = layout.singleListRect.h - 36
-      }
-      if endScreenShowMissed then
-        renderList(endScrollListMissed, adjustedRect, model.missedWords, model)
-      else
-        renderList(endWordList, adjustedRect, model.singleList, model)
-      end
-    else
-      endScreenMissedTabRect = nil
-      renderList(endWordList, layout.singleListRect, model.singleList, model)
-    end
-  else
-    if model.column1 then
-      renderList(scrollListCol1, layout.yourListRect, model.column1.words, model)
-    end
+  -- Cards (clipped to list area, offset by swipe/drag)
+  if layout.cardListRect then
+    local lr  = layout.cardListRect
+    local cw  = layout.cardW or lr.w
+    local off = (endCardAnimPx or 0) + (endCardDragPx or 0)
 
-    if model.column2 then
-      -- 2P: tab toggle on right column header between opponent words and missed words
-      if model.missedWords then
-        local tabRect = drawMissedWordsTab(
-          layout.theirListRect.x,
-          layout.theirListRect.y + layout.theirListRect.h,
-          layout.theirListRect.w,
-          32,
-          endScreenShowMissed,
-          "Theirs", "Missed"
-        )
-        endScreenMissedTabRect = tabRect
-        local adjustedRect = {
-          x = layout.theirListRect.x,
-          y = layout.theirListRect.y,
-          w = layout.theirListRect.w,
-          h = layout.theirListRect.h - 36
-        }
-        if endScreenShowMissed then
-          renderList(endScrollListMissed, adjustedRect, model.missedWords, model)
-        else
-          renderList(scrollListCol2, adjustedRect, model.column2.words, model)
-        end
-      else
-        endScreenMissedTabRect = nil
-        renderList(scrollListCol2, layout.theirListRect, model.column2.words, model)
+    -- Card backgrounds drawn BEFORE clip so rounded corners aren't scissored off
+    -- drawRoundedRect internally forces strokeWidth = r*2, so we draw fill and
+    -- the 1px border as two separate passes.
+    local cardBG     = Color.panelBG    or color(245, 242, 232, 255)
+    local cardBorder = Color.tileStroke or color(180, 160, 140, 255)
+    for i = 1, numCards do
+      local xOff = (i - endCardIndex) * cw + off
+      if math.abs(xOff) < cw * 1.5 then
+        local cx2 = lr.x + xOff + lr.w * 0.5
+        local cy2 = lr.y + lr.h * 0.5
+        local cw2 = lr.w - 6
+        local ch2 = lr.h - 6
+        -- filled rounded shape (stroke same as fill so drawRoundedRect's thick
+        -- internal stroke is invisible)
+        drawRoundedRect(cx2, cy2, cw2, ch2, 14, cardBG, cardBG)
+        -- 1px border as a plain rect on top
+        pushStyle()
+        noFill()
+        stroke(cardBorder)
+        strokeWidth(1)
+        rectMode(CENTER)
+        rect(cx2, cy2, cw2, ch2)
+        popStyle()
       end
     end
+
+    local padV = layout.cardPadV or 0
+    clip(lr.x, lr.y, lr.w, lr.h)
+    for i = 1, numCards do
+      local xOff = (i - endCardIndex) * cw + off
+      if math.abs(xOff) < cw * 1.5 then
+        local cr = { x = lr.x + xOff, y = lr.y + padV, w = lr.w, h = lr.h - 2 * padV }
+        renderList(endCardScrollLists[i], cr, cards[i].words, model)
+      end
+    end
+    clip()
+  end
+
+  -- Page dots
+  if layout.cardDotsY then
+    drawCardPageDots(layout, numCards, endCardIndex)
   end
   
   ------------------------------------------------------------
@@ -336,70 +364,54 @@ function drawEndScreenWith(model, layout)
   popStyle()
 end
 
--- Draws a two-segment tab pill just above a list rect.
--- Returns the rect of the entire tab strip (for touch detection).
--- x, y: bottom-left of the list (tab is drawn above it)
--- w: width of the list column
--- h: height of the tab strip
--- showSecond: true = second tab is active
--- label1, label2: text for each tab
-function drawMissedWordsTab(x, y, w, h, showSecond, label1, label2)
-  local tabY = y  -- tab sits at the top of the list rect (passed as top edge)
-  local tabRect = { x = x, y = tabY - h, w = w, h = h }
-  local halfW = w * 0.5
-  local C = Color
-  local activeCol  = C.uiAccent or color(40, 80, 60, 255)
-  local inactiveCol = color(200, 200, 200, 180)
-  local radius = h * 0.4
-
+-- Draws page-position dot indicators for the card carousel.
+function drawCardPageDots(layout, numCards, activeIndex)
+  if numCards <= 1 or not layout.cardDotsY then return end
+  local dotR  = 5
+  local gap   = 16
+  local totalW = (numCards - 1) * gap
+  local startX = layout.panelX - totalW * 0.5
+  local y      = layout.cardDotsY
+  local C      = Color
   pushStyle()
+  ellipseMode(CENTER)
   noStroke()
-  textMode(CENTER)
-  textAlign(CENTER)
-  fontSize(h * 0.42)
-
-  -- Left segment
-  local leftActive = not showSecond
-  fill(leftActive and activeCol or inactiveCol)
-  drawRoundedRect(x + halfW * 0.5, tabRect.y + h * 0.5, halfW, h, radius,
-                  leftActive and activeCol or inactiveCol,
-                  leftActive and activeCol or inactiveCol)
-  fill(leftActive and color(255, 255, 255) or color(80, 80, 80))
-  text(label1, x + halfW * 0.5, tabRect.y + h * 0.5)
-
-  -- Right segment
-  local rightActive = showSecond
-  fill(rightActive and activeCol or inactiveCol)
-  drawRoundedRect(x + halfW + halfW * 0.5, tabRect.y + h * 0.5, halfW, h, radius,
-                  rightActive and activeCol or inactiveCol,
-                  rightActive and activeCol or inactiveCol)
-  fill(rightActive and color(255, 255, 255) or color(80, 80, 80))
-  text(label2, x + halfW + halfW * 0.5, tabRect.y + h * 0.5)
-
+  for i = 1, numCards do
+    local x = startX + (i - 1) * gap
+    if i == activeIndex then
+      fill(C.uiAccent or color(40, 80, 60, 255))
+    else
+      fill(180, 180, 180, 200)
+    end
+    ellipse(x, y, dotR * 2, dotR * 2)
+  end
   popStyle()
-  return tabRect
 end
 
-function makeRowRenderer(entries,
-  model)
+function makeRowRenderer(entries, model)
   return function(row, y, x)
     local e = entries[row]
     local textValue, pts
-    
+
     if type(e) == "table" then
       textValue = e.word or ""
       pts = e.points
     else
       textValue = tostring(e or "")
     end
-    
-    local label = pts and string.format("%s  (+%d)", textValue, pts) or textValue
-    
+
+    local label    = pts and string.format("%s  (+%d)", textValue, pts) or textValue
+    local selected = (endScreenHighlightedWord and textValue ~= "" and textValue == endScreenHighlightedWord)
+
     pushStyle()
     textAlign(LEFT)
     textMode(CORNER)
     fontSize(24)
-    fill(model.wordColor or Color.uiAccent)
+    if selected then
+      fill(Color.uiAccent2 or Color.uiAccent)
+    else
+      fill(model.wordColor or Color.uiAccent)
+    end
     text(label, x, y)
     popStyle()
   end
@@ -416,7 +428,7 @@ function renderList(listObject, rect, entries, model)
     h = rect.h - padT - padB
   }
   
-  listObject:draw(r, #entries, lineH, makeRowRenderer(entries, model), r.x + 10)
+  listObject:draw(r, #entries, lineH, makeRowRenderer(entries, model), r.x + rect.w * 0.25)
 end
 
 function drawEndScreenButton(rect, label, action)

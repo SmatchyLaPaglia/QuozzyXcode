@@ -1,8 +1,19 @@
-endWordList = endWordList or ScrollList.new()
-endScrollListMissed = endScrollListMissed or ScrollList.new()
-endScreenShowMissed = false
-endScreenMissedTabRect = nil
-endScreenLastMatchId = nil
+endWordList        = endWordList        or ScrollList.new()
+endCardScrollLists = endCardScrollLists or { ScrollList.new(), ScrollList.new(), ScrollList.new() }
+endCardIndex       = endCardIndex       or 1
+endCardAnimPx      = endCardAnimPx      or 0
+endCardDragPx      = endCardDragPx      or 0
+endCardDragTouchId = nil
+endCardDragStartX  = 0
+endCardDragStartY  = 0
+endCardGestureMode = nil   -- nil, "swipe", or "scroll"
+endCardCount       = 0
+endScreenLastMatchId      = nil
+endScreenHighlightedPath  = nil   -- path shown on mini-board when a word is tapped
+endScreenHighlightedWord  = nil   -- word string for the highlighted row
+endScreenCurrentCardWords = {}   -- words in the currently visible card (set each frame)
+endCardAffordanceTouchId    = nil   -- touch tracking for adjacent-card sliver taps
+endCardAffordanceTargetIdx  = nil   -- which card index the affordance tap is targeting
 
 END_STATE_SINGLE        = 1
 END_STATE_2P_INCOMPLETE = 2
@@ -332,7 +343,21 @@ function calculateEndScreenDimensions()
   
   g.yourListRect  = { x = innerLeft,            y = listAreaTop - listAreaH, w = wordsColW, h = listAreaH }
   g.theirListRect = { x = innerRight-wordsColW, y = listAreaTop - listAreaH, w = wordsColW, h = listAreaH }
-  
+
+  -- Card layout: full-width single list with dot indicators at bottom
+  local dotsH = 22
+  g.cardW         = contentW
+  g.cardHeaderCY  = titlesCY
+  g.cardHeaderH   = titleH
+  g.cardListRect  = {
+    x = innerLeft,
+    y = listAreaTop - listAreaH + dotsH,
+    w = contentW,
+    h = math.max(20, listAreaH - dotsH)
+  }
+  g.cardDotsY = listAreaTop - listAreaH + dotsH * 0.5
+  g.cardPadV  = panelH / 20
+
   g._W, g._H, g._turn = W, H, useTurnBased
   
   g.panelW, g.panelH, g.panelX, g.panelY = panelW, panelH, panelX, panelY
@@ -630,28 +655,124 @@ function handleEndScreenTouch(t)
     return true
   end
   
-  -- missed words tab toggle
-  if endScreenMissedTabRect and t.state == BEGAN then
-    local r = endScreenMissedTabRect
-    if t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h then
-      endScreenShowMissed = not endScreenShowMissed
-      endScrollListMissed.scroll = 0
-      endScrollListMissed.vel = 0
-      scrollListCol2 = scrollListCol2 or ScrollList.new()
-      scrollListCol2.scroll = 0
-      scrollListCol2.vel = 0
-      endWordList.scroll = 0
-      endWordList.vel = 0
+  -- Zone-based card navigation: left quarter of card area → previous card,
+  -- right quarter → next card. Uses card area top/bottom for vertical bounds.
+  local cr = g.cardListRect
+  if cr then
+    local cw = g.cardW or cr.w
+    local n  = endCardCount or 0
+    local inCardBand = (t.y >= cr.y and t.y <= cr.y + cr.h)
+
+    if t.state == BEGAN and inCardBand then
+      local inLeft  = t.x < cr.x + cr.w * 0.25
+      local inRight = t.x > cr.x + cr.w * 0.75
+      if (inLeft and endCardIndex > 1) or (inRight and endCardIndex < n) then
+        endCardAffordanceTouchId   = t.id
+        endCardAffordanceTargetIdx = inRight and (endCardIndex + 1) or (endCardIndex - 1)
+        return true
+      end
+    elseif t.id == endCardAffordanceTouchId then
+      if t.state == ENDED then
+        local targetIdx = endCardAffordanceTargetIdx
+        if targetIdx and targetIdx >= 1 and targetIdx <= n then
+          endCardAnimPx = (targetIdx - endCardIndex) * cw
+          endCardIndex  = targetIdx
+        end
+      end
+      endCardAffordanceTouchId   = nil
+      endCardAffordanceTargetIdx = nil
       return true
     end
   end
 
-  -- lists
-  if useTurnBased then
-    if endScreenYourListRect and endWordListMine:touched(t,endScreenYourListRect) then return true end
-    if endScreenTheirListRect and endWordListTheirs:touched(t,endScreenTheirListRect) then return true end
-  else
-    if endScreenSingleListRect and endWordList:touched(t,endScreenSingleListRect) then return true end
+  -- card gesture handling: swipe between cards or scroll within a card
+  cr = g.cardListRect
+  if cr then
+    local inCardArea = (t.x >= cr.x and t.x <= cr.x + cr.w and t.y >= cr.y and t.y <= cr.y + cr.h)
+    if t.state == BEGAN and inCardArea then
+      endCardDragTouchId = t.id
+      endCardDragStartX  = t.x
+      endCardDragStartY  = t.y
+      endCardGestureMode = nil
+      return true
+    elseif t.id == endCardDragTouchId then
+      local dx = t.x - endCardDragStartX
+      local dy = t.y - endCardDragStartY
+      if t.state == MOVING then
+        -- Commit gesture direction once past threshold
+        if endCardGestureMode == nil and (math.abs(dx) > 8 or math.abs(dy) > 8) then
+          if math.abs(dx) >= math.abs(dy) then
+            endCardGestureMode = "swipe"
+          else
+            endCardGestureMode = "scroll"
+            -- Synthetic BEGAN so the scroll list tracks from the right start point
+            local sl = endCardScrollLists and endCardScrollLists[endCardIndex]
+            if sl then
+              sl:touched({ state=BEGAN, x=endCardDragStartX, y=endCardDragStartY, id=t.id }, cr)
+            end
+          end
+        end
+        if endCardGestureMode == "swipe" then
+          endCardDragPx = dx
+          -- Rubber-band past the first/last card
+          local n = endCardCount or 1
+          if endCardIndex == 1 and endCardDragPx > 0 then endCardDragPx = endCardDragPx * 0.3 end
+          if endCardIndex == n and endCardDragPx < 0 then endCardDragPx = endCardDragPx * 0.3 end
+        elseif endCardGestureMode == "scroll" then
+          local sl = endCardScrollLists and endCardScrollLists[endCardIndex]
+          if sl then sl:touched(t, cr) end
+        end
+        return true
+      elseif t.state == ENDED or t.state == CANCELLED then
+        if endCardGestureMode == "swipe" then
+          local n       = endCardCount or 1
+          local cardW   = g.cardW or 100
+          local threshold = cardW * 0.25
+          local newIndex  = endCardIndex
+          if endCardDragPx > threshold and newIndex > 1 then
+            newIndex = newIndex - 1
+          elseif endCardDragPx < -threshold and newIndex < n then
+            newIndex = newIndex + 1
+          end
+          -- Kick off snap animation from where the drag left off
+          endCardAnimPx = endCardDragPx + (newIndex - endCardIndex) * cardW
+          endCardIndex  = newIndex
+          endCardDragPx = 0
+        elseif endCardGestureMode == "scroll" then
+          local sl = endCardScrollLists and endCardScrollLists[endCardIndex]
+          if sl then sl:touched(t, cr) end
+        end
+        -- Tap (no gesture committed): detect row and toggle path highlight
+        if endCardGestureMode == nil then
+          local padT, padB, lineH = 6, 10, 28
+          local padV  = g.cardPadV or 0
+          local sl    = endCardScrollLists and endCardScrollLists[endCardIndex]
+          local words = endScreenCurrentCardWords
+          if sl and words and #words > 0 then
+            local ry     = cr.y + padV + padB
+            local rh     = cr.h - 2 * padV - padT - padB
+            local firstY = ry + rh - lineH + (sl.scroll or 0)
+            local row    = math.floor((firstY - t.y) / lineH) + 2
+            if row >= 1 and row <= #words then
+              local e    = words[row]
+              local word = type(e) == "table" and (e.word or "") or tostring(e or "")
+              local path = (type(e) == "table" and e.path)
+                        or (currentQMatch and currentQMatch.wordPaths and currentQMatch.wordPaths[string.upper(word)])
+              if word == endScreenHighlightedWord then
+                endScreenHighlightedPath = nil
+                endScreenHighlightedWord = nil
+              else
+                endScreenHighlightedPath = path
+                endScreenHighlightedWord = word
+              end
+            end
+          end
+        end
+        endCardDragTouchId = nil
+        endCardGestureMode = nil
+        return true
+      end
+    end
   end
   
   -- single-player "Again"

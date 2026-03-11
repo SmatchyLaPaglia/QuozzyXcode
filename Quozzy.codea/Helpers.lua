@@ -143,23 +143,53 @@ function drawBoardPreview(cx, cy, side, tiles, n)
 ]]
     
     fontSize(tileSize * 0.55)
-    
+
     -- local grid extents, centered at (0,0)
     local gridLeft = -gridW * 0.5
     local gridBot  = -gridH * 0.5
-    
+
+    -- Build path highlight lookup from the end-screen global (set when a word is tapped)
+    local highlightSet    = nil
+    local highlightCoords = nil
+    local hPath = endScreenHighlightedPath
+    if hPath and #hPath > 0 then
+        highlightSet    = {}
+        highlightCoords = {}
+        for i, step in ipairs(hPath) do
+            highlightSet[step.r .. "_" .. step.c] = i
+            highlightCoords[i] = {
+                x = gridLeft + (step.c - 0.5) * tileSize,
+                y = gridBot  + (step.r - 0.5) * tileSize
+            }
+        end
+    end
+
+    -- Draw connecting lines along the path (behind tiles)
+    if highlightCoords and #highlightCoords > 1 then
+        pushStyle()
+        local lc = Color.uiAccent or color(40, 80, 60, 255)
+        stroke(lc.r, lc.g, lc.b, 180)
+        strokeWidth(tileSize * 0.18)
+        lineCapMode(ROUND)
+        for i = 1, #highlightCoords - 1 do
+            local a, b2 = highlightCoords[i], highlightCoords[i + 1]
+            line(a.x, a.y, b2.x, b2.y)
+        end
+        popStyle()
+    end
+
     for row = 1, n do
         for col = 1, n do
             local idx   = (row - 1) * n + col
             local label = tiles[idx] or "?"
-            
+
             local x = gridLeft + (col - 0.5) * tileSize
             local y = gridBot  + (row - 0.5) * tileSize
-            
-            -- simple static tiles, no path highlighting
-            local fillCol   = Color.tileFill
-            local strokeCol = Color.tileStroke
-            
+
+            local inPath    = highlightSet and highlightSet[row .. "_" .. col]
+            local fillCol   = inPath and (Color.uiAccent2 or Color.uiAccent) or Color.tileFill
+            local strokeCol = inPath and (Color.uiAccent   or Color.tileStroke) or Color.tileStroke
+
             drawRoundedRect(
             x, y,
             tileSize * 0.9,
@@ -168,7 +198,7 @@ function drawBoardPreview(cx, cy, side, tiles, n)
             fillCol,
             strokeCol
             )
-            
+
             fill(Color.tileLetter or color(255, 255, 255, 255))
             text(label, x, y)
         end
