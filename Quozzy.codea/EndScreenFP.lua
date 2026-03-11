@@ -44,11 +44,11 @@ function buildEndScreenModel()
     end
   end
   
-  -- Lazy compute missed words (cached on q so it only runs once per match)
   local isSinglePlayer = (not otherId)
   local matchComplete = complete or isSinglePlayer
-  if q and matchComplete and not q.missedWords then
-      q.missedWords = solveBoardMissedWords(q)
+
+  if q and matchComplete and ensureWordPathsForPlayers then
+    ensureWordPathsForPlayers(q)
   end
 
   local scoreA = (pLocal and pLocal.score) or (score or 0)
@@ -97,8 +97,7 @@ function buildEndScreenModel()
   or nil
   
   return {
-
-    missedWords = (q and q.missedWords) or nil,
+    missedWordsPending = matchComplete and (q ~= nil),
 
     dimColor = Color.panelDim,
     
@@ -131,7 +130,7 @@ function buildEndScreenModel()
     
     button = {
       -- label = is2P and "Play Another Match" or playAgainLabel,
-      label == is2P and nil or playAgainLabel,
+      label = is2P and nil or playAgainLabel,
       action = function()
         if is2P then
           -- hook later
@@ -191,8 +190,39 @@ function buildEndScreenCards(model)
   end
   if model.missedWords then
     cards[#cards + 1] = { label = "Missed", words = model.missedWords }
+  elseif model.missedWordsPending then
+    cards[#cards + 1] = { label = "Missed", words = {}, isMissedPlaceholder = true }
   end
   return cards
+end
+
+local function drawMissedCardActivityIndicator(rect)
+  if not rect then return end
+  local cx = rect.x + rect.w * 0.5
+  local cy = rect.y + rect.h * 0.56
+  local ringR = math.min(rect.w, rect.h) * 0.12
+  local dotR = math.max(4, ringR * 0.16)
+  local phase = ElapsedTime * 2.8
+  local accent = Color.uiAccent or color(40, 80, 60, 255)
+  local textCol = Color.tileText or accent
+
+  pushStyle()
+  ellipseMode(CENTER)
+  noStroke()
+  for i = 1, 8 do
+    local a = phase + (i - 1) * (math.pi * 0.25)
+    local alpha = math.floor(45 + 210 * (i / 8))
+    fill(accent.r, accent.g, accent.b, alpha)
+    ellipse(cx + math.cos(a) * ringR, cy + math.sin(a) * ringR, dotR * 2, dotR * 2)
+  end
+
+  fill(textCol)
+  textAlign(CENTER)
+  textMode(CENTER)
+  font("Helvetica")
+  fontSize(math.max(20, rect.h * 0.065))
+  text("Finding missed words", cx, cy - ringR - rect.h * 0.10)
+  popStyle()
 end
 
 function drawEndScreenWith(model, layout)
@@ -298,7 +328,11 @@ function drawEndScreenWith(model, layout)
       local xOff = (i - endCardIndex) * cw + off
       if math.abs(xOff) < cw * 1.5 then
         local cr = { x = lr.x + xOff, y = lr.y + padV, w = lr.w, h = lr.h - 2 * padV }
-        renderList(endCardScrollLists[i], cr, cards[i].words, model)
+        if cards[i].isMissedPlaceholder then
+          drawMissedCardActivityIndicator(cr)
+        else
+          renderList(endCardScrollLists[i], cr, cards[i].words, model)
+        end
       end
     end
     clip()

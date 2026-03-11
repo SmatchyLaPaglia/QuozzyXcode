@@ -159,7 +159,7 @@ function makeDebugQMatch()
     q = newQMatch(matchId, "debug", myId, opp.id, opp.name, boardSize, MIN_WORD_LEN)
     q.status, q.isMyTurn, q.lastUpdated, q.rawMatchData = "theirTurn", true, os.time(), nil
     q.config = { boardSize=boardSize, minWordLen=MIN_WORD_LEN, timeLimit=nil, variant=nil }
-    q.boardTiles = q.boardTiles or generateBoardTiles(boardSize, DICE_4x4, DICE_5x5)
+    q.boardTiles = q.boardTiles or generateBoardTiles(boardSize, DICE_4x4, DICE_5x5, DICE_6x6)
     
     fakeWords = {"ALPHA","BRAVO","CHARLIE","DELTA","ECHO","FOXTROT","GOLF","HOTEL","INDIA","JULIET","ALPHA","BRAVO","CHARLIE","DELTA","ECHO","FOXTROT","GOLF","HOTEL","INDIA","JULIET"}
     

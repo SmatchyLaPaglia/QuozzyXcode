@@ -138,6 +138,45 @@ local function findPathForWord(b, n, targetWord)
     return nil
 end
 
+-- Ensures q.wordPaths contains paths for every word currently shown in player lists.
+-- This supports end-screen word tapping without having to solve the full board.
+function ensureWordPathsForPlayers(q)
+    if not q or not q.boardTiles then return {} end
+
+    local n = q.boardSize or inferBoardSizeFromTiles(q.boardTiles) or 4
+    local b = {}
+    local idx = 1
+    for r = 1, n do
+        b[r] = {}
+        for c = 1, n do
+            b[r][c] = string.upper(q.boardTiles[idx] or "?")
+            idx = idx + 1
+        end
+    end
+
+    local wordPaths = q.wordPaths or {}
+
+    if q.players then
+        for _, p in pairs(q.players) do
+            for _, entry in ipairs((p and p.words) or {}) do
+                local w = type(entry) == "table" and entry.word or tostring(entry or "")
+                if w ~= "" then
+                    local wu = string.upper(w)
+                    if not wordPaths[wu] then
+                        wordPaths[wu] = findPathForWord(b, n, wu)
+                    end
+                    if type(entry) == "table" and entry.path == nil then
+                        entry.path = wordPaths[wu]
+                    end
+                end
+            end
+        end
+    end
+
+    q.wordPaths = wordPaths
+    return wordPaths
+end
+
 -- Returns words on the board that no player found.
 -- Also populates q.wordPaths (word -> path) for ALL board words so that
 -- tapping any word on the end screen can show its board path.

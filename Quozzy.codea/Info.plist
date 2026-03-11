@@ -14,6 +14,7 @@
 		<string>EndScreenFuncs</string>
 		<string>EndScreenFP</string>
 		<string>Dictionary</string>
+		<string>BoardSolver</string>
 		<string>RecordsUI</string>
 		<string>GameCenter</string>
 		<string>WordLogic</string>

@@ -118,14 +118,14 @@ finishedMatchAutoCheckPendingReason = finishedMatchAutoCheckPendingReason or nil
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
-  if v ~= 4 and v ~= 5 then return 4 end
+  if v ~= 4 and v ~= 5 and v ~= 6 then return 4 end
   return v
 end
 
 local function _sanitizeMinWordLen(v)
   v = math.floor(tonumber(v) or 3)
   if v < 3 then v = 3 end
-  if v > 5 then v = 5 end
+  if v > 6 then v = 6 end
   return v
 end
 

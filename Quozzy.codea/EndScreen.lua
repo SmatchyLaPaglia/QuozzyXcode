@@ -752,7 +752,8 @@ function handleEndScreenTouch(t)
             local ry     = cr.y + padV + padB
             local rh     = cr.h - 2 * padV - padT - padB
             local firstY = ry + rh - lineH + (sl.scroll or 0)
-            local row    = math.floor((firstY - t.y) / lineH) + 2
+            local topY   = firstY + lineH
+            local row    = math.floor((topY - t.y) / lineH) + 1
             if row >= 1 and row <= #words then
               local e    = words[row]
               local word = type(e) == "table" and (e.word or "") or tostring(e or "")

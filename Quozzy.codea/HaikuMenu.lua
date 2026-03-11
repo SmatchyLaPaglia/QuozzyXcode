@@ -287,12 +287,18 @@ function handleMenuTouch(t)
   if not shouldFire then return end
   
   if key == "size" then
-    boardSize = (boardSize == 4) and 5 or 4
+    if boardSize == 4 then
+      boardSize = 5
+    elseif boardSize == 5 then
+      boardSize = 6
+    else
+      boardSize = 4
+    end
     if persistGameplaySettings then persistGameplaySettings() end
     
   elseif key == "min" then
     MIN_WORD_LEN = MIN_WORD_LEN + 1
-    if MIN_WORD_LEN > 5 then MIN_WORD_LEN = 3 end
+    if MIN_WORD_LEN > 6 then MIN_WORD_LEN = 3 end
     if persistGameplaySettings then persistGameplaySettings() end
     
   elseif key == "solo" then

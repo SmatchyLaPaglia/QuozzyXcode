@@ -5,7 +5,9 @@ function buildDictionaryFromString(str, label)
         local word = line:match("^%s*(%S+)%s*$")
         if word then
             word = string.upper(word)
-            if word:match("^[A-Z]+$") and #word >= MIN_WORD_LEN then
+            -- Keep the full dictionary loaded once; runtime validation applies
+            -- the current minimum word length without forcing rebuilds.
+            if word:match("^[A-Z]+$") then
                 DICT[word] = true
             end
         end
@@ -49,4 +51,8 @@ function initDictionary()
         -- start async download of SOWPODS
         startSowpodsDownload()
     end
+end
+
+function rebuildDictionaryForCurrentMinWordLen()
+    return
 end

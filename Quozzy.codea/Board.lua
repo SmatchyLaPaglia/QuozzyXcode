@@ -53,6 +53,16 @@ DICE_5x5 = {
     "OOOTTU"
 }
 
+-- 6x6 board dice. This is a project-local distribution for the larger board.
+DICE_6x6 = {
+    "AAAFRS", "AAEEEE", "AAFIRS", "ADENNN", "AEEEEM", "AEEGMU",
+    "AEGMNN", "AFIRSY", "BJKQXZ", "CCENST", "CEIILT", "CEILPT",
+    "CEIPST", "DDHNOT", "DHHLOR", "DHLNOR", "DHLNOR", "EIIITT",
+    "EMOTTT", "ENSSSU", "FIPRSY", "GORRVW", "IPRRRY", "NOOTUW",
+    "OOOTTU", "AAEIOU", "AEEIOU", "AEEGST", "CEIIPT", "DHLNOT",
+    "EILPST", "GILRUW", "HIPRRY", "RSTLNE", "MNNOOT", "AEIOTU"
+}
+
 inGameWordList = inGameWordList or ScrollList.new()
 
 wordNewAnim   = wordNewAnim or nil
@@ -115,8 +125,18 @@ function getBottomSafeY()
     end
 end
 
-function generateBoardTiles(n, dice4x4, dice5x5)
-    local dice = (n == 4) and dice4x4 or dice5x5
+function generateBoardTiles(n, dice4x4, dice5x5, dice6x6)
+    local dice
+    if n == 4 then
+        dice = dice4x4
+    elseif n == 5 then
+        dice = dice5x5
+    elseif n == 6 then
+        dice = dice6x6
+    end
+    if not dice or #dice < n * n then
+        return {}
+    end
     local diceCopy = {}
     for i = 1, #dice do diceCopy[i] = dice[i] end
     shuffle(diceCopy)
@@ -139,12 +159,13 @@ function inferBoardSizeFromTiles(tiles)
     local len = #tiles
     if len == 16 then return 4 end
     if len == 25 then return 5 end
+    if len == 36 then return 6 end
     return nil
 end
 
 function areBoardTilesValidForSize(tiles, n)
     if type(tiles) ~= "table" then return false end
-    if n ~= 4 and n ~= 5 then return false end
+    if n ~= 4 and n ~= 5 and n ~= 6 then return false end
     if #tiles ~= n * n then return false end
     for i = 1, #tiles do
         local t = tiles[i]
@@ -183,7 +204,7 @@ function ensureBoardTilesForQMatch(q)
     return q.boardTiles
   end
   
-  local tiles = generateBoardTiles(size, DICE_4x4, DICE_5x5)
+  local tiles = generateBoardTiles(size, DICE_4x4, DICE_5x5, DICE_6x6)
   q.boardTiles = tiles
   q.boardSize = size
   return tiles
