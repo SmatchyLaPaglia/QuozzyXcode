@@ -1,3 +1,75 @@
+endScreenMissedWordsJob = endScreenMissedWordsJob or nil
+endScreenMissedWordsJobMatchId = endScreenMissedWordsJobMatchId or nil
+
+local function clearMissedWordsJob()
+  endScreenMissedWordsJob = nil
+  endScreenMissedWordsJobMatchId = nil
+end
+
+local function beginMissedWordsJob(q)
+  if not q or not q.boardTiles or not createIncrementalBoardWordSolver then return end
+  local n = q.boardSize or inferBoardSizeFromTiles(q.boardTiles) or 4
+  local solver = createIncrementalBoardWordSolver(q.boardTiles, n, q.minWordLen or MIN_WORD_LEN)
+  if not solver then return end
+
+  ensureWordPathsForPlayers(q)
+
+  endScreenMissedWordsJobMatchId = q.id
+  endScreenMissedWordsJob = coroutine.create(function()
+    while not solver.done do
+      solver:step(250)
+      coroutine.yield(false)
+    end
+
+    local allWords, wordPaths = solver:getResults()
+    local foundSet = {}
+    if q.players then
+      for _, p in pairs(q.players) do
+        for _, entry in ipairs((p and p.words) or {}) do
+          local w = type(entry) == "table" and entry.word or tostring(entry or "")
+          if w ~= "" then
+            foundSet[string.upper(w)] = true
+          end
+        end
+      end
+    end
+
+    local missed = {}
+    for i = 1, #allWords do
+      local entry = allWords[i]
+      if not foundSet[entry.word] then
+        missed[#missed + 1] = entry
+      end
+    end
+
+    q.wordPaths = wordPaths
+    q.missedWords = missed
+    coroutine.yield(true)
+  end)
+end
+
+local function pumpMissedWordsJobIfNeeded(activeCard)
+  local q = currentQMatch
+  if not q or not activeCard or not activeCard.isMissedPlaceholder then return end
+  if q.missedWords then
+    clearMissedWordsJob()
+    return
+  end
+  if endScreenMissedWordsJobMatchId ~= q.id or not endScreenMissedWordsJob then
+    clearMissedWordsJob()
+    beginMissedWordsJob(q)
+  end
+  if not endScreenMissedWordsJob then return end
+  if coroutine.status(endScreenMissedWordsJob) == "dead" then
+    clearMissedWordsJob()
+    return
+  end
+  local ok = coroutine.resume(endScreenMissedWordsJob)
+  if not ok then
+    clearMissedWordsJob()
+  end
+end
+
 function buildEndScreenModel()
   local q = currentQMatch
   local localId = localPID()
@@ -97,7 +169,8 @@ function buildEndScreenModel()
   or nil
   
   return {
-    missedWordsPending = matchComplete and (q ~= nil),
+    missedWords = q and q.missedWords or nil,
+    missedWordsPending = matchComplete and (q ~= nil) and not (q and q.missedWords),
 
     dimColor = Color.panelDim,
     
@@ -169,6 +242,7 @@ function drawEndScreenFP()
         endCardScrollLists[i].vel    = 0
       end
     end
+    clearMissedWordsJob()
   end
   ensureEndScreenLayout()
   local model = buildEndScreenModel()
@@ -274,6 +348,7 @@ function drawEndScreenWith(model, layout)
   if endCardIndex > numCards then endCardIndex = numCards end
   if endCardIndex < 1        then endCardIndex = 1        end
   endScreenCurrentCardWords = (cards[endCardIndex] and cards[endCardIndex].words) or {}
+  pumpMissedWordsJobIfNeeded(cards[endCardIndex])
 
   -- Card header: centered label + word count for the currently visible card
   if layout.cardHeaderCY and numCards > 0 then

@@ -3,15 +3,7 @@
 -- Depends on globals: DICT, PREFIXES, MIN_WORD_LEN, scoreForWordLength,
 --                     inferBoardSizeFromTiles
 
--- Returns array of {word=STRING, points=INT, path={{r,c},...}} sorted alphabetically.
--- tiles: flat array of tile strings (length n*n)
--- n:     board dimension (4 or 5)
--- minLen: minimum word length to record (defaults to global MIN_WORD_LEN)
-function solveBoardAllWords(tiles, n, minLen)
-    if not DICT or not PREFIXES then return {} end
-    if not tiles or #tiles ~= n * n then return {} end
-
-    -- Build local 2D board from flat tiles
+local function buildBoardMatrixFromTiles(tiles, n)
     local b = {}
     local idx = 1
     for r = 1, n do
@@ -21,72 +13,143 @@ function solveBoardAllWords(tiles, n, minLen)
             idx = idx + 1
         end
     end
+    return b
+end
 
-    local found     = {}   -- word -> true
-    local wordPaths = {}   -- word -> first path found (array of {r,c})
-    local visited   = {}
-    local path      = {}   -- current DFS path (grows/shrinks with recursion)
-    for r = 1, n do visited[r] = {} end
+function createIncrementalBoardWordSolver(tiles, n, minLen)
+    if not DICT or not PREFIXES then return nil end
+    if not tiles or #tiles ~= n * n then return nil end
 
-    local effectiveMinLen = minLen or MIN_WORD_LEN
-
-    local nodeCount = 0
-    local NODE_LIMIT = 2000000
-
-    local function dfs(r, c, wordSoFar)
-        if nodeCount > NODE_LIMIT then return end
-        nodeCount = nodeCount + 1
-
-        local newWord = wordSoFar .. b[r][c]
-
-        -- Prune: if not a prefix of any dict word AND not a word itself, dead end
-        if not PREFIXES[newWord] and not DICT[newWord] then return end
-
-        -- Push current tile onto path
-        local pathLen = #path + 1
-        path[pathLen] = {r = r, c = c}
-
-        -- Store path for any DICT word (no length gate) so tapping any found
-        -- word on the end screen can show its board path.
-        if DICT[newWord] then
-            if not wordPaths[newWord] then
-                local p = {}
-                for i = 1, pathLen do p[i] = {r = path[i].r, c = path[i].c} end
-                wordPaths[newWord] = p
+    local b = buildBoardMatrixFromTiles(tiles, n)
+    local neighborsByIndex = {}
+    for r = 1, n do
+        for c = 1, n do
+            local idx = (r - 1) * n + c
+            local neighbors = {}
+            for r2 = math.max(1, r - 1), math.min(n, r + 1) do
+                for c2 = math.max(1, c - 1), math.min(n, c + 1) do
+                    if not (r2 == r and c2 == c) then
+                        neighbors[#neighbors + 1] = { r = r2, c = c2 }
+                    end
+                end
             end
-            -- Only count toward missed-words if it meets the minimum length.
-            if #newWord >= effectiveMinLen then
-                found[newWord] = true
-            end
+            neighborsByIndex[idx] = neighbors
         end
+    end
 
-        -- Recurse to unvisited adjacent tiles (inlined for performance)
-        visited[r][c] = true
-        for r2 = math.max(1, r - 1), math.min(n, r + 1) do
-            for c2 = math.max(1, c - 1), math.min(n, c + 1) do
-                if not (r2 == r and c2 == c) and not visited[r2][c2] then
-                    dfs(r2, c2, newWord)
+    local solver = {
+        n = n,
+        b = b,
+        minLen = minLen or MIN_WORD_LEN,
+        found = {},
+        wordPaths = {},
+        visited = {},
+        stack = {},
+        rootIndex = 1,
+        done = false,
+    }
+    for r = 1, n do solver.visited[r] = {} end
+
+    function solver:_recordCurrentWord(word)
+        if not DICT[word] then return end
+        if not self.wordPaths[word] then
+            local p = {}
+            for i = 1, #self.stack do
+                local frame = self.stack[i]
+                p[i] = { r = frame.r, c = frame.c }
+            end
+            self.wordPaths[word] = p
+        end
+        if #word >= self.minLen then
+            self.found[word] = true
+        end
+    end
+
+    function solver:_tryPush(r, c, wordSoFar)
+        local newWord = wordSoFar .. self.b[r][c]
+        if not PREFIXES[newWord] and not DICT[newWord] then return false end
+        self.visited[r][c] = true
+        self.stack[#self.stack + 1] = {
+            r = r,
+            c = c,
+            idx = (r - 1) * self.n + c,
+            word = newWord,
+            nextNeighbor = 1,
+        }
+        self:_recordCurrentWord(newWord)
+        return true
+    end
+
+    function solver:_pop()
+        local frame = self.stack[#self.stack]
+        if not frame then return end
+        self.visited[frame.r][frame.c] = false
+        self.stack[#self.stack] = nil
+    end
+
+    function solver:step(maxNodes)
+        if self.done then return true end
+        local budget = math.max(1, math.floor(maxNodes or 1))
+        local processed = 0
+
+        while processed < budget do
+            if #self.stack == 0 then
+                if self.rootIndex > self.n * self.n then
+                    self.done = true
+                    return true
+                end
+                local idx = self.rootIndex
+                self.rootIndex = self.rootIndex + 1
+                local r = math.floor((idx - 1) / self.n) + 1
+                local c = ((idx - 1) % self.n) + 1
+                self:_tryPush(r, c, "")
+                processed = processed + 1
+            else
+                local frame = self.stack[#self.stack]
+                local neighbors = neighborsByIndex[frame.idx]
+                if frame.nextNeighbor > #neighbors then
+                    self:_pop()
+                else
+                    local nb = neighbors[frame.nextNeighbor]
+                    frame.nextNeighbor = frame.nextNeighbor + 1
+                    if not self.visited[nb.r][nb.c] then
+                        self:_tryPush(nb.r, nb.c, frame.word)
+                    end
+                    processed = processed + 1
                 end
             end
         end
-        visited[r][c] = false
 
-        -- Pop current tile from path
-        path[pathLen] = nil
+        return self.done
     end
 
-    for r = 1, n do
-        for c = 1, n do
-            dfs(r, c, "")
+    function solver:getResults()
+        local result = {}
+        for word, _ in pairs(self.found) do
+            result[#result + 1] = {
+                word = word,
+                points = scoreForWordLength(#word),
+                path = self.wordPaths[word],
+            }
         end
+        table.sort(result, function(a, b) return a.word < b.word end)
+        return result, self.wordPaths
     end
 
-    local result = {}
-    for word, _ in pairs(found) do
-        result[#result + 1] = { word = word, points = scoreForWordLength(#word), path = wordPaths[word] }
+    return solver
+end
+
+-- Returns array of {word=STRING, points=INT, path={{r,c},...}} sorted alphabetically.
+-- tiles: flat array of tile strings (length n*n)
+-- n:     board dimension (4 or 5)
+-- minLen: minimum word length to record (defaults to global MIN_WORD_LEN)
+function solveBoardAllWords(tiles, n, minLen)
+    local solver = createIncrementalBoardWordSolver(tiles, n, minLen)
+    if not solver then return {} end
+    while not solver.done do
+        solver:step(2000)
     end
-    table.sort(result, function(a, b) return a.word < b.word end)
-    return result, wordPaths
+    return solver:getResults()
 end
 
 -- Finds a valid Boggle path for a specific target word on the board.
@@ -144,15 +207,7 @@ function ensureWordPathsForPlayers(q)
     if not q or not q.boardTiles then return {} end
 
     local n = q.boardSize or inferBoardSizeFromTiles(q.boardTiles) or 4
-    local b = {}
-    local idx = 1
-    for r = 1, n do
-        b[r] = {}
-        for c = 1, n do
-            b[r][c] = string.upper(q.boardTiles[idx] or "?")
-            idx = idx + 1
-        end
-    end
+    local b = buildBoardMatrixFromTiles(q.boardTiles, n)
 
     local wordPaths = q.wordPaths or {}
 
@@ -189,15 +244,7 @@ function solveBoardMissedWords(q)
     local allWords, wordPaths = solveBoardAllWords(q.boardTiles, n, matchMinLen)
 
     -- Build local 2D board for targeted per-word path search
-    local b = {}
-    local idx = 1
-    for r = 1, n do
-        b[r] = {}
-        for c = 1, n do
-            b[r][c] = string.upper(q.boardTiles[idx] or "?")
-            idx = idx + 1
-        end
-    end
+    local b = buildBoardMatrixFromTiles(q.boardTiles, n)
 
     -- For every word on every player list, ensure a path exists.
     -- No DICT check, no length check — the word was validated during play.
