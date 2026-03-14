@@ -2,7 +2,7 @@
 
 function enterMatchFromCTBM(gkMatch, dataTable)
   -- 1. Build qMatch immediately (UI-first)
-  local q = makeQMatchFromGK(gkMatch)
+  local q = makeQMatchFromGK(gkMatch, dataTable)
   if not q then return end
   
   currentQMatch = ensureQMatchPlayers(

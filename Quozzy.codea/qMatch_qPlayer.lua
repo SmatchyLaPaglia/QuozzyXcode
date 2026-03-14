@@ -252,6 +252,11 @@ function makeQMatchFromGK(gkMatch, dataTable)
   local opponentName =
   (pl and (pl.alias or pl.displayName)) or nil
   
+  local requestedBoardSize =
+    (tbm and tbm.pendingRequestedBoardSize) or boardSize
+  local requestedMinWordLen =
+    (tbm and tbm.pendingRequestedMinWordLen) or MIN_WORD_LEN
+
   -- shell qMatch
   local q = newQMatch(
   matchId,
@@ -259,8 +264,8 @@ function makeQMatchFromGK(gkMatch, dataTable)
   localId,
   opponentId,
   opponentName,
-  (dataTable and dataTable.boardSize) or boardSize,
-  (dataTable and dataTable.minWordLen) or MIN_WORD_LEN
+  (dataTable and dataTable.boardSize) or requestedBoardSize,
+  (dataTable and dataTable.minWordLen) or requestedMinWordLen
   )
   
   q.boardTiles   = dataTable and dataTable.boardTiles or q.boardTiles

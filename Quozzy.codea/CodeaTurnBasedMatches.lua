@@ -603,6 +603,10 @@ end
 function CTBM:showMatchmaker()
   self:log("CTBM: showMatchmaker requested")
   self:_major("showMatchmaker requested")
+  -- Remember the locally selected rules in case a newly-created match comes
+  -- back before any matchData exists yet.
+  self.pendingRequestedBoardSize = boardSize
+  self.pendingRequestedMinWordLen = MIN_WORD_LEN
   
   local request = objc.GKMatchRequest()
   request.minPlayers = 2

@@ -655,45 +655,25 @@ function handleEndScreenTouch(t)
     return true
   end
   
-  -- Zone-based card navigation: left quarter of card area → previous card,
-  -- right quarter → next card. Uses card area top/bottom for vertical bounds.
+  -- card gesture handling: swipe between cards or scroll within a card
   local cr = g.cardListRect
   if cr then
-    local cw = g.cardW or cr.w
-    local n  = endCardCount or 0
     local inCardBand = (t.y >= cr.y and t.y <= cr.y + cr.h)
-
+    local inCardArea = (t.x >= cr.x and t.x <= cr.x + cr.w and inCardBand)
     if t.state == BEGAN and inCardBand then
-      local inLeft  = t.x < cr.x + cr.w * 0.25
-      local inRight = t.x > cr.x + cr.w * 0.75
-      if (inLeft and endCardIndex > 1) or (inRight and endCardIndex < n) then
-        endCardAffordanceTouchId   = t.id
-        endCardAffordanceTargetIdx = inRight and (endCardIndex + 1) or (endCardIndex - 1)
-        return true
-      end
-    elseif t.id == endCardAffordanceTouchId then
-      if t.state == ENDED then
-        local targetIdx = endCardAffordanceTargetIdx
-        if targetIdx and targetIdx >= 1 and targetIdx <= n then
-          endCardAnimPx = (targetIdx - endCardIndex) * cw
-          endCardIndex  = targetIdx
-        end
-      end
-      endCardAffordanceTouchId   = nil
-      endCardAffordanceTargetIdx = nil
-      return true
-    end
-  end
-
-  -- card gesture handling: swipe between cards or scroll within a card
-  cr = g.cardListRect
-  if cr then
-    local inCardArea = (t.x >= cr.x and t.x <= cr.x + cr.w and t.y >= cr.y and t.y <= cr.y + cr.h)
-    if t.state == BEGAN and inCardArea then
+      local n = endCardCount or 0
+      local inLeft  = t.x < WIDTH * 0.25
+      local inRight = t.x > WIDTH * 0.75
       endCardDragTouchId = t.id
       endCardDragStartX  = t.x
       endCardDragStartY  = t.y
       endCardGestureMode = nil
+      endCardAffordanceTouchId = t.id
+      if (inLeft and endCardIndex > 1) or (inRight and endCardIndex < n) then
+        endCardAffordanceTargetIdx = inRight and (endCardIndex + 1) or (endCardIndex - 1)
+      else
+        endCardAffordanceTargetIdx = nil
+      end
       return true
     elseif t.id == endCardDragTouchId then
       local dx = t.x - endCardDragStartX
@@ -742,35 +722,45 @@ function handleEndScreenTouch(t)
           local sl = endCardScrollLists and endCardScrollLists[endCardIndex]
           if sl then sl:touched(t, cr) end
         end
-        -- Tap (no gesture committed): detect row and toggle path highlight
+        -- Tap (no gesture committed): side affordance flips, otherwise detect row
+        -- and toggle path highlight when tapping inside the actual card area.
         if endCardGestureMode == nil then
-          local padT, padB, lineH = 6, 10, 28
-          local padV  = g.cardPadV or 0
-          local sl    = endCardScrollLists and endCardScrollLists[endCardIndex]
-          local words = endScreenCurrentCardWords
-          if sl and words and #words > 0 then
-            local ry     = cr.y + padV + padB
-            local rh     = cr.h - 2 * padV - padT - padB
-            local firstY = ry + rh - lineH + (sl.scroll or 0)
-            local topY   = firstY + lineH
-            local row    = math.floor((topY - t.y) / lineH) + 1
-            if row >= 1 and row <= #words then
-              local e    = words[row]
-              local word = type(e) == "table" and (e.word or "") or tostring(e or "")
-              local path = (type(e) == "table" and e.path)
-                        or (currentQMatch and currentQMatch.wordPaths and currentQMatch.wordPaths[string.upper(word)])
-              if word == endScreenHighlightedWord then
-                endScreenHighlightedPath = nil
-                endScreenHighlightedWord = nil
-              else
-                endScreenHighlightedPath = path
-                endScreenHighlightedWord = word
+          local targetIdx = endCardAffordanceTargetIdx
+          if targetIdx and targetIdx >= 1 and targetIdx <= (endCardCount or 0) then
+            local cardW = g.cardW or 100
+            endCardAnimPx = (targetIdx - endCardIndex) * cardW
+            endCardIndex = targetIdx
+          elseif inCardArea then
+            local padT, padB, lineH = 6, 10, 28
+            local padV  = g.cardPadV or 0
+            local sl    = endCardScrollLists and endCardScrollLists[endCardIndex]
+            local words = endScreenCurrentCardWords
+            if sl and words and #words > 0 then
+              local ry     = cr.y + padV + padB
+              local rh     = cr.h - 2 * padV - padT - padB
+              local firstY = ry + rh - lineH + (sl.scroll or 0)
+              local topY   = firstY + lineH
+              local row    = math.floor((topY - t.y) / lineH) + 1
+              if row >= 1 and row <= #words then
+                local e    = words[row]
+                local word = type(e) == "table" and (e.word or "") or tostring(e or "")
+                local path = (type(e) == "table" and e.path)
+                          or (currentQMatch and currentQMatch.wordPaths and currentQMatch.wordPaths[string.upper(word)])
+                if word == endScreenHighlightedWord then
+                  endScreenHighlightedPath = nil
+                  endScreenHighlightedWord = nil
+                else
+                  endScreenHighlightedPath = path
+                  endScreenHighlightedWord = word
+                end
               end
             end
           end
         end
         endCardDragTouchId = nil
         endCardGestureMode = nil
+        endCardAffordanceTouchId = nil
+        endCardAffordanceTargetIdx = nil
         return true
       end
     end

@@ -168,7 +168,7 @@ function endGameRound()
 
   if oppId and buildRecordSyncForOpponent then
     local alias = q.otherName or q.opponentName or opponentAlias
-    local sync = buildRecordSyncForOpponent(oppId, alias, pid)
+    local sync = buildRecordSyncForOpponent(oppId, alias, pid, nil)
     if sync then
       turnData.recordSync = sync
     end
@@ -193,14 +193,29 @@ function endGameRound()
   local outcome
   if myScore > oppScore then
     outcome = "win"
+    if oppId and buildRecordSyncForOpponent then
+      local alias = q.otherName or q.opponentName or opponentAlias
+      local sync = buildRecordSyncForOpponent(oppId, alias, pid, outcome)
+      if sync then turnData.recordSync = sync end
+    end
     tbm:localPlayerWon(turnData)
     
   elseif myScore < oppScore then
     outcome = "loss"
+    if oppId and buildRecordSyncForOpponent then
+      local alias = q.otherName or q.opponentName or opponentAlias
+      local sync = buildRecordSyncForOpponent(oppId, alias, pid, outcome)
+      if sync then turnData.recordSync = sync end
+    end
     tbm:localPlayerLost(turnData)
     
   else
     outcome = "tie"
+    if oppId and buildRecordSyncForOpponent then
+      local alias = q.otherName or q.opponentName or opponentAlias
+      local sync = buildRecordSyncForOpponent(oppId, alias, pid, outcome)
+      if sync then turnData.recordSync = sync end
+    end
     tbm:localPlayerTied(turnData)
   end
   

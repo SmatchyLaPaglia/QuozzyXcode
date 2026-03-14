@@ -98,17 +98,36 @@ function normalizedOpponentRecord(oppId, alias)
   return rec
 end
 
-function buildRecordSyncForOpponent(oppId, alias, senderId)
+local function projectedRecordFromResult(rec, result)
+  local out = {
+    wins = _int0(rec and rec.wins),
+    losses = _int0(rec and rec.losses),
+    ties = _int0(rec and rec.ties),
+  }
+  if result == "win" then
+    out.wins = out.wins + 1
+  elseif result == "loss" then
+    out.losses = out.losses + 1
+  elseif result == "tie" then
+    out.ties = out.ties + 1
+  end
+  return out
+end
+
+function buildRecordSyncForOpponent(oppId, alias, senderId, result)
   local rec = normalizedOpponentRecord(oppId, alias)
   if not rec then return nil end
+  local projected = projectedRecordFromResult(rec, result)
+  local stamp = os.time()
   return {
     senderId = senderId,
     opponentId = oppId,
     alias = rec.alias,
-    wins = rec.wins,
-    losses = rec.losses,
-    ties = rec.ties,
-    updatedAt = rec.updatedAt or 0
+    wins = projected.wins,
+    losses = projected.losses,
+    ties = projected.ties,
+    updatedAt = stamp,
+    final = (result == "win" or result == "loss" or result == "tie") and true or false,
   }
 end
 
@@ -116,12 +135,6 @@ function mergeOpponentRecordFromTurnData(gkMatch, dataTable)
   if type(dataTable) ~= "table" then return false end
   local rs = dataTable.recordSync
   if type(rs) ~= "table" then return false end
-  
-  -- Per sync policy: only merge while match is still open.
-  if tbm and tbm._getEndStateFromMatch and gkMatch then
-    local endState = tbm:_getEndStateFromMatch(gkMatch)
-    if endState then return false end
-  end
   
   local localId = localPID()
   local senderId = rs.senderId
@@ -164,6 +177,6 @@ function mergeOpponentRecordFromTurnData(gkMatch, dataTable)
   end
   opponentRecords[senderId] = rec
   saveOpponentRecords()
-  devLog("Record sync adopted", "opponent=", senderId, "wins=", rec.wins, "losses=", rec.losses, "ties=", rec.ties)
+  devLog("Record sync adopted", "opponent=", senderId, "wins=", rec.wins, "losses=", rec.losses, "ties=", rec.ties, "final=", tostring(rs.final))
   return true
 end
