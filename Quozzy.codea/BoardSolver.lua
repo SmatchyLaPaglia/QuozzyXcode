@@ -232,6 +232,87 @@ function ensureWordPathsForPlayers(q)
     return wordPaths
 end
 
+local function shallowCopyWordEntry(entry)
+    if type(entry) == "table" then
+        local copy = {}
+        for k, v in pairs(entry) do copy[k] = v end
+        copy.word = copy.word or ""
+        return copy
+    end
+    return { word = tostring(entry or "") }
+end
+
+local function normalizedWordValue(entry)
+    local w = type(entry) == "table" and entry.word or tostring(entry or "")
+    return string.upper(w or "")
+end
+
+local function endWordEntrySort(a, b)
+    local aShared = not not (a and a.shared)
+    local bShared = not not (b and b.shared)
+    if aShared ~= bShared then return aShared end
+    local aw = string.upper((a and a.word) or "")
+    local bw = string.upper((b and b.word) or "")
+    if #aw ~= #bw then return #aw > #bw end
+    return aw < bw
+end
+
+function buildSortedEndWordEntries(entries)
+    local out = {}
+    for i = 1, #(entries or {}) do
+        local copy = shallowCopyWordEntry(entries[i])
+        local w = normalizedWordValue(copy)
+        copy.word = w
+        copy.points = scoreForWordLength(#w)
+        out[#out + 1] = copy
+    end
+    table.sort(out, endWordEntrySort)
+    return out
+end
+
+function reconcileCompetitiveWordResults(wordsA, wordsB)
+    local shared = {}
+    local seenB = {}
+    for i = 1, #(wordsB or {}) do
+        local w = normalizedWordValue(wordsB[i])
+        if w ~= "" then seenB[w] = true end
+    end
+    for i = 1, #(wordsA or {}) do
+        local w = normalizedWordValue(wordsA[i])
+        if w ~= "" and seenB[w] then
+            shared[w] = true
+        end
+    end
+
+    local function decorate(entries)
+        local out = {}
+        local total = 0
+        for i = 1, #(entries or {}) do
+            local copy = shallowCopyWordEntry(entries[i])
+            local w = normalizedWordValue(copy)
+            copy.word = w
+            copy.shared = (w ~= "" and shared[w]) or false
+            copy.points = copy.shared and 0 or scoreForWordLength(#w)
+            if not copy.shared then
+                total = total + copy.points
+            end
+            out[#out + 1] = copy
+        end
+        table.sort(out, endWordEntrySort)
+        return out, total
+    end
+
+    local entriesA, scoreA = decorate(wordsA)
+    local entriesB, scoreB = decorate(wordsB)
+    return {
+        shared = shared,
+        entriesA = entriesA,
+        entriesB = entriesB,
+        scoreA = scoreA,
+        scoreB = scoreB,
+    }
+end
+
 -- Returns words on the board that no player found.
 -- Also populates q.wordPaths (word -> path) for ALL board words so that
 -- tapping any word on the end screen can show its board path.

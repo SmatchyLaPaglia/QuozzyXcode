@@ -131,13 +131,45 @@ function buildEndScreenModel()
   local losses = rec and rec.losses or 0
   
   local line1 = nil
-  if complete then
-    if scoreA > scoreB then
-      line1 = string.format("You won %d to %d!", scoreA, scoreB)
-    elseif scoreA < scoreB then
-      line1 = string.format("You lost %d to %d!", scoreA, scoreB)
+  local singleList = nil
+  local column1Words = nil
+  local column2Words = nil
+  local missedWords = q and q.missedWords or nil
+  local scoreAResolved = scoreA
+  local scoreBResolved = scoreB
+
+  if not is2P then
+    singleList = buildSortedEndWordEntries and buildSortedEndWordEntries(currentFoundWords() or {}) or (currentFoundWords() or {})
+  elseif complete then
+    local reconciled = reconcileCompetitiveWordResults and reconcileCompetitiveWordResults(
+      (pLocal and pLocal.words) or {},
+      (pOther and pOther.words) or {}
+    ) or nil
+    if reconciled then
+      column1Words = reconciled.entriesA
+      column2Words = reconciled.entriesB
+      scoreAResolved = reconciled.scoreA
+      scoreBResolved = reconciled.scoreB
     else
-      line1 = string.format("Tie game, %d all!", scoreA)
+      column1Words = (pLocal and pLocal.words) or {}
+      column2Words = (pOther and pOther.words) or {}
+    end
+  else
+    column1Words = buildSortedEndWordEntries and buildSortedEndWordEntries((pLocal and pLocal.words) or {}) or ((pLocal and pLocal.words) or {})
+    column2Words = waitingWords
+  end
+
+  if missedWords and buildSortedEndWordEntries then
+    missedWords = buildSortedEndWordEntries(missedWords)
+  end
+
+  if complete then
+    if scoreAResolved > scoreBResolved then
+      line1 = string.format("You won %d to %d!", scoreAResolved, scoreBResolved)
+    elseif scoreAResolved < scoreBResolved then
+      line1 = string.format("You lost %d to %d!", scoreAResolved, scoreBResolved)
+    else
+      line1 = string.format("Tie game, %d all!", scoreAResolved)
     end
   end
 
@@ -156,9 +188,9 @@ function buildEndScreenModel()
     end
 
     if not alreadyCounted then
-      if scoreA > scoreB then
+      if scoreAResolved > scoreBResolved then
         wins = wins + 1
-      elseif scoreA < scoreB then
+      elseif scoreAResolved < scoreBResolved then
         losses = losses + 1
       end
     end
@@ -169,7 +201,7 @@ function buildEndScreenModel()
   or nil
   
   return {
-    missedWords = q and q.missedWords or nil,
+    missedWords = missedWords,
     missedWordsPending = matchComplete and (q ~= nil) and not (q and q.missedWords),
 
     dimColor = Color.panelDim,
@@ -182,16 +214,16 @@ function buildEndScreenModel()
     opponentAvatar = opponentAvatarOverride,
     
     -- SINGLE PLAYER LIST
-    singleList = (not is2P) and (currentFoundWords() or {}) or nil,
+    singleList = (not is2P) and singleList or nil,
     
     -- TWO PLAYER COLUMNS (POSITIONAL ONLY)
     column1 = is2P and {
-      words = (pLocal and pLocal.words) or {}
+      words = column1Words or {}
     } or nil,
     
     column2 = is2P and {
       words = complete
-      and ((pOther and pOther.words) or {})
+      and (column2Words or {})
       or waitingWords
     } or nil,
     
@@ -500,28 +532,35 @@ end
 function makeRowRenderer(entries, model)
   return function(row, y, x)
     local e = entries[row]
-    local textValue, pts
+    local textValue, pts, shared
 
     if type(e) == "table" then
       textValue = e.word or ""
       pts = e.points
+      shared = e.shared
     else
       textValue = tostring(e or "")
     end
 
-    local label    = pts and string.format("%s  (+%d)", textValue, pts) or textValue
+    local label = textValue
+    if pts and pts > 0 then
+      label = string.format("%s  (+%d)", textValue, pts)
+    end
     local selected = (endScreenHighlightedWord and textValue ~= "" and textValue == endScreenHighlightedWord)
+    local textColor = selected and (Color.uiAccent2 or Color.uiAccent) or (model.wordColor or Color.uiAccent)
 
     pushStyle()
     textAlign(LEFT)
     textMode(CORNER)
     fontSize(24)
-    if selected then
-      fill(Color.uiAccent2 or Color.uiAccent)
-    else
-      fill(model.wordColor or Color.uiAccent)
-    end
+    fill(textColor)
     text(label, x, y)
+    if shared and label ~= "" then
+      local tw, th = textSize(label)
+      stroke(textColor)
+      strokeWidth(2)
+      line(x, y + th * 0.58, x + tw, y + th * 0.58)
+    end
     popStyle()
   end
 end

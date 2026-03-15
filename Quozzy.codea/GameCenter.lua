@@ -186,7 +186,20 @@ function endGameRound()
   ------------------------------------------------------------
   -- BOTH PLAYED → determine outcome and end match
   ------------------------------------------------------------
-  
+
+  if reconcileCompetitiveWordResults and oppData then
+    local reconciled = reconcileCompetitiveWordResults(
+      q.players[pid].words or {},
+      oppData.words or {}
+    )
+    q.players[pid].words = reconciled.entriesA
+    q.players[pid].score = reconciled.scoreA
+    oppData.words = reconciled.entriesB
+    oppData.score = reconciled.scoreB
+    score = reconciled.scoreA
+    opponentScore = reconciled.scoreB
+  end
+
   local myScore  = q.players[pid].score or 0
   local oppScore = (oppData and oppData.score) or 0
   
