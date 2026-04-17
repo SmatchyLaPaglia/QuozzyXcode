@@ -472,61 +472,80 @@ end
 
 local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tailSide, fillColor, outlineColor, opts)
   if not rect or not textValue or textValue == "" then return end
-  ensureSpeechBalloonPOCResources()
   opts = opts or {}
   local alphaMul = opts.alphaMul or 1
   if alphaMul <= 0.01 then return end
-  
-  local contour = buildSpeechBalloonContour(rect.x, rect.y, rect.w, rect.h, tailAnchorX, tailAnchorY, {
-    cornerRadius = opts.cornerRadius or math.min(rect.w, rect.h) * 0.30,
-    tailLength = opts.tailLength or (rect.h * 0.26),
-    tailBaseWidth = opts.tailBaseWidth or (rect.w * 0.13),
-    arcSegments = 10,
-    tailSide = tailSide or "down",
-    tailBaseCenterOverride = opts.tailAnchorOverrideX,
-  })
-  local pad = opts.shaderPadding or 8
-  local minX, minY, maxX, maxY = contourBounds(contour)
-  local drawX = minX - pad
-  local drawY = minY - pad
-  local drawW = (maxX - minX) + pad * 2
-  local drawH = (maxY - minY) + pad * 2
-  local centerX = drawX + drawW * 0.5
-  local centerY = drawY + drawH * 0.5
-  local points, pointCount = speechBalloonShaderContourPoints(contour, centerX, centerY)
-  
-  pushStyle()
-  noStroke()
-  pushMatrix()
-  resetMatrix()
-  translate(centerX, centerY)
-  scale(drawW, drawH)
-  local shaderRef = SPEECH_BALLOON_POC_SHADER
-  local fc = fillColor or color(255, 255, 255, 245)
-  local oc = outlineColor or (Color.uiAccent or color(40, 80, 60, 255))
-  shaderRef.fillColor = color(fc.r, fc.g, fc.b, (fc.a or 255) * alphaMul)
-  shaderRef.outlineColor = color(oc.r, oc.g, oc.b, (oc.a or 255) * alphaMul)
-  shaderRef.canvasSize = vec2(drawW, drawH)
-  shaderRef.contourPoints = points
-  shaderRef.contourPointCount = pointCount
-  shaderRef.outlineWidth = opts.outlineWidth or 1.5
-  shaderRef.edgeSoftness = 1.25
-  SPEECH_BALLOON_POC_MESH:draw()
-  popMatrix()
-  popStyle()
-  
-  local textInset = opts.textInsetX or (rect.w * 0.09)
+
+  local fc  = fillColor    or color(255, 255, 255, 245)
+  local oc  = outlineColor or (Color.uiAccent or color(40, 80, 60, 255))
+  local fa  = math.floor((fc.a or 255) * alphaMul)
+  local oa  = math.floor((oc.a or 255) * alphaMul)
+  local bodyFill   = color(fc.r, fc.g, fc.b, fa)
+  local borderFill = color(oc.r, oc.g, oc.b, oa)
+  local cr         = opts.cornerRadius  or math.min(rect.w, rect.h) * 0.30
+  local tailBaseW  = opts.tailBaseWidth or (rect.w * 0.13)
+  local tailLen    = opts.tailLength    or (rect.h * 0.36)
+  local outlineW   = opts.outlineWidth  or 1.5
+
+  -- Tail base center on the body bottom edge, clamped away from corners
+  local baseX = opts.tailAnchorOverrideX or (rect.x + rect.w * 0.5)
+  baseX = math.max(rect.x + cr + tailBaseW * 0.5,
+          math.min(rect.x + rect.w - cr - tailBaseW * 0.5, baseX))
+
+  -- Tail tip: step toward anchor, limited to tailLen
+  local dx = tailAnchorX - baseX
+  local dy = tailAnchorY - rect.y
+  local dist = math.sqrt(dx * dx + dy * dy)
+  local tipX, tipY = baseX, rect.y - tailLen
+  if dist > 0.01 then
+    local s = math.min(dist, tailLen) / dist
+    tipX = baseX + dx * s
+    tipY = rect.y  + dy * s
+  end
+
+  -- Border pass (slightly expanded)
+  if outlineW > 0 then
+    local bm = mesh()
+    bm.vertices = {
+      vec2(baseX - tailBaseW * 0.5 - outlineW, rect.y),
+      vec2(baseX + tailBaseW * 0.5 + outlineW, rect.y),
+      vec2(tipX, tipY - outlineW),
+    }
+    bm.colors = { borderFill, borderFill, borderFill }
+    bm:draw()
+    drawRoundedRect(
+      rect.x + rect.w * 0.5, rect.y + rect.h * 0.5,
+      rect.w + outlineW * 2,  rect.h + outlineW * 2,
+      cr + outlineW, borderFill, borderFill
+    )
+  end
+
+  -- Fill pass
+  local fm = mesh()
+  fm.vertices = {
+    vec2(baseX - tailBaseW * 0.5, rect.y),
+    vec2(baseX + tailBaseW * 0.5, rect.y),
+    vec2(tipX, tipY),
+  }
+  fm.colors = { bodyFill, bodyFill, bodyFill }
+  fm:draw()
+  drawRoundedRect(
+    rect.x + rect.w * 0.5, rect.y + rect.h * 0.5,
+    rect.w, rect.h,
+    cr, bodyFill, bodyFill
+  )
+
+  -- Text
+  local textInsetX = opts.textInsetX or (rect.w * 0.06)
   local textInsetY = opts.textInsetY or 4
   local fontSizeValue = opts.fontSizeValue or math.max(14, rect.h * 0.24)
-  local lineH = opts.lineHeight or (fontSizeValue * 1.08)
-  local lines = opts.lines or wrapSpeechBalloonText(textValue, rect.w - textInset * 2, fontSizeValue)
-  local textBodyTop = rect.y + rect.h - textInsetY
-  local textBodyBottom = rect.y + textInsetY
-  local textCenterY = (textBodyTop + textBodyBottom) * 0.5
+  local lineH  = opts.lineHeight or (fontSizeValue * 1.08)
+  local lines  = opts.lines or wrapSpeechBalloonText(textValue, rect.w - textInsetX * 2, fontSizeValue)
+  local textCenterY = rect.y + rect.h * 0.5
   local startY = textCenterY + ((#lines - 1) * lineH) * 0.5
   pushStyle()
   local tc = opts.textColor or Color.tileText or color(40, 80, 60, 255)
-  fill(tc.r, tc.g, tc.b, (tc.a or 255) * alphaMul)
+  fill(tc.r, tc.g, tc.b, math.floor((tc.a or 255) * alphaMul))
   textAlign(CENTER)
   textMode(CENTER)
   font("HelveticaNeue")

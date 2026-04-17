@@ -697,7 +697,7 @@ function handleEndScreenTouch(t)
     if t.x >= r.x and t.x <= r.x + r.w and
        t.y >= r.y and t.y <= r.y + r.h then
       endScreenCommentFocused = true
-      if showKeyboard then showKeyboard() end
+      setEndScreenCommentKeyboardVisible(true)
       return true
     end
   end
