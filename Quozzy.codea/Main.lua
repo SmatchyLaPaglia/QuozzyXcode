@@ -64,6 +64,8 @@ end
 --print = devLog
 
 viewer.mode = FULLSCREEN
+FORCE_RED_BOOT_SCREEN = false
+FORCE_COMMENT_PHASE_BOOT_PREVIEW = true
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
@@ -850,6 +852,14 @@ function setup()
   tbm:onReceivingTurn(function(gkMatch, dataTable)
     print("GC → QUOZZY RECEIVE turnData:")
     print(dataTable and json.encode(dataTable) or "nil dataTable")
+    if dataTable and dataTable.players then
+      for pid, pdata in pairs(dataTable.players) do
+        local comment = pdata and pdata.comment
+        if type(comment) == "string" and comment ~= "" then
+          devLog("Received match comment", "pid=", pid, "comment=", comment)
+        end
+      end
+    end
     if mergeOpponentRecordFromTurnData then
       mergeOpponentRecordFromTurnData(gkMatch, dataTable)
     end
@@ -880,6 +890,9 @@ function setup()
 
   loadPendingTurnSends()
   setupGCDebugParameters()
+  if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
+    openDebugCommentPhasePreview()
+  end
 end
 
 function setupSparklerParameters()
@@ -946,6 +959,11 @@ function drawReplayMatchmakingOverlay()
 end
 
 function draw()
+  if FORCE_RED_BOOT_SCREEN then
+    background(255, 0, 0)
+    return
+  end
+
   local function safeDrawCall(name, fn)
     local ok, err = pcall(fn)
     if not ok then
@@ -1083,6 +1101,10 @@ function handlePreviewTouch(t)
 end
 
 function touched(t)
+  if FORCE_RED_BOOT_SCREEN then
+    return
+  end
+
   if replayMatchmakingBusy then
     return
   end

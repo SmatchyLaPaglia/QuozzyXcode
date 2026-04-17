@@ -1,21 +1,28 @@
-function drawEndUpperRightAvatarsOnly(args)
+function getEndUpperRightAvatarLayout(args)
   local cameoSize = math.min(args.rightW, args.areaH) * 0.62
   local dx = args.rightW * 0.14
   local dy = args.areaH  * 0.12
   
   local xNudge1, xNudge2 = 5, 10
   
-  local c1x = args.rightCX - dx + xNudge1
-  local c1y = args.areaCY + dy
-  
-  local c2x = args.rightCX + dx + xNudge2
-  local c2y = args.areaCY - dy * 0.45
+  return {
+    localX = args.rightCX - dx + xNudge1,
+    localY = args.areaCY + dy,
+    opponentX = args.rightCX + dx + xNudge2,
+    opponentY = args.areaCY - dy * 0.45,
+    localSize = cameoSize,
+    opponentSize = cameoSize * 0.92,
+  }
+end
+
+function drawEndUpperRightAvatarsOnly(args)
+  local layout = getEndUpperRightAvatarLayout(args)
   
   local oppImg = args.opponentAvatar or otherPlayerAvatar
   
   pushStyle()
-  drawAvatarCircle(oppImg, c2x, c2y, cameoSize * 0.92, "O")
-  drawAvatarCircle(localPlayerAvatar,  c1x, c1y, cameoSize,        "Y")
+  drawAvatarCircle(oppImg, layout.opponentX, layout.opponentY, layout.opponentSize, "O")
+  drawAvatarCircle(localPlayerAvatar, layout.localX, layout.localY, layout.localSize, "Y")
   popStyle()
 end
 

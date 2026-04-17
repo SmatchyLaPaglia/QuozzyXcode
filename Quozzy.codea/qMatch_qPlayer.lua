@@ -27,10 +27,10 @@ function newQMatch(id, source, localId, opponentId, opponentName, bSize, minLen)
     players = {}
   }
   
-  q.players[localId] = { score=0, words={}, wordTimes={}, didPlay=false }
+  q.players[localId] = { score=0, words={}, wordTimes={}, didPlay=false, comment="", commentSentAt=nil }
   
   if opponentId then
-    q.players[opponentId] = { score=0, words={}, wordTimes={}, didPlay=false }
+    q.players[opponentId] = { score=0, words={}, wordTimes={}, didPlay=false, comment="", commentSentAt=nil }
   end
   
   return q
@@ -93,6 +93,8 @@ function ensureQMatchPlayers(q, localId, opponentId)
     p.words     = p.words     or {}
     p.wordTimes = p.wordTimes or {}
     p.score     = p.score     or 0
+    p.comment   = p.comment   or ""
+    p.commentSentAt = p.commentSentAt or nil
     if p.didPlay == nil then p.didPlay = false end
     return p
   end
@@ -269,6 +271,9 @@ function makeQMatchFromGK(gkMatch, dataTable)
   )
   
   q.boardTiles   = dataTable and dataTable.boardTiles or q.boardTiles
+  if dataTable and type(dataTable.commentPhase) == "table" then
+    q.commentPhase = dataTable.commentPhase
+  end
   do
     local inferred = inferBoardSizeFromTiles and inferBoardSizeFromTiles(q.boardTiles) or nil
     if inferred and areBoardTilesValidForSize and areBoardTilesValidForSize(q.boardTiles, inferred) then
@@ -288,6 +293,8 @@ function makeQMatchFromGK(gkMatch, dataTable)
         if patch.words ~= nil then slot.words = patch.words end
         if patch.wordTimes ~= nil then slot.wordTimes = patch.wordTimes end
         if patch.didPlay ~= nil then slot.didPlay = patch.didPlay end
+        if patch.comment ~= nil then slot.comment = patch.comment end
+        if patch.commentSentAt ~= nil then slot.commentSentAt = patch.commentSentAt end
       end
     end
   end
@@ -348,6 +355,86 @@ function getOrCreateQPlayer(id, name)
     return qp
 end
 
+function openDebugCommentPhasePreview()
+    local q = makeDebugQMatch()
+    if not q then
+        print("GCDBG: could not create debug qMatch for comment preview")
+        return
+    end
+
+    local myId = localPID()
+    local oppId = nil
+    for pid, _ in pairs(q.players or {}) do
+        if pid ~= myId then
+            oppId = pid
+            break
+        end
+    end
+    if not oppId then
+        print("GCDBG: comment preview missing opponent slot")
+        return
+    end
+
+    q.players[myId] = q.players[myId] or {}
+    q.players[oppId] = q.players[oppId] or {}
+
+    q.players[myId].didPlay = true
+    q.players[myId].score = q.players[myId].score or 17
+    q.players[myId].words = q.players[myId].words or {"ALPHA", "BETA", "GAMMA"}
+    q.players[myId].comment = ""
+    q.players[myId].commentSentAt = nil
+
+    q.players[oppId].didPlay = true
+    q.players[oppId].score = q.players[oppId].score or 15
+    q.players[oppId].words = q.players[oppId].words or {"DELTA", "EPSILON", "ZETA"}
+    q.players[oppId].comment = "Nice board. I missed two obvious ones."
+    q.players[oppId].commentSentAt = os.time() - 60
+
+    q.commentPhase = {
+        initiatorId = oppId,
+        responderId = myId,
+        stage = "responderTurn",
+        startedAt = os.time() - 60,
+        lastUpdated = os.time(),
+    }
+    q.pendingFinalOutcome = "win"
+    q.awaitingCommentBeforeFinalization = true
+    q.lastUpdated = os.time()
+
+    currentQMatch = ensureQMatchPlayers(q, myId, oppId)
+    if tbm then
+        tbm.currentMatch = {
+            matchID = q.id,
+            participants = {}
+        }
+        tbm.isMyTurn = true
+    end
+
+    if enterQMatch then
+        enterQMatch(currentQMatch)
+    else
+        useTurnBased = true
+        currentMatchID = q.id
+        currentOpponentID = oppId
+        opponentAlias = q.otherName or q.opponentName or "Opponent"
+        score = tonumber(q.players[myId].score) or 0
+        opponentScore = tonumber(q.players[oppId].score) or 0
+        foundWords = q.players[myId].words or {}
+        foundWordsSet = {}
+        for _, w in ipairs(foundWords) do
+            if type(w) == "string" then
+                foundWordsSet[w] = true
+            end
+        end
+        state = STATE_END
+    end
+
+    endScreenSpeechBalloonsVisible = true
+    endScreenCommentDraft = ""
+
+    print("GCDBG: opened comment phase preview for match", q.id, "vs", opponentAlias)
+end
+
 function setupGCDebugParameters()
   parameter.action("Dump Opponent Records", function()
     dumpOpponentRecords()
@@ -373,6 +460,9 @@ function setupGCDebugParameters()
     end)
     parameter.action("GCDBG_LoadLocalAvatar", function()
         loadLocalPlayerAvatar()
+    end)
+    parameter.action("Debug: Comment Phase Preview", function()
+        openDebugCommentPhasePreview()
     end)
 end
 

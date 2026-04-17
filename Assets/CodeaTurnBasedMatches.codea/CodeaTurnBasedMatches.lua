@@ -175,6 +175,34 @@ function CTBM:_matchWithNSDataToDataTable(o__match)
   return decodedTable
 end
 
+function CTBM:_extractNotificationMessage(dataTable)
+  if type(dataTable) ~= "table" then return dataTable, nil end
+  
+  local notification =
+    dataTable.__gcMessage
+    or dataTable._notificationMessage
+    or dataTable.notificationMessage
+  
+  if type(notification) ~= "string" or notification == "" then
+    return dataTable, nil
+  end
+  
+  local cleanTable = {}
+  for k, v in pairs(dataTable) do
+    if k ~= "__gcMessage" and k ~= "_notificationMessage" and k ~= "notificationMessage" then
+      cleanTable[k] = v
+    end
+  end
+  
+  return cleanTable, notification
+end
+
+function CTBM:_applyNotificationMessage(match, notification)
+  if not (match and notification and notification ~= "") then return end
+  match.message = notification
+  self:log("CTBM: match.message set to", notification)
+end
+
 function CTBM:_endMatchLocal(endState, payload)
   assert(self.currentMatch, "CTBM: no current match")
   
@@ -210,7 +238,8 @@ function CTBM:_notifyGameCenterOfGameEnd(endState, payload)
   if not self.currentMatch then return end
   
   local match = self.currentMatch
-  local data  = self:_dataTableToNSData(payload)
+  local cleanPayload, notification = self:_extractNotificationMessage(payload)
+  local data  = self:_dataTableToNSData(cleanPayload)
   
   ------------------------------------------------------------
   -- Apply match outcomes (except QUIT)
@@ -238,6 +267,8 @@ function CTBM:_notifyGameCenterOfGameEnd(endState, payload)
   ------------------------------------------------------------
   -- Notify Game Center
   ------------------------------------------------------------
+  self:_applyNotificationMessage(match, notification)
+  
   if endState == CTBM.ENDSTATE.QUIT then
     local localId = self.localPlayer.playerID
     local nextParticipants = {}
@@ -270,7 +301,7 @@ function CTBM:_notifyGameCenterOfGameEnd(endState, payload)
         self:log("CTBM: endMatch error:", o__Error.localizedDescription)
       else
         self:log("CTBM: endMatch sent")
-        self:_finalizeGameEnd(match, payload, endState)
+        self:_finalizeGameEnd(match, cleanPayload, endState)
       end
     end
     )
@@ -714,7 +745,9 @@ function CTBM:endTurnWithDataTable(t)
   self:log("CTBM:endTurn -> passing turn on match ",
   self.currentMatch.matchID)
   
-  local data = self:_dataTableToNSData(t)
+  local cleanDataTable, notification = self:_extractNotificationMessage(t)
+  local data = self:_dataTableToNSData(cleanDataTable)
+  self:_applyNotificationMessage(self.currentMatch, notification)
   self.currentMatch: endTurnWithNextParticipants_turnTimeout_matchData_completionHandler_(
   nextParticipants,
   0,
@@ -724,7 +757,7 @@ function CTBM:endTurnWithDataTable(t)
       self:log("CTBM:endTurn error:", o__err.localizedDescription)
     else    
       self:log("CTBM: endTurnWithNextParticipants succeeded")
-      local sentDataTable = t or nil
+      local sentDataTable = cleanDataTable or nil
       local associatedMatch = self.currentMatch
       
       self.currentMatch = nil

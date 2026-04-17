@@ -16,6 +16,8 @@
 		DB83FB3A223DBDA3005750D2 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = DB83FB38223DBDA3005750D2 /* LaunchScreen.storyboard */; };
 		DB83FB54223DBF71005750D2 /* ProjectAddon.mm in Sources */ = {isa = PBXBuildFile; fileRef = DB83FB53223DBF71005750D2 /* ProjectAddon.mm */; };
 		DB83FB7B223DC2E5005750D2 /* ProjectModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = DB83FB7A223DC2E5005750D2 /* ProjectModule.mm */; };
+		E41E3FBB2F91267600002FA5 /* SnoreAndDieRender.lua in Resources */ = {isa = PBXBuildFile; fileRef = E41E3FBA2F91266000002FA5 /* SnoreAndDieRender.lua */; };
+		E41E3FBD2F91291700002FA5 /* ScoreSheetsCore.lua in Resources */ = {isa = PBXBuildFile; fileRef = E41E3FBC2F91291700002FA5 /* ScoreSheetsCore.lua */; };
 		E496AD252F553969000C3E05 /* Loading_QuozzySeasons.png in Resources */ = {isa = PBXBuildFile; fileRef = E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */; };
 		E496AD272F5FA61A000C3E05 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = E496AD262F5FA610000C3E05 /* CLAUDE.md */; };
 /* End PBXBuildFile section */
@@ -65,6 +67,8 @@
 		DB83FB79223DC2E5005750D2 /* ProjectModule.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ProjectModule.h; sourceTree = "<group>"; };
 		DB83FB7A223DC2E5005750D2 /* ProjectModule.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ProjectModule.mm; sourceTree = "<group>"; };
 		DBE4204D260B8B0D002BF271 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		E41E3FBA2F91266000002FA5 /* SnoreAndDieRender.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = SnoreAndDieRender.lua; sourceTree = "<group>"; };
+		E41E3FBC2F91291700002FA5 /* ScoreSheetsCore.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = ScoreSheetsCore.lua; sourceTree = "<group>"; };
 		E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Loading_QuozzySeasons.png; sourceTree = "<group>"; };
 		E496AD262F5FA610000C3E05 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -85,6 +89,8 @@
 			isa = PBXGroup;
 			children = (
 				E496AD262F5FA610000C3E05 /* CLAUDE.md */,
+				E41E3FBA2F91266000002FA5 /* SnoreAndDieRender.lua */,
+				E41E3FBC2F91291700002FA5 /* ScoreSheetsCore.lua */,
 				DB0F615822709F060024AE28 /* Quozzy.codea */,
 				DB0F615A2270A0FB0024AE28 /* Assets */,
 				DB83FB2E223DBDA2005750D2 /* Quozzy */,
@@ -233,9 +239,11 @@
 			files = (
 				DB83FB3A223DBDA3005750D2 /* LaunchScreen.storyboard in Resources */,
 				DB0F615B2270A0FB0024AE28 /* Assets in Resources */,
+				E41E3FBB2F91267600002FA5 /* SnoreAndDieRender.lua in Resources */,
 				E496AD272F5FA61A000C3E05 /* CLAUDE.md in Resources */,
 				DB83FB37223DBDA3005750D2 /* Assets.xcassets in Resources */,
 				DB0F615922709F060024AE28 /* Quozzy.codea in Resources */,
+				E41E3FBD2F91291700002FA5 /* ScoreSheetsCore.lua in Resources */,
 				E496AD252F553969000C3E05 /* Loading_QuozzySeasons.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

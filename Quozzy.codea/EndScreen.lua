@@ -374,6 +374,12 @@ function calculateEndScreenDimensions()
   
   g.boardCX, g.boardCY, g.boardSide = boardCX, boardCY, boardSide
   g.rightCX, g.rightW, g.msgCY, g.msgH, g.scoreCY, g.scoreH = rightCX, rightW, msgCY, msgH, scoreCY, scoreH
+  g.topToggleRect = {
+    x = innerLeft,
+    y = listsTop,
+    w = contentW,
+    h = innerTop - listsTop
+  }
   
   g.closeX, g.closeY, g.closeSize = closeX, closeY, closeSize
   
@@ -649,10 +655,51 @@ function handleEndScreenTouch(t)
   ensureEndScreenLayout()
   g = endScreenLayout
   
-  if t.state == BEGAN and pointInRect(t.x,t.y,g.closeX,g.closeY,g.closeSize,g.closeSize) then
-    endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
-    startSeasonTransition()
-    return true
+  if t.state == ENDED and pointInRect(t.x,t.y,g.closeX,g.closeY,g.closeSize,g.closeSize) then
+    if commitEndScreenCommentAndExit and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
+      if commitEndScreenCommentAndExit() then
+        return true
+      end
+    else
+      if finalizeCompletedTurnBasedMatch then
+        finalizeCompletedTurnBasedMatch(nil)
+      end
+      endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
+      startSeasonTransition()
+      return true
+    end
+  end
+  
+  if t.state == BEGAN and g.topToggleRect then
+    local r = g.topToggleRect
+    if t.x >= r.x and t.x <= r.x + r.w and
+       t.y >= r.y and t.y <= r.y + r.h then
+      if currentQMatch and currentQMatch.players then
+        local myId = localPID()
+        local me = currentQMatch.players[myId] or {}
+        local otherComment = ""
+        for pid, pdata in pairs(currentQMatch.players) do
+          if pid ~= myId and pdata and type(pdata.comment) == "string" then
+            otherComment = pdata.comment
+            break
+          end
+        end
+        if (me.comment and me.comment ~= "") or otherComment ~= "" then
+          endScreenSpeechBalloonsVisible = not endScreenSpeechBalloonsVisible
+          return true
+        end
+      end
+    end
+  end
+  
+  if t.state == ENDED and endScreen2PButtonRect and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
+    local r = endScreen2PButtonRect
+    if t.x >= r.x and t.x <= r.x + r.w and
+       t.y >= r.y and t.y <= r.y + r.h then
+      endScreenCommentFocused = true
+      if showKeyboard then showKeyboard() end
+      return true
+    end
   end
   
   -- card gesture handling: swipe between cards or scroll within a card
