@@ -104,13 +104,14 @@ function currentFinalCommentPhase()
   local q = currentQMatch
   if not (useTurnBased and q and q.players and tbm and tbm.currentMatch) then return nil end
   local pid, me, oppId, oppData = getLocalAndOpponentPlayers(q)
-  if not (pid and me and oppId and oppData and me.didPlay and oppData.didPlay) then return nil end
+  if not (pid and me and oppId and oppData and me.didPlay) then return nil end
 
   return {
-    localId        = pid,
-    localPlayer    = me,
-    opponentId     = oppId,
-    opponentPlayer = oppData,
+    localId         = pid,
+    localPlayer     = me,
+    opponentId      = oppId,
+    opponentPlayer  = oppData,
+    opponentPlayed  = (oppData.didPlay == true),
     localCanCompose = (tbm.isMyTurn == true),
   }
 end
@@ -121,6 +122,40 @@ function shouldShowFinalCommentComposer()
 end
 
 function submitFinalCommentFromEndScreen(commentText)
+  local info = currentFinalCommentPhase()
+  if not info then return false end
+
+  local newComment = sanitizeMatchComment(commentText)
+
+  if not info.opponentPlayed then
+    -- First to play: pass turn to opponent, carrying our comment
+    local q   = currentQMatch
+    local me  = info.localPlayer
+    local pid = info.localId
+    local oppId = info.opponentId
+    if newComment ~= "" then
+      me.comment = newComment
+      me.commentSentAt = os.time()
+    end
+    q.lastUpdated = os.time()
+    local turnData = {
+      boardSize   = q.boardSize or boardSize,
+      minWordLen  = q.minWordLen or MIN_WORD_LEN,
+      boardTiles  = q.boardTiles,
+      players     = q.players,
+      lastUpdated = q.lastUpdated,
+      __gcMessage = newComment ~= "" and newComment or nil,
+    }
+    if oppId and buildRecordSyncForOpponent then
+      local alias = q.otherName or q.opponentName or opponentAlias
+      local sync = buildRecordSyncForOpponent(oppId, alias, pid, nil)
+      if sync then turnData.recordSync = sync end
+    end
+    tbm:endTurnWithDataTable(turnData)
+    return true
+  end
+
+  -- Both played: finalize the match
   return finalizeCompletedTurnBasedMatch(commentText)
 end
 
@@ -342,36 +377,15 @@ function endGameRound()
   end
 
   ------------------------------------------------------------
-  -- If opponent hasn't played → pass turn
+  -- Stay on end screen regardless; comment submission passes turn or finalizes
   ------------------------------------------------------------
-  
-  if not opponentPlayed then
-    local turnData = {
-      boardSize   = q.boardSize or boardSize,
-      minWordLen  = q.minWordLen or MIN_WORD_LEN,
-      boardTiles  = q.boardTiles,
-      players     = q.players,
-      lastUpdated = os.time(),
-    }
-    if oppId and buildRecordSyncForOpponent then
-      local alias = q.otherName or q.opponentName or opponentAlias
-      local sync = buildRecordSyncForOpponent(oppId, alias, pid, nil)
-      if sync then turnData.recordSync = sync end
+  if opponentPlayed then
+    local _, pendingOutcome = buildFinalTurnDataAndOutcome(nil)
+    if pendingOutcome then
+      q.pendingFinalOutcome = pendingOutcome
     end
-    print("QUOZZY → GC SEND turnData:")
-    print(json.encode(turnData))
-    tbm:endTurnWithDataTable(turnData)
-    return
   end
-  
-  ------------------------------------------------------------
-  -- BOTH PLAYED → stay on end screen, player may enter a comment before finalizing
-  ------------------------------------------------------------
-  local _, pendingOutcome = buildFinalTurnDataAndOutcome(nil)
-  if pendingOutcome then
-    q.pendingFinalOutcome = pendingOutcome
-    q.awaitingCommentBeforeFinalization = true
-  end
+  q.awaitingCommentBeforeFinalization = true
 end
 
 useTurnBased     = false   -- NEW: master toggle for opponent / records

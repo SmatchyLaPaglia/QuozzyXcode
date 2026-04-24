@@ -378,17 +378,18 @@ function openDebugCommentPhasePreview()
     q.players[myId] = q.players[myId] or {}
     q.players[oppId] = q.players[oppId] or {}
 
-    q.players[myId].didPlay = true
-    q.players[myId].score = q.players[myId].score or 17
-    q.players[myId].words = q.players[myId].words or {"ALPHA", "BETA", "GAMMA"}
-    q.players[myId].comment = ""
-    q.players[myId].commentSentAt = nil
+    -- A's perspective: I played first, opponent hasn't played yet
+    q.players[myId].didPlay        = true
+    q.players[myId].score          = q.players[myId].score or 17
+    q.players[myId].words          = q.players[myId].words or {"ALPHA", "BETA", "GAMMA"}
+    q.players[myId].comment        = ""
+    q.players[myId].commentSentAt  = nil
 
-    q.players[oppId].didPlay = true
-    q.players[oppId].score = q.players[oppId].score or 15
-    q.players[oppId].words = q.players[oppId].words or {"DELTA", "EPSILON", "ZETA"}
-    q.players[oppId].comment = "Nice board. I missed two obvious ones."
-    q.players[oppId].commentSentAt = os.time() - 60
+    q.players[oppId].didPlay       = false
+    q.players[oppId].score         = 0
+    q.players[oppId].words         = {}
+    q.players[oppId].comment       = ""
+    q.players[oppId].commentSentAt = nil
 
     q.pendingFinalOutcome = "win"
     q.awaitingCommentBeforeFinalization = true
@@ -442,19 +443,77 @@ function openDebugBothBalloonsPreview()
     q.players[myId]  = q.players[myId]  or {}
     q.players[oppId] = q.players[oppId] or {}
 
+    -- B's perspective: both played, opponent (A) left a comment, I haven't yet
     q.players[myId].didPlay        = true
-    q.players[myId].score          = 17
-    q.players[myId].words          = {"ALPHA", "BETA", "GAMMA"}
+    q.players[myId].score          = 15
+    q.players[myId].words          = {"DELTA", "EPSILON", "ZETA"}
+    q.players[myId].comment        = ""
+    q.players[myId].commentSentAt  = nil
+
+    q.players[oppId].didPlay       = true
+    q.players[oppId].score         = 17
+    q.players[oppId].words         = {"ALPHA", "BETA", "GAMMA"}
+    q.players[oppId].comment       = "Nice board. I missed two obvious ones."
+    q.players[oppId].commentSentAt = os.time() - 90
+
+    q.pendingFinalOutcome = "loss"
+    q.awaitingCommentBeforeFinalization = true
+
+    currentQMatch = ensureQMatchPlayers(q, myId, oppId)
+    if tbm then
+        tbm.currentMatch = { matchID = q.id, participants = {} }
+        tbm.isMyTurn = true
+    end
+
+    if enterQMatch then
+        enterQMatch(currentQMatch)
+    else
+        useTurnBased = true
+        currentMatchID = q.id
+        currentOpponentID = oppId
+        opponentAlias = q.otherName or q.opponentName or "Opponent"
+        score = q.players[myId].score or 0
+        foundWords = q.players[myId].words or {}
+        foundWordsSet = {}
+        for _, w in ipairs(foundWords) do
+            if type(w) == "string" then foundWordsSet[w] = true end
+        end
+        state = STATE_END
+    end
+
+    endScreenSpeechBalloonsVisible = true
+    endScreenCommentDraft = ""
+    print("GCDBG: opened both-balloons preview for match", q.id)
+end
+
+function openDebugPostMatchReview()
+    local q = makeDebugQMatch()
+    if not q then print("GCDBG: could not create debug qMatch") return end
+
+    local myId = localPID()
+    local oppId = nil
+    for pid, _ in pairs(q.players or {}) do
+        if pid ~= myId then oppId = pid break end
+    end
+    if not oppId then return end
+
+    q.players[myId]  = q.players[myId]  or {}
+    q.players[oppId] = q.players[oppId] or {}
+
+    -- Post-match: both played, both commented, match is over
+    q.players[myId].didPlay        = true
+    q.players[myId].score          = 15
+    q.players[myId].words          = {"DELTA", "EPSILON", "ZETA"}
     q.players[myId].comment        = "Ha, yeah — QUILT was hiding in plain sight."
     q.players[myId].commentSentAt  = os.time() - 30
 
     q.players[oppId].didPlay       = true
-    q.players[oppId].score         = 15
-    q.players[oppId].words         = {"DELTA", "EPSILON", "ZETA"}
+    q.players[oppId].score         = 17
+    q.players[oppId].words         = {"ALPHA", "BETA", "GAMMA"}
     q.players[oppId].comment       = "Nice board. I missed two obvious ones."
     q.players[oppId].commentSentAt = os.time() - 90
 
-    q.pendingFinalOutcome = "win"
+    q.pendingFinalOutcome = "loss"
     q.awaitingCommentBeforeFinalization = false
 
     currentQMatch = ensureQMatchPlayers(q, myId, oppId)
@@ -481,7 +540,7 @@ function openDebugBothBalloonsPreview()
 
     endScreenSpeechBalloonsVisible = true
     endScreenCommentDraft = ""
-    print("GCDBG: opened both-balloons preview for match", q.id)
+    print("GCDBG: opened post-match review preview for match", q.id)
 end
 
 function setupGCDebugParameters()
@@ -510,11 +569,14 @@ function setupGCDebugParameters()
     parameter.action("GCDBG_LoadLocalAvatar", function()
         loadLocalPlayerAvatar()
     end)
-    parameter.action("Debug: Comment Phase Preview", function()
+    parameter.action("Debug: End Screen (first to play)", function()
         openDebugCommentPhasePreview()
     end)
-    parameter.action("Debug: Both Balloons Preview", function()
+    parameter.action("Debug: End Screen (second to play)", function()
         openDebugBothBalloonsPreview()
+    end)
+    parameter.action("Debug: End Screen (post-match review)", function()
+        openDebugPostMatchReview()
     end)
 end
 
