@@ -162,10 +162,6 @@ local function setEndScreenCommentKeyboardVisible(visible)
     end
     return
   end
-  -- No native field yet; only use Codea's keyboard for non-native fallback path
-  if not visible then
-    if hideKeyboard then hideKeyboard() end
-  end
 end
 
 local function syncEndScreenCommentState(model)
@@ -183,12 +179,8 @@ local function syncEndScreenCommentState(model)
     -- Only activate once per match to avoid repeated becomeFirstResponder cycles
     endScreenCommentFieldActivated = true
     setEndScreenCommentKeyboardVisible(true)
-  elseif (not shouldActivate) and endScreenCommentFocused then
-    endScreenCommentFocused = false
-    endScreenCommentFieldActivated = false
-    setEndScreenCommentKeyboardVisible(false)
   end
-  endScreenCommentUIActive = shouldActivate
+  endScreenCommentUIActive = shouldActivate or endScreenCommentFieldActivated
 end
 
 function commitEndScreenCommentAndExit()
@@ -278,11 +270,16 @@ local function updateEndScreenNativeCommentField(rect, ui)
   local tf = endScreenNativeCommentField
   if not tf then return end
   if not (state == STATE_END and ui and ui.canCompose and rect) then
+    -- Keep the field visible once it has been activated; only hide on explicit cleanup
+    -- (match change, commit, or leaving STATE_END entirely)
+    if state == STATE_END and endScreenCommentFieldActivated and endScreenNativeCommentField and not endScreenNativeCommentField.hidden then
+      return
+    end
     tf.hidden = true
     tf:resignFirstResponder_()
     return
   end
-  
+
   local raisedY = rect.y + (endScreenCommentFocused and 220 or 0)
   tf.hidden = false
   tf.placeholder = ui.placeholder or ""
