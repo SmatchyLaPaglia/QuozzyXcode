@@ -832,6 +832,9 @@ function CTBM:endTurnWithDataTable(t)
   self.currentMatch.matchID)
   
   local data = self:_dataTableToNSData(t)
+  if t and type(t.__gcMessage) == "string" and t.__gcMessage ~= "" then
+    self.currentMatch.message = t.__gcMessage
+  end
   self.currentMatch: endTurnWithNextParticipants_turnTimeout_matchData_completionHandler_(
   nextParticipants,
   0,

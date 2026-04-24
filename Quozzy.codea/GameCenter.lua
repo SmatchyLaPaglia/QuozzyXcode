@@ -177,7 +177,7 @@ function submitFinalCommentFromEndScreen(commentText)
       players     = q.players,
       lastUpdated = q.lastUpdated,
       commentPhase = q.commentPhase,
-      __gcMessage = FINAL_COMMENT_TURN_MESSAGE,
+      __gcMessage = newComment ~= "" and newComment or FINAL_COMMENT_TURN_MESSAGE,
     }
     if oppId and buildRecordSyncForOpponent then
       local alias = q.otherName or q.opponentName or opponentAlias
