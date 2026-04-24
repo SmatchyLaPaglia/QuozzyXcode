@@ -66,9 +66,7 @@ end
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
 FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
-_paramPanelVisible   = false
-_cornerTapCount      = 0
-_cornerTapLastTime   = 0
+_paramPanelVisible = false
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
@@ -1108,16 +1106,19 @@ function touched(t)
     return
   end
 
-  -- Triple-tap upper-right corner toggles the parameter overlay
-  if t.state == ENDED and t.x > WIDTH * 0.82 and t.y > HEIGHT * 0.82 then
-    local now = ElapsedTime
-    if now - _cornerTapLastTime > 0.5 then _cornerTapCount = 0 end
-    _cornerTapCount   = _cornerTapCount + 1
-    _cornerTapLastTime = now
-    if _cornerTapCount >= 3 then
-      _cornerTapCount    = 0
-      _paramPanelVisible = not _paramPanelVisible
-      if _paramPanelVisible then showParameters() else hideParameters() end
+  -- Triple-tap upper-right corner toggles the parameter overlay (debug builds only)
+  do
+    local isDebug = (objc and objc.info and objc.info.BuildConfiguration == "Debug")
+    if isDebug and t.state == ENDED then
+      print("DEBUG touch ENDED x="..tostring(t.x).." y="..tostring(t.y).." W="..tostring(WIDTH).." H="..tostring(HEIGHT).." tapCount="..tostring(t.tapCount))
+      if t.x > WIDTH * 0.82 and t.y > HEIGHT * 0.82 then
+        print("DEBUG corner tap #"..tostring(t.tapCount))
+        if (t.tapCount or 1) >= 3 then
+          _paramPanelVisible = not _paramPanelVisible
+          print("DEBUG toggling param panel → "..(  _paramPanelVisible and "show" or "hide"))
+          if _paramPanelVisible then showParameters() else hideParameters() end
+        end
+      end
     end
   end
 
