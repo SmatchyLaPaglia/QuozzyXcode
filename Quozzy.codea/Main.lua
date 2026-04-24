@@ -66,6 +66,9 @@ end
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
 FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
+_paramPanelVisible   = false
+_cornerTapCount      = 0
+_cornerTapLastTime   = 0
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
@@ -1103,6 +1106,19 @@ end
 function touched(t)
   if FORCE_RED_BOOT_SCREEN then
     return
+  end
+
+  -- Triple-tap upper-right corner toggles the parameter overlay
+  if t.state == ENDED and t.x > WIDTH * 0.82 and t.y > HEIGHT * 0.82 then
+    local now = ElapsedTime
+    if now - _cornerTapLastTime > 0.5 then _cornerTapCount = 0 end
+    _cornerTapCount   = _cornerTapCount + 1
+    _cornerTapLastTime = now
+    if _cornerTapCount >= 3 then
+      _cornerTapCount    = 0
+      _paramPanelVisible = not _paramPanelVisible
+      if _paramPanelVisible then showParameters() else hideParameters() end
+    end
   end
 
   if replayMatchmakingBusy then
