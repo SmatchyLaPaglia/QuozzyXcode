@@ -73,7 +73,6 @@ local function buildFinalTurnDataAndOutcome(commentText)
     boardTiles  = q.boardTiles,
     players     = q.players,
     lastUpdated = q.lastUpdated,
-    commentPhase = q.commentPhase,
   }
 
   if oppId and buildRecordSyncForOpponent then
@@ -101,43 +100,18 @@ local function getLocalAndOpponentPlayers(q)
   return pid, me, oppId, oppData
 end
 
-local function ensureCommentPhaseForCompletedGameplay(q, initiatorId, responderId)
-  if not q then return nil end
-  q.commentPhase = q.commentPhase or {}
-  q.commentPhase.initiatorId = q.commentPhase.initiatorId or initiatorId
-  q.commentPhase.responderId = q.commentPhase.responderId or responderId
-  q.commentPhase.stage = q.commentPhase.stage or "initiatorTurn"
-  q.commentPhase.startedAt = q.commentPhase.startedAt or os.time()
-  q.commentPhase.lastUpdated = os.time()
-  return q.commentPhase
-end
-
 function currentFinalCommentPhase()
   local q = currentQMatch
   if not (useTurnBased and q and q.players and tbm and tbm.currentMatch) then return nil end
   local pid, me, oppId, oppData = getLocalAndOpponentPlayers(q)
   if not (pid and me and oppId and oppData and me.didPlay and oppData.didPlay) then return nil end
-  
-  local phase = ensureCommentPhaseForCompletedGameplay(q, q.commentPhase and q.commentPhase.initiatorId or pid, oppId)
-  if not phase then return nil end
-  
-  local isInitiatorTurn = phase.stage == "initiatorTurn"
-  local isResponderTurn = phase.stage == "responderTurn"
-  local localCanCompose =
-    (tbm.isMyTurn == true) and (
-      (isInitiatorTurn and phase.initiatorId == pid) or
-      (isResponderTurn and phase.responderId == pid)
-    )
-  
+
   return {
-    phase = phase,
-    localId = pid,
-    localPlayer = me,
-    opponentId = oppId,
+    localId        = pid,
+    localPlayer    = me,
+    opponentId     = oppId,
     opponentPlayer = oppData,
-    isInitiatorTurn = isInitiatorTurn,
-    isResponderTurn = isResponderTurn,
-    localCanCompose = localCanCompose,
+    localCanCompose = (tbm.isMyTurn == true),
   }
 end
 
@@ -147,50 +121,6 @@ function shouldShowFinalCommentComposer()
 end
 
 function submitFinalCommentFromEndScreen(commentText)
-  local info = currentFinalCommentPhase()
-  if not info then
-    return finalizeCompletedTurnBasedMatch and finalizeCompletedTurnBasedMatch(commentText) or false
-  end
-  
-  local q = currentQMatch
-  local pid = info.localId
-  local me = info.localPlayer
-  local oppId = info.opponentId
-  local newComment = sanitizeMatchComment(commentText)
-  
-  me.comment = me.comment or ""
-  if newComment ~= "" and me.comment == "" then
-    me.comment = newComment
-    me.commentSentAt = os.time()
-  end
-  
-  q.lastUpdated = os.time()
-  if info.isInitiatorTurn then
-    info.phase.stage = "responderTurn"
-    info.phase.lastSenderId = pid
-    info.phase.lastUpdated = q.lastUpdated
-    q.awaitingCommentBeforeFinalization = false
-    local turnData = {
-      boardSize   = q.boardSize or boardSize,
-      minWordLen  = q.minWordLen or MIN_WORD_LEN,
-      boardTiles  = q.boardTiles,
-      players     = q.players,
-      lastUpdated = q.lastUpdated,
-      commentPhase = q.commentPhase,
-      __gcMessage = newComment ~= "" and newComment or FINAL_COMMENT_TURN_MESSAGE,
-    }
-    if oppId and buildRecordSyncForOpponent then
-      local alias = q.otherName or q.opponentName or opponentAlias
-      local sync = buildRecordSyncForOpponent(oppId, alias, pid, nil)
-      if sync then turnData.recordSync = sync end
-    end
-    tbm:endTurnWithDataTable(turnData)
-    return true
-  end
-  
-  info.phase.stage = "complete"
-  info.phase.lastSenderId = pid
-  info.phase.lastUpdated = q.lastUpdated
   return finalizeCompletedTurnBasedMatch(commentText)
 end
 
@@ -422,7 +352,6 @@ function endGameRound()
       boardTiles  = q.boardTiles,
       players     = q.players,
       lastUpdated = os.time(),
-      commentPhase = q.commentPhase,
     }
     if oppId and buildRecordSyncForOpponent then
       local alias = q.otherName or q.opponentName or opponentAlias
@@ -436,11 +365,10 @@ function endGameRound()
   end
   
   ------------------------------------------------------------
-  -- BOTH PLAYED → stay on end screen until dismiss or comment send
+  -- BOTH PLAYED → stay on end screen, player may enter a comment before finalizing
   ------------------------------------------------------------
   local _, pendingOutcome = buildFinalTurnDataAndOutcome(nil)
   if pendingOutcome then
-    ensureCommentPhaseForCompletedGameplay(q, pid, oppId)
     q.pendingFinalOutcome = pendingOutcome
     q.awaitingCommentBeforeFinalization = true
   end

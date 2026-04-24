@@ -390,13 +390,6 @@ function openDebugCommentPhasePreview()
     q.players[oppId].comment = "Nice board. I missed two obvious ones."
     q.players[oppId].commentSentAt = os.time() - 60
 
-    q.commentPhase = {
-        initiatorId = oppId,
-        responderId = myId,
-        stage = "responderTurn",
-        startedAt = os.time() - 60,
-        lastUpdated = os.time(),
-    }
     q.pendingFinalOutcome = "win"
     q.awaitingCommentBeforeFinalization = true
     q.lastUpdated = os.time()
@@ -461,13 +454,6 @@ function openDebugBothBalloonsPreview()
     q.players[oppId].comment       = "Nice board. I missed two obvious ones."
     q.players[oppId].commentSentAt = os.time() - 90
 
-    q.commentPhase = {
-        initiatorId = oppId,
-        responderId = myId,
-        stage       = "complete",
-        startedAt   = os.time() - 90,
-        lastUpdated = os.time(),
-    }
     q.pendingFinalOutcome = "win"
     q.awaitingCommentBeforeFinalization = false
 
