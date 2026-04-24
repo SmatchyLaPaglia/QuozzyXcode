@@ -560,95 +560,70 @@ local function drawEndScreenSpeechBalloons(model, layout)
   endScreenSpeechBalloonAlpha = endScreenSpeechBalloonAlpha + (targetAlpha - endScreenSpeechBalloonAlpha) * math.min(1, DeltaTime * 14)
   local balloonAlpha = endScreenSpeechBalloonAlpha
   if balloonAlpha <= 0.01 then return end
-  
-  local topY = layout.msgCY + layout.msgH * 0.5
+
+  local topY    = layout.msgCY + layout.msgH * 0.5
   local bottomY = layout.scoreCY - layout.scoreH * 0.5
-  local areaH = math.max(1, topY - bottomY)
-  local areaCY = (topY + bottomY) * 0.5
+  local areaCY  = (topY + bottomY) * 0.5
+  local areaH   = math.max(1, topY - bottomY)
   local avatarLayout = getEndUpperRightAvatarLayout{
-    rightCX = layout.rightCX,
-    areaCY = areaCY,
-    rightW = layout.rightW,
-    areaH = areaH,
+    rightCX = layout.rightCX, areaCY = areaCY,
+    rightW  = layout.rightW,  areaH  = areaH,
   }
+
   local balloonFontSize = layout.cardHeaderH * 0.44
-  
+  local lineHeight      = balloonFontSize * 1.12
+  local topInset        = 8
+  local balloonGap      = 8
+  local bLeft           = layout.panelX - layout.panelW * 0.5 + 6
+  local bRight          = layout.panelX + layout.panelW * 0.5 - 28
+  local bubbleW         = bRight - bLeft
+  local bFill           = Color.uiAccent or color(40, 80, 60, 255)
+  local bStroke         = color(255, 255, 255, 170)
+  local bText           = Color.panelBG or color(245, 242, 232, 255)
+
+  -- Opponent balloon — anchored to panel top, tail points down-right to opponent avatar
+  local oppRect = nil
   if ui.opponentComment and ui.opponentComment ~= "" then
-    local leftInset = 6
-    local rightInset = 28
-    local topInset = 8
-    local bubbleW = layout.panelW - leftInset - rightInset
-    local lineHeight = balloonFontSize * 1.12
     local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, 4)
-    local bubbleH = math.max(layout.boardSide * 0.16, measured.height)
-    local rect = {
-      x = layout.panelX - layout.panelW * 0.5 + leftInset,
-      y = layout.panelY + layout.panelH * 0.5 - topInset - bubbleH,
-      w = bubbleW,
-      h = bubbleH,
+    local bH = math.max(layout.boardSide * 0.16, measured.height)
+    oppRect = {
+      x = bLeft,
+      y = layout.panelY + layout.panelH * 0.5 - topInset - bH,
+      w = bubbleW, h = bH,
     }
-    drawSpeechBalloon(
-      rect,
-      ui.opponentComment,
-      avatarLayout.opponentX,
-      avatarLayout.opponentY,
-      "down",
-      Color.uiAccent or color(40, 80, 60, 255),
-      color(255, 255, 255, 170),
-      {
-        fontSizeValue = balloonFontSize,
-        lineHeight = lineHeight,
-        cornerRadius = 16,
-        tailLength = rect.h * 0.36,
-        tailBaseWidth = rect.w * 0.0325,
-        textInsetX = 4,
-        textInsetY = 4,
-        shaderPadding = 10,
-        alphaMul = balloonAlpha,
-        outlineWidth = 1.5,
-        textColor = Color.panelBG or color(245, 242, 232, 255),
-        tailAnchorOverrideX = rect.x + rect.w - 10,
+    drawSpeechBalloon(oppRect, ui.opponentComment,
+      avatarLayout.opponentX, avatarLayout.opponentY, "down",
+      bFill, bStroke, {
+        fontSizeValue = balloonFontSize, lineHeight = lineHeight,
+        cornerRadius = 16, tailLength = bH * 0.36,
+        tailBaseWidth = bubbleW * 0.0325,
+        textInsetX = 4, textInsetY = 4,
+        alphaMul = balloonAlpha, outlineWidth = 1.5, textColor = bText,
+        tailAnchorOverrideX = bLeft + bubbleW * 0.82,
         lines = measured.lines,
-      }
-    )
+      })
   end
-  
+
+  -- Local balloon — stacked just below opponent balloon, tail points down-left to local avatar
   if ui.localComment and ui.localComment ~= "" then
-    local leftInset = 18
-    local rightInset = 28
-    local bubbleW = layout.panelW - leftInset - rightInset
-    local lineHeight = balloonFontSize * 1.12
     local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, 4)
-    local rect = {
-      x = layout.panelX - layout.panelW * 0.5 + leftInset,
-      y = layout.innerTop - layout.boardSide * 0.60,
-      w = bubbleW,
-      h = math.max(layout.boardSide * 0.15, measured.height),
+    local bH = math.max(layout.boardSide * 0.15, measured.height)
+    local topY2 = oppRect and (oppRect.y - balloonGap) or (layout.panelY + layout.panelH * 0.5 - topInset)
+    local localRect = {
+      x = bLeft, y = topY2 - bH,
+      w = bubbleW, h = bH,
     }
-    drawSpeechBalloon(
-      rect,
-      ui.localComment,
-      avatarLayout.localX,
-      avatarLayout.localY,
-      "down",
-      Color.uiAccent or color(40, 80, 60, 255),
-      color(255, 255, 255, 170),
-      {
-        fontSizeValue = balloonFontSize,
-        lineHeight = lineHeight,
-        cornerRadius = 15,
-        tailLength = rect.h * 0.36,
-        tailBaseWidth = rect.w * 0.0325,
-        textInsetX = 4,
-        textInsetY = 4,
-        shaderPadding = 10,
-        alphaMul = balloonAlpha,
-        outlineWidth = 1.5,
-        textColor = Color.panelBG or color(245, 242, 232, 255),
-        tailAnchorOverrideX = rect.x + rect.w - 10,
+    drawSpeechBalloon(localRect, ui.localComment,
+      avatarLayout.localX, avatarLayout.localY, "down",
+      bFill, bStroke, {
+        fontSizeValue = balloonFontSize, lineHeight = lineHeight,
+        cornerRadius = 16, tailLength = bH * 0.36,
+        tailBaseWidth = bubbleW * 0.0325,
+        textInsetX = 4, textInsetY = 4,
+        alphaMul = balloonAlpha, outlineWidth = 1.5, textColor = bText,
+        tailAnchorOverrideX = bLeft + bubbleW * 0.55,
         lines = measured.lines,
-      }
-    )
+      })
   end
 end
 

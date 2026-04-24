@@ -65,7 +65,7 @@ end
 
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
-FORCE_COMMENT_PHASE_BOOT_PREVIEW = true
+FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"

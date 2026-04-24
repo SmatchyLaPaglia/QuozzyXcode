@@ -435,6 +435,69 @@ function openDebugCommentPhasePreview()
     print("GCDBG: opened comment phase preview for match", q.id, "vs", opponentAlias)
 end
 
+function openDebugBothBalloonsPreview()
+    local q = makeDebugQMatch()
+    if not q then print("GCDBG: could not create debug qMatch") return end
+
+    local myId = localPID()
+    local oppId = nil
+    for pid, _ in pairs(q.players or {}) do
+        if pid ~= myId then oppId = pid break end
+    end
+    if not oppId then print("GCDBG: both-balloons preview missing opponent slot") return end
+
+    q.players[myId]  = q.players[myId]  or {}
+    q.players[oppId] = q.players[oppId] or {}
+
+    q.players[myId].didPlay        = true
+    q.players[myId].score          = 17
+    q.players[myId].words          = {"ALPHA", "BETA", "GAMMA"}
+    q.players[myId].comment        = "Ha, yeah — QUILT was hiding in plain sight."
+    q.players[myId].commentSentAt  = os.time() - 30
+
+    q.players[oppId].didPlay       = true
+    q.players[oppId].score         = 15
+    q.players[oppId].words         = {"DELTA", "EPSILON", "ZETA"}
+    q.players[oppId].comment       = "Nice board. I missed two obvious ones."
+    q.players[oppId].commentSentAt = os.time() - 90
+
+    q.commentPhase = {
+        initiatorId = oppId,
+        responderId = myId,
+        stage       = "complete",
+        startedAt   = os.time() - 90,
+        lastUpdated = os.time(),
+    }
+    q.pendingFinalOutcome = "win"
+    q.awaitingCommentBeforeFinalization = false
+
+    currentQMatch = ensureQMatchPlayers(q, myId, oppId)
+    if tbm then
+        tbm.currentMatch = { matchID = q.id, participants = {} }
+        tbm.isMyTurn = false
+    end
+
+    if enterQMatch then
+        enterQMatch(currentQMatch)
+    else
+        useTurnBased = true
+        currentMatchID = q.id
+        currentOpponentID = oppId
+        opponentAlias = q.otherName or q.opponentName or "Opponent"
+        score = q.players[myId].score or 0
+        foundWords = q.players[myId].words or {}
+        foundWordsSet = {}
+        for _, w in ipairs(foundWords) do
+            if type(w) == "string" then foundWordsSet[w] = true end
+        end
+        state = STATE_END
+    end
+
+    endScreenSpeechBalloonsVisible = true
+    endScreenCommentDraft = ""
+    print("GCDBG: opened both-balloons preview for match", q.id)
+end
+
 function setupGCDebugParameters()
   parameter.action("Dump Opponent Records", function()
     dumpOpponentRecords()
@@ -463,6 +526,9 @@ function setupGCDebugParameters()
     end)
     parameter.action("Debug: Comment Phase Preview", function()
         openDebugCommentPhasePreview()
+    end)
+    parameter.action("Debug: Both Balloons Preview", function()
+        openDebugBothBalloonsPreview()
     end)
 end
 
