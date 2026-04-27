@@ -65,8 +65,8 @@ end
 
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
-FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
-_paramPanelVisible = false
+FORCE_COMMENT_PHASE_BOOT_PREVIEW = true
+_debugSequenceStep = 0
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
@@ -891,8 +891,39 @@ function setup()
 
   loadPendingTurnSends()
   setupGCDebugParameters()
-  if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
-    openDebugCommentPhasePreview()
+
+  if FORCE_COMMENT_PHASE_BOOT_PREVIEW then
+    -- Patch startSeasonTransition to intercept "close" actions during the debug sequence
+    _debugBaseTransition = startSeasonTransition
+    startSeasonTransition = function()
+      if _debugSequenceStep and _debugSequenceStep > 0 then
+        _debugSequenceNext()
+      else
+        _debugBaseTransition()
+      end
+    end
+    _debugSequenceStep = 1
+    _debugSequenceNext()
+  end
+end
+
+function _debugSequenceNext()
+  if _debugSequenceStep == 1 then
+    -- Screen 1: Player A's end screen (first to play, no opponent balloon, comment field)
+    _debugSequenceStep = 2
+    if openDebugCommentPhasePreview then openDebugCommentPhasePreview() end
+  elseif _debugSequenceStep == 2 then
+    -- Screen 2: Player B's end screen (opponent balloon + comment field)
+    _debugSequenceStep = 3
+    if openDebugBothBalloonsPreview then openDebugBothBalloonsPreview() end
+  elseif _debugSequenceStep == 3 then
+    -- Screen 3: Post-match review (both balloons, no field)
+    _debugSequenceStep = 4
+    if openDebugPostMatchReview then openDebugPostMatchReview() end
+  else
+    -- Done — resume normal flow
+    _debugSequenceStep = 0
+    _debugBaseTransition()
   end
 end
 
@@ -1104,22 +1135,6 @@ end
 function touched(t)
   if FORCE_RED_BOOT_SCREEN then
     return
-  end
-
-  -- Triple-tap upper-right corner toggles the parameter overlay (debug builds only)
-  do
-    local isDebug = (objc and objc.info and objc.info.BuildConfiguration == "Debug")
-    if isDebug and t.state == ENDED then
-      print("DEBUG touch ENDED x="..tostring(t.x).." y="..tostring(t.y).." W="..tostring(WIDTH).." H="..tostring(HEIGHT).." tapCount="..tostring(t.tapCount))
-      if t.x > WIDTH * 0.82 and t.y > HEIGHT * 0.82 then
-        print("DEBUG corner tap #"..tostring(t.tapCount))
-        if (t.tapCount or 1) >= 3 then
-          _paramPanelVisible = not _paramPanelVisible
-          print("DEBUG toggling param panel → "..(  _paramPanelVisible and "show" or "hide"))
-          if _paramPanelVisible then showParameters() else hideParameters() end
-        end
-      end
-    end
   end
 
   if replayMatchmakingBusy then

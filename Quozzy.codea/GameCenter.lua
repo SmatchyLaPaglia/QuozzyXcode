@@ -151,7 +151,11 @@ function submitFinalCommentFromEndScreen(commentText)
       local sync = buildRecordSyncForOpponent(oppId, alias, pid, nil)
       if sync then turnData.recordSync = sync end
     end
-    tbm:endTurnWithDataTable(turnData)
+    if _debugSequenceStep and _debugSequenceStep > 0 then
+      startSeasonTransition()
+    else
+      tbm:endTurnWithDataTable(turnData)
+    end
     return true
   end
 
@@ -160,6 +164,10 @@ function submitFinalCommentFromEndScreen(commentText)
 end
 
 function finalizeCompletedTurnBasedMatch(commentText)
+  if _debugSequenceStep and _debugSequenceStep > 0 then
+    startSeasonTransition()
+    return true
+  end
   local turnData, outcome = buildFinalTurnDataAndOutcome(commentText)
   if not (turnData and outcome) then return false end
 
