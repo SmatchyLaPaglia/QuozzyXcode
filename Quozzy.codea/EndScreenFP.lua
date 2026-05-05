@@ -10,6 +10,10 @@ endScreenNativeCommentField = endScreenNativeCommentField or nil
 endScreenNativeCommentDelegate = endScreenNativeCommentDelegate or nil
 endScreenNativeCommentHandler = endScreenNativeCommentHandler or nil
 endScreenCommentFieldActivated = endScreenCommentFieldActivated or false
+endScreenCommentFieldTornDown = endScreenCommentFieldTornDown or false
+endScreenKeyboardHeight = endScreenKeyboardHeight or 0
+endScreenKBObserver = endScreenKBObserver or nil
+endScreenCommentLastShift = endScreenCommentLastShift or -1
 
 speechBalloonPOCShader = speechBalloonPOCShader or {
 vert = [[
@@ -172,15 +176,37 @@ local function syncEndScreenCommentState(model)
     endScreenSpeechBalloonsVisible = true
     endScreenCommentFocused = false
     endScreenCommentFieldActivated = false
+    endScreenCommentFieldTornDown = false
+    endScreenKeyboardHeight = 0
+    endScreenCommentLastShift = -1
   end
 
   local shouldActivate = model and model.commentUI and model.commentUI.canCompose or false
   if shouldActivate and not endScreenCommentFieldActivated then
-    -- Only activate once per match to avoid repeated becomeFirstResponder cycles
     endScreenCommentFieldActivated = true
-    setEndScreenCommentKeyboardVisible(true)
+    -- Do NOT auto-focus here; keyboard appears only when user taps the field
   end
   endScreenCommentUIActive = shouldActivate or endScreenCommentFieldActivated
+end
+
+function teardownEndScreenCommentField()
+  local tf = endScreenNativeCommentField
+  if tf then
+    tf:resignFirstResponder_()
+    tf:removeFromSuperview_()
+    endScreenNativeCommentField = nil
+    endScreenNativeCommentDelegate = nil
+    endScreenNativeCommentHandler = nil
+  end
+  if endScreenKBObserver then
+    local ok, nc = pcall(function() return objc.NSNotificationCenter.defaultCenter end)
+    if ok and nc then nc:removeObserver_(endScreenKBObserver) end
+    endScreenKBObserver = nil
+  end
+  endScreenCommentFieldActivated = false
+  endScreenCommentFieldTornDown = true
+  endScreenKeyboardHeight = 0
+  endScreenCommentLastShift = -1
 end
 
 function commitEndScreenCommentAndExit()
@@ -193,7 +219,7 @@ function commitEndScreenCommentAndExit()
   if not submitted then return false end
   endScreenCommentDraft = ""
   endScreenCommentFocused = false
-  setEndScreenCommentKeyboardVisible(false)
+  teardownEndScreenCommentField()
   startSeasonTransition()
   return true
 end
@@ -203,6 +229,7 @@ local function codeaToUIKitRect(x, y, w, h)
 end
 
 local function ensureEndScreenNativeCommentField()
+  if endScreenCommentFieldTornDown then return end
   if endScreenNativeCommentField or not objc or not objc.UITextField then return end
   local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
     or (objc.viewer and objc.viewer.view)
@@ -262,37 +289,82 @@ local function ensureEndScreenNativeCommentField()
   )
   
   endScreenNativeCommentField = tf
+
+  -- Register keyboard show/hide notifications to drive frame avoidance
+  if not endScreenKBObserver then
+    local KBObs = objc.class("EndScreenKBNotifObserver")
+    function KBObs:keyboardWillShow_(oN)
+      local h = 0
+      if oN and oN.userInfo then
+        local v = oN.userInfo["UIKeyboardFrameEndUserInfoKey"]
+        if v and v.CGRectValue then
+          local r = v:CGRectValue_()
+          if type(r.size.height) == "number" then h = r.size.height end
+        end
+      end
+      endScreenKeyboardHeight = h
+    end
+    function KBObs:keyboardWillHide_(_)
+      endScreenKeyboardHeight = 0
+    end
+    endScreenKBObserver = KBObs()
+    local nc = objc.NSNotificationCenter.defaultCenter
+    nc:addObserver_selector_name_object_(
+      endScreenKBObserver, objc.selector("keyboardWillShow:"),
+      "UIKeyboardWillShowNotification", nil)
+    nc:addObserver_selector_name_object_(
+      endScreenKBObserver, objc.selector("keyboardWillHide:"),
+      "UIKeyboardWillHideNotification", nil)
+  end
 end
 
 local function updateEndScreenNativeCommentField(rect, ui)
-  local wasNew = (endScreenNativeCommentField == nil)
   ensureEndScreenNativeCommentField()
   local tf = endScreenNativeCommentField
   if not tf then return end
   if not (state == STATE_END and ui and ui.canCompose and rect) then
-    -- Keep the field visible once it has been activated; only hide on explicit cleanup
-    -- (match change, commit, or leaving STATE_END entirely)
-    if state == STATE_END and endScreenCommentFieldActivated and endScreenNativeCommentField and not endScreenNativeCommentField.hidden then
-      return
+    if state == STATE_END and endScreenCommentFieldActivated and not tf.hidden then
+      return  -- latch: keep visible until explicit teardown
     end
     tf.hidden = true
     tf:resignFirstResponder_()
     return
   end
 
-  local raisedY = rect.y + (endScreenCommentFocused and 220 or 0)
   tf.hidden = false
   tf.placeholder = ui.placeholder or ""
-  if (not endScreenCommentFocused) and tostring(tf.text or "") ~= tostring(endScreenCommentDraft or "") then
+  if tostring(tf.text or "") ~= tostring(endScreenCommentDraft or "") then
     tf.text = endScreenCommentDraft or ""
   end
-  tf.frame = codeaToUIKitRect(rect.x, raisedY, rect.w, rect.h)
   if tf.superview and tf.superview.bringSubviewToFront_ then
     tf.superview:bringSubviewToFront_(tf)
   end
-  -- Auto-focus on the frame the field is first created
-  if wasNew and endScreenCommentFieldActivated then
-    tf:becomeFirstResponder_()
+
+  -- Compute base UIKit frame (field at button position, no keyboard)
+  -- HEIGHT is UIKit screen height; Codea y-from-bottom → UIKit y-from-top
+  local baseX = rect.x
+  local baseY = HEIGHT - rect.y - rect.h
+  local fW, fH = rect.w, rect.h
+
+  -- Shift up by however much the keyboard overlaps the field (KeyboardAvoider pattern)
+  local kh = endScreenKeyboardHeight or 0
+  local shiftY = 0
+  if kh > 0 then
+    local fieldBottom = baseY + fH
+    local kbTop = HEIGHT - kh
+    local overlap = fieldBottom - kbTop
+    if overlap > 0 then
+      shiftY = math.ceil(overlap + 12)
+    end
+  end
+
+  -- Animate only when the shift amount changes (keyboard show/hide)
+  if shiftY ~= endScreenCommentLastShift then
+    endScreenCommentLastShift = shiftY
+    local targetY = baseY - shiftY
+    objc.UIView:animateWithDuration_animations_(0.25, function()
+      tf.frame = objc.rect(baseX, targetY, fW, fH)
+    end)
   end
 end
 

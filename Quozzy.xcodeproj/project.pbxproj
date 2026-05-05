@@ -20,6 +20,7 @@
 		E41E3FBD2F91291700002FA5 /* ScoreSheetsCore.lua in Resources */ = {isa = PBXBuildFile; fileRef = E41E3FBC2F91291700002FA5 /* ScoreSheetsCore.lua */; };
 		E496AD252F553969000C3E05 /* Loading_QuozzySeasons.png in Resources */ = {isa = PBXBuildFile; fileRef = E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */; };
 		E496AD272F5FA61A000C3E05 /* CLAUDE.md in Resources */ = {isa = PBXBuildFile; fileRef = E496AD262F5FA610000C3E05 /* CLAUDE.md */; };
+		E4A6A5ED2FAA513D00A9F0FD /* KeyboardAvoider.lua in Sources */ = {isa = PBXBuildFile; fileRef = E4A6A5EC2FAA513D00A9F0FD /* KeyboardAvoider.lua */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -71,6 +72,7 @@
 		E41E3FBC2F91291700002FA5 /* ScoreSheetsCore.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = ScoreSheetsCore.lua; sourceTree = "<group>"; };
 		E496AD242F553969000C3E05 /* Loading_QuozzySeasons.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Loading_QuozzySeasons.png; sourceTree = "<group>"; };
 		E496AD262F5FA610000C3E05 /* CLAUDE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = CLAUDE.md; sourceTree = "<group>"; };
+		E4A6A5EC2FAA513D00A9F0FD /* KeyboardAvoider.lua */ = {isa = PBXFileReference; lastKnownFileType = text; path = KeyboardAvoider.lua; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,6 +92,7 @@
 			children = (
 				E496AD262F5FA610000C3E05 /* CLAUDE.md */,
 				E41E3FBA2F91266000002FA5 /* SnoreAndDieRender.lua */,
+				E4A6A5EC2FAA513D00A9F0FD /* KeyboardAvoider.lua */,
 				E41E3FBC2F91291700002FA5 /* ScoreSheetsCore.lua */,
 				DB0F615822709F060024AE28 /* Quozzy.codea */,
 				DB0F615A2270A0FB0024AE28 /* Assets */,
@@ -255,6 +258,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E4A6A5ED2FAA513D00A9F0FD /* KeyboardAvoider.lua in Sources */,
 				DB83FB32223DBDA2005750D2 /* QuozzyViewController.swift in Sources */,
 				DB83FB54223DBF71005750D2 /* ProjectAddon.mm in Sources */,
 				DB83FB30223DBDA2005750D2 /* AppDelegate.swift in Sources */,

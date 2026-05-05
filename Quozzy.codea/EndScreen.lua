@@ -664,6 +664,7 @@ function handleEndScreenTouch(t)
       if finalizeCompletedTurnBasedMatch then
         finalizeCompletedTurnBasedMatch(nil)
       end
+      if teardownEndScreenCommentField then teardownEndScreenCommentField() end
       endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
       startSeasonTransition()
       return true
