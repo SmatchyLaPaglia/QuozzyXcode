@@ -1,5 +1,9 @@
 When I ask a question without a clear task, discuss it conversationally before proposing any plan or action.
 
+## Code Analysis
+`STRUCTURE.md` (repo root) — use as first stop before searching. Contains: auth/GC flow, state machine transitions, key function→file index. Read it before grepping.
+Before searching or asking about code structure, architecture, or file locations, read STRUCTURE.md first. It is a living index of the codebase written to save you analysis time. Treat it as ground truth until you find evidence it's outdated, then update it. When you discover architectural facts through investigation, add them to STRUCTURE.md immediately, in the same terse format.
+
 ## Project Overview
 
 **Quozzy** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#8 (1.0.8)`.
@@ -101,3 +105,23 @@ The end screen has two rendering paths. **Only the FP path is active** — the o
 ### GameCenter / ObjC Bridge
 
 GameCenter is accessed through Codea's `objc` global. All GC calls are wrapped in `pcall()`. Async events arrive via `objc.async()` callbacks. The `CTBM` class in `CodeaTurnBasedMatches.lua` manages the full turn-based lifecycle.
+
+### Native UI via ObjC Bridge
+
+Some UI elements are **UIKit objects managed through the ObjC bridge**, not Codea drawing primitives. The comment text field on the end screen is the primary example:
+
+- Created with `objc.UITextField:alloc():init()` and added via `addSubview_`
+- Keyboard avoidance is handled **entirely through the ObjC bridge** (see KeyboardAvoider project in repo root)
+- **Do not mix Codea's native keyboard handling API with ObjC keyboard handling** — they conflict
+- Cleanup requires explicit `removeFromSuperview_()` — the field does not disappear when Codea stops drawing
+
+### State Transition Timing Trap
+
+When the end screen is dismissed, `state` does **not** immediately change to `STATE_MENU`. `startSeasonTransition()` begins a **0.7-second color animation**, and `state = STATE_MENU` is only set inside `updateSeasonTransition()` after the fade completes.
+
+During those 0.7 seconds, `draw()` continues calling `drawEndScreenFP()` every frame. Any teardown that happens before the transition completes will be undone on the next frame if the draw path can recreate what was torn down. Guard against this with an explicit boolean flag — do not rely on nil checks alone.
+
+## Versioning
+
+In comments for git commits, use the language 'Excecuted by <Claude model>' to credit yourself instead of 'Co-authored-by <Claude model>.
+

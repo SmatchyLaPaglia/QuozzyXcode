@@ -310,13 +310,12 @@ function handleMenuTouch(t)
       openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
       return
     end
-    
-    local ok, err = pcall(function()
-      tbm:showMatchmaker()
-    end)
-    
-    if not ok then
-      openGCMatchmakerErrorOverlay(err)
+
+    if tbm.localPlayer and tbm.localPlayer.authenticated == true then
+      local ok, err = pcall(function() tbm:showMatchmaker() end)
+      if not ok then openGCMatchmakerErrorOverlay(err) end
+    else
+      openGCSignInOverlay()
     end
     
   elseif key == "records" then
@@ -326,7 +325,9 @@ function handleMenuTouch(t)
     showInfoOverlay = true
     
   elseif key == "playAgain" then
-    if startLastMatchReplayFromMenu then
+    if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
+      openGCSignInOverlay()
+    elseif startLastMatchReplayFromMenu then
       startLastMatchReplayFromMenu()
     end
   end

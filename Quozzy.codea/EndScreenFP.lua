@@ -171,6 +171,7 @@ end
 local function syncEndScreenCommentState(model)
   local qid = currentQMatch and currentQMatch.id or nil
   if endScreenCommentMatchId ~= qid then
+    devLog("COMMENT_DBG syncEndScreenCommentState: new match, resetting state. old=", tostring(endScreenCommentMatchId), "new=", tostring(qid), "tornDown was=", tostring(endScreenCommentFieldTornDown))
     endScreenCommentMatchId = qid
     endScreenCommentDraft = ""
     endScreenSpeechBalloonsVisible = true
@@ -183,6 +184,7 @@ local function syncEndScreenCommentState(model)
 
   local shouldActivate = model and model.commentUI and model.commentUI.canCompose or false
   if shouldActivate and not endScreenCommentFieldActivated then
+    devLog("COMMENT_DBG syncEndScreenCommentState: activating field. tornDown=", tostring(endScreenCommentFieldTornDown))
     endScreenCommentFieldActivated = true
     -- Do NOT auto-focus here; keyboard appears only when user taps the field
   end
@@ -228,9 +230,18 @@ local function codeaToUIKitRect(x, y, w, h)
   return objc.rect(x, HEIGHT - y - h, w, h)
 end
 
+_dbgEnsureFieldBlockedPrinted = _dbgEnsureFieldBlockedPrinted or false
 local function ensureEndScreenNativeCommentField()
-  if endScreenCommentFieldTornDown then return end
+  if endScreenCommentFieldTornDown then
+    if not _dbgEnsureFieldBlockedPrinted then
+      _dbgEnsureFieldBlockedPrinted = true
+      devLog("COMMENT_DBG ensureField: BLOCKED by endScreenCommentFieldTornDown=true")
+    end
+    return
+  end
+  _dbgEnsureFieldBlockedPrinted = false
   if endScreenNativeCommentField or not objc or not objc.UITextField then return end
+  devLog("COMMENT_DBG ensureField: CREATING new UITextField")
   local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
     or (objc.viewer and objc.viewer.view)
   if not hostView then return end

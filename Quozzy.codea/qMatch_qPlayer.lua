@@ -253,6 +253,7 @@ function makeQMatchFromGK(gkMatch, dataTable)
   (pl and (pl.gamePlayerID or pl.playerID)) or nil
   local opponentName =
   (pl and (pl.alias or pl.displayName)) or nil
+  devLog("COMMENT_DBG makeQMatchFromGK: matchId=", matchId, "localId=", localId, "pl=", tostring(pl~=nil), "opponentId=", tostring(opponentId), "hasDataTablePlayers=", tostring(dataTable and type(dataTable.players)=="table"))
   
   local requestedBoardSize =
     (tbm and tbm.pendingRequestedBoardSize) or boardSize
@@ -300,6 +301,10 @@ function makeQMatchFromGK(gkMatch, dataTable)
   end
   
   ensureQMatchPlayers(q, localId, opponentId)
+  do
+    local keys = {}; for k in pairs(q.players) do keys[#keys+1] = k end
+    devLog("COMMENT_DBG makeQMatchFromGK final players slots:", table.concat(keys, " | "))
+  end
   dbgDidPlay("makeQMatchFromGK", q)
   return q
 end

@@ -1043,6 +1043,7 @@ function draw()
     drawMatchBadge()
     drawInfoOverlay()
     drawGCMatchmakerErrorOverlay()
+    drawGCSignInOverlay()
     drawReplayMatchmakingOverlay()
     drawConfetti()        
     -- Local avatar
@@ -1128,6 +1129,8 @@ function touched(t)
     showInfoOverlay = false
     return
   end
+
+  if handleGCSignInOverlayTouch and handleGCSignInOverlayTouch(t) then return end
 
   if gcMatchmakerErrorOverlay and (t.state == ENDED or t.state == CANCELLED) then
     gcMatchmakerErrorOverlay = false

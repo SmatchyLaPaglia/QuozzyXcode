@@ -123,6 +123,70 @@ end
 gcMatchmakerErrorOverlay = gcMatchmakerErrorOverlay or false
 gcMatchmakerErrorText = gcMatchmakerErrorText or "Could not open Game Center matchmaking."
 
+------------------------------------------------------------
+-- GC Sign-In Overlay
+------------------------------------------------------------
+gcSignInOverlay = gcSignInOverlay or false
+
+function openGCSignInOverlay()
+  gcSignInOverlay = true
+end
+
+function closeGCSignInOverlay()
+  gcSignInOverlay = false
+end
+
+function drawGCSignInOverlay()
+  if not gcSignInOverlay then return end
+
+  pushStyle()
+  fill(Color.panelDim)
+  noStroke()
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+
+  local margin  = 28
+  local panelW  = math.min(WIDTH * 0.86, 560)
+  local innerW  = panelW - margin * 2
+  local panelX  = WIDTH / 2
+  local panelY  = HEIGHT / 2
+
+  local title     = "Something Ker-Flumped"
+  local body      = "You'll have to open Settings and log in to Game Center to play friends."
+  local titleFont = 22
+  local bodyFont  = 20
+
+  fontSize(titleFont); textWrapWidth(innerW)
+  local _, titleH = textSize(title)
+  fontSize(bodyFont); textWrapWidth(innerW)
+  local _, bodyH = textSize(body)
+
+  local panelH = margin + titleH + 18 + bodyH + margin
+
+  rectMode(CENTER); noStroke()
+  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
+
+  local left = panelX - panelW/2 + margin
+  local yTop = panelY + panelH/2 - margin
+
+  fill(Color.tileText or color(255))
+  fontSize(titleFont); textWrapWidth(innerW); textMode(CORNER)
+  text(title, left, yTop - titleH)
+
+  fontSize(bodyFont); textWrapWidth(innerW)
+  text(body, left, yTop - titleH - 18 - bodyH)
+
+  popStyle()
+end
+
+function handleGCSignInOverlayTouch(t)
+  if not gcSignInOverlay then return false end
+  if t.state ~= ENDED and t.state ~= CANCELLED then return true end
+  closeGCSignInOverlay()
+  return true
+end
+
 function openGCMatchmakerErrorOverlay(details)
   gcMatchmakerErrorOverlay = true
   if details and details ~= "" then

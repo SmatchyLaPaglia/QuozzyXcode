@@ -100,18 +100,29 @@ local function getLocalAndOpponentPlayers(q)
   return pid, me, oppId, oppData
 end
 
+_dbgCommentPhaseSig = _dbgCommentPhaseSig or ""
 function currentFinalCommentPhase()
   local q = currentQMatch
-  if not (useTurnBased and q and q.players and tbm and tbm.currentMatch) then return nil end
+  if not (useTurnBased and q and q.players and tbm and tbm.currentMatch) then
+    local sig = "nil:ut="..tostring(useTurnBased).." q="..tostring(q~=nil).." tbm="..tostring(tbm~=nil).." tbmMatch="..tostring(tbm and tbm.currentMatch~=nil)
+    if _dbgCommentPhaseSig ~= sig then _dbgCommentPhaseSig = sig; devLog("COMMENT_DBG currentFinalCommentPhase -> nil: guard1 failed", sig) end
+    return nil
+  end
   local pid, me, oppId, oppData = getLocalAndOpponentPlayers(q)
-  if not (pid and me and oppId and oppData and me.didPlay) then return nil end
+  if not (pid and me and me.didPlay) then
+    local sig = "nil:pid="..tostring(pid~=nil).." me="..tostring(me~=nil).." oppId="..tostring(oppId).." oppData="..tostring(oppData~=nil).." didPlay="..tostring(me and me.didPlay)
+    if _dbgCommentPhaseSig ~= sig then _dbgCommentPhaseSig = sig; devLog("COMMENT_DBG currentFinalCommentPhase -> nil: guard2 failed", sig) end
+    return nil
+  end
+  local sig = "ok:oppId="..tostring(oppId).." isMyTurn="..tostring(tbm.isMyTurn).." oppDidPlay="..tostring(oppData and oppData.didPlay)
+  if _dbgCommentPhaseSig ~= sig then _dbgCommentPhaseSig = sig; devLog("COMMENT_DBG currentFinalCommentPhase -> non-nil", sig) end
 
   return {
     localId         = pid,
     localPlayer     = me,
     opponentId      = oppId,
     opponentPlayer  = oppData,
-    opponentPlayed  = (oppData.didPlay == true),
+    opponentPlayed  = (oppData ~= nil and oppData.didPlay == true),
     localCanCompose = (tbm.isMyTurn == true),
   }
 end
@@ -376,6 +387,7 @@ function endGameRound()
     end
   end
 
+  devLog("COMMENT_DBG endGameRound: pid=", pid, "oppId=", oppId, "opponentPlayed=", opponentPlayed, "playersCount=", (function() local n=0; for _ in pairs(q.players) do n=n+1 end; return n end)())
   ------------------------------------------------------------
   -- Stay on end screen regardless; comment submission passes turn or finalizes
   ------------------------------------------------------------
