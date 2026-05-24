@@ -269,72 +269,62 @@ local function _showGenericMatchmaker()
 end
 
 local function _tryRematchForLastReplay(settings)
-  if not settings or not settings.opponentId then
+  if not settings or not settings.matchId then
     _showGenericMatchmaker()
     return
   end
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
-  local GKPlayer = objc and objc.GKPlayer
-  if not GKTurnBasedMatch or not GKPlayer then
+  if not GKTurnBasedMatch then
     _showGenericMatchmaker()
     return
   end
 
-  if tbm then
-    tbm.pendingRequestedBoardSize  = settings.boardSize  or boardSize
-    tbm.pendingRequestedMinWordLen = settings.minWordLen or MIN_WORD_LEN
-  end
-
   local ok = pcall(function()
-    GKPlayer:loadPlayersForIdentifiers_withCompletionHandler_(
-      {settings.opponentId},
-      function(o__players, o__err)
-        objc.async(function()
-          if o__err then
-            devLog("Replay new match: load player error", o__err.localizedDescription or tostring(o__err))
-            _showGenericMatchmaker()
-            return
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        if o__err then
+          devLog("Replay rematch load error", o__err.localizedDescription or tostring(o__err))
+          _showGenericMatchmaker()
+          return
+        end
+        local sourceMatch = nil
+        for i = 1, #(o__matches or {}) do
+          local m = o__matches[i]
+          if m and m.matchID == settings.matchId then
+            sourceMatch = m
+            break
           end
-          local gkOpponent = o__players and #o__players > 0 and o__players[1] or nil
-          if not gkOpponent then
-            devLog("Replay new match: opponent not found", settings.opponentId)
-            _showGenericMatchmaker()
-            return
-          end
-          local request = objc.GKMatchRequest()
-          request.minPlayers = 2
-          request.maxPlayers = 2
-          request.recipients = {gkOpponent}
-          GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(
-            request,
-            function(o__match, o__matchErr)
-              objc.async(function()
-                if o__matchErr or not o__match then
-                  devLog("Replay new match: create failed", o__matchErr and o__matchErr.localizedDescription or "nil match")
-                  _showGenericMatchmaker()
-                  return
-                end
-                devLog("Replay new match created", o__match.matchID or "?")
-                endReplayMatchmakingBusy()
-                if tbm and tbm._setCurrentMatch then
-                  tbm:_setCurrentMatch(o__match, "menu-replay-new")
-                end
-                local dataTable = nil
-                if tbm and tbm._matchWithNSDataToDataTable then
-                  dataTable = tbm:_matchWithNSDataToDataTable(o__match)
-                end
-                local q = makeQMatchFromGK and makeQMatchFromGK(o__match, dataTable) or nil
-                if q and enterQMatch then
-                  enterQMatch(q)
-                else
-                  devLog("Replay new match: unable to build qMatch")
-                end
-              end)
+        end
+        if not sourceMatch or not sourceMatch.rematchWithCompletionHandler_ then
+          _showGenericMatchmaker()
+          return
+        end
+        sourceMatch:rematchWithCompletionHandler_(function(o__match, o__rematchErr)
+          objc.async(function()
+            if o__rematchErr or not o__match then
+              devLog("Replay rematch failed", o__rematchErr and o__rematchErr.localizedDescription or "nil match")
+              _showGenericMatchmaker()
+              return
             end
-          )
+            devLog("Replay rematch created", o__match.matchID or "?")
+            endReplayMatchmakingBusy()
+            if tbm and tbm._setCurrentMatch then
+              tbm:_setCurrentMatch(o__match, "menu-replay-rematch")
+            end
+            local dataTable = nil
+            if tbm and tbm._matchWithNSDataToDataTable then
+              dataTable = tbm:_matchWithNSDataToDataTable(o__match)
+            end
+            local q = makeQMatchFromGK and makeQMatchFromGK(o__match, dataTable) or nil
+            if q and enterQMatch then
+              enterQMatch(q)
+            else
+              devLog("Replay rematch: unable to build/start qMatch from rematch")
+            end
+          end)
         end)
-      end
-    )
+      end)
+    end)
   end)
   if not ok then
     _showGenericMatchmaker()
@@ -1043,7 +1033,6 @@ function draw()
     drawMatchBadge()
     drawInfoOverlay()
     drawGCMatchmakerErrorOverlay()
-    drawGCSignInOverlay()
     drawReplayMatchmakingOverlay()
     drawConfetti()        
     -- Local avatar
@@ -1129,8 +1118,6 @@ function touched(t)
     showInfoOverlay = false
     return
   end
-
-  if handleGCSignInOverlayTouch and handleGCSignInOverlayTouch(t) then return end
 
   if gcMatchmakerErrorOverlay and (t.state == ENDED or t.state == CANCELLED) then
     gcMatchmakerErrorOverlay = false
