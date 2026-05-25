@@ -199,6 +199,7 @@ function persistLastMatchReplaySettingsFromQMatch(q)
   local payload = {
     matchId = q.id,
     opponentId = oppId,
+    opponentPlayerID = q.opponentPlayerID or nil,
     opponentName = oppName,
     boardSize = _sanitizeBoardSize(q.boardSize or boardSize),
     minWordLen = _sanitizeMinWordLen(q.minWordLen or MIN_WORD_LEN),
@@ -246,11 +247,13 @@ function updateLastMatchReplayAvatarForOpponent(oppId, avatarImage)
 end
 
 function beginReplayMatchmakingBusy(message)
+  devLog("DBG_BUSY beginReplayMatchmakingBusy: set true")
   replayMatchmakingBusy = true
   replayMatchmakingBusyMessage = message or "matching..."
 end
 
 function endReplayMatchmakingBusy()
+  devLog("DBG_BUSY endReplayMatchmakingBusy: cleared")
   replayMatchmakingBusy = false
 end
 
@@ -269,64 +272,87 @@ local function _showGenericMatchmaker()
 end
 
 local function _tryRematchForLastReplay(settings)
-  if not settings or not settings.matchId then
+  devLog("DBG_PA _tryRematch: entry opponentPlayerID=", tostring(settings and settings.opponentPlayerID), "opponentId=", tostring(settings and settings.opponentId))
+  if not settings or not settings.opponentId then
+    devLog("DBG_PA _tryRematch: no settings/opponentId -> generic matchmaker")
     _showGenericMatchmaker()
     return
   end
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   if not GKTurnBasedMatch then
+    devLog("DBG_PA _tryRematch: no GKTurnBasedMatch -> generic matchmaker")
     _showGenericMatchmaker()
     return
   end
 
+  if tbm then
+    tbm.pendingRequestedBoardSize  = settings.boardSize  or boardSize
+    tbm.pendingRequestedMinWordLen = settings.minWordLen or MIN_WORD_LEN
+  end
+
+  -- Use deprecated playerID with loadPlayersForIdentifiers (the only API that
+  -- resolves a stored ID string back to a live GKPlayer object). gamePlayerID
+  -- ("A:_..." / "G:...") returns 0 results from this call; playerID works.
+  local lookupId = settings.opponentPlayerID or settings.opponentId
   local ok = pcall(function()
-    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
-        if o__err then
-          devLog("Replay rematch load error", o__err.localizedDescription or tostring(o__err))
-          _showGenericMatchmaker()
-          return
-        end
-        local sourceMatch = nil
-        for i = 1, #(o__matches or {}) do
-          local m = o__matches[i]
-          if m and m.matchID == settings.matchId then
-            sourceMatch = m
-            break
+    devLog("DBG_PA _tryRematch: calling loadPlayersForIdentifiers, id=", lookupId)
+    objc.GKPlayer:loadPlayersForIdentifiers_withCompletionHandler_(
+      {lookupId},
+      function(o__players, o__err)
+        objc.async(function()
+          devLog("DBG_PA _tryRematch: loadPlayers callback, err=", tostring(o__err), "count=", tostring(o__players and #o__players))
+          if o__err then
+            devLog("Play Again: load player error", o__err.localizedDescription or tostring(o__err))
+            _showGenericMatchmaker()
+            return
           end
-        end
-        if not sourceMatch or not sourceMatch.rematchWithCompletionHandler_ then
-          _showGenericMatchmaker()
-          return
-        end
-        sourceMatch:rematchWithCompletionHandler_(function(o__match, o__rematchErr)
-          objc.async(function()
-            if o__rematchErr or not o__match then
-              devLog("Replay rematch failed", o__rematchErr and o__rematchErr.localizedDescription or "nil match")
-              _showGenericMatchmaker()
-              return
+          local gkOpponent = o__players and #o__players > 0 and o__players[1] or nil
+          devLog("DBG_PA _tryRematch: gkOpponent=", tostring(gkOpponent))
+          if not gkOpponent then
+            devLog("Play Again: opponent not found for id", lookupId)
+            _showGenericMatchmaker()
+            return
+          end
+          devLog("DBG_PA _tryRematch: calling findMatchForRequest")
+          local request = objc.GKMatchRequest()
+          request.minPlayers = 2
+          request.maxPlayers = 2
+          request.recipients  = {gkOpponent}
+          GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(
+            request,
+            function(o__match, o__matchErr)
+              objc.async(function()
+                devLog("DBG_PA _tryRematch: findMatch callback, err=", tostring(o__matchErr), "match=", tostring(o__match))
+                if o__matchErr or not o__match then
+                  devLog("Play Again: create match failed", o__matchErr and o__matchErr.localizedDescription or "nil match")
+                  _showGenericMatchmaker()
+                  return
+                end
+                devLog("Play Again: match created", o__match.matchID or "?")
+                endReplayMatchmakingBusy()
+                if tbm and tbm._setCurrentMatch then
+                  tbm:_setCurrentMatch(o__match, "menu-play-again")
+                end
+                local dataTable = nil
+                if tbm and tbm._matchWithNSDataToDataTable then
+                  dataTable = tbm:_matchWithNSDataToDataTable(o__match)
+                end
+                local q = makeQMatchFromGK and makeQMatchFromGK(o__match, dataTable) or nil
+                if q and enterQMatch then
+                  enterQMatch(q)
+                else
+                  devLog("Play Again: unable to build qMatch")
+                end
+              end)
             end
-            devLog("Replay rematch created", o__match.matchID or "?")
-            endReplayMatchmakingBusy()
-            if tbm and tbm._setCurrentMatch then
-              tbm:_setCurrentMatch(o__match, "menu-replay-rematch")
-            end
-            local dataTable = nil
-            if tbm and tbm._matchWithNSDataToDataTable then
-              dataTable = tbm:_matchWithNSDataToDataTable(o__match)
-            end
-            local q = makeQMatchFromGK and makeQMatchFromGK(o__match, dataTable) or nil
-            if q and enterQMatch then
-              enterQMatch(q)
-            else
-              devLog("Replay rematch: unable to build/start qMatch from rematch")
-            end
-          end)
+          )
         end)
-      end)
-    end)
+      end
+    )
   end)
+  devLog("DBG_PA _tryRematch: pcall returned ok=", ok)
   if not ok then
+    devLog("Play Again: pcall failed in _tryRematchForLastReplay")
     _showGenericMatchmaker()
   end
 end
@@ -1106,6 +1132,9 @@ function touched(t)
   end
 
   if replayMatchmakingBusy then
+    if t.state == ENDED then
+      devLog("DBG_BUSY TOUCH BLOCKED by replayMatchmakingBusy=true")
+    end
     return
   end
 

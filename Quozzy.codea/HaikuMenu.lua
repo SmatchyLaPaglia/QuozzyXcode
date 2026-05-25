@@ -242,7 +242,10 @@ pressedButton = pressedButton or nil
 pressedInside = pressedInside or false
 
 function handleMenuTouch(t)
-  
+  if t.state == ENDED then
+    devLog("DBG_MENU handleMenuTouch ENDED: pressedButton=", tostring(pressedButton))
+  end
+
   didSwipeOnPoofingText(t)
   
   local buttonsRect = rectFromGuides(6, 7, 2, 3)
@@ -306,6 +309,7 @@ function handleMenuTouch(t)
     startRoundFromCurrentSettings()
     
   elseif key == "versus" then
+    devLog("DBG_MENU versus tapped: tbm=", tostring(tbm~=nil), "authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated))
     if not (tbm and tbm.showMatchmaker) then
       openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
       return
@@ -325,6 +329,7 @@ function handleMenuTouch(t)
     showInfoOverlay = true
     
   elseif key == "playAgain" then
+    devLog("DBG_MENU playAgain tapped: tbm=", tostring(tbm~=nil), "authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated))
     if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
       openGCSignInOverlay()
     elseif startLastMatchReplayFromMenu then

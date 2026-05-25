@@ -260,10 +260,22 @@ function enterQMatch(q)
   if q.minWordLen and tonumber(q.minWordLen) then
     MIN_WORD_LEN = math.floor(tonumber(q.minWordLen))
   end
+  -- Only persist replay settings when the GK match is already ended (e.g.
+  -- auto-opening a finished match). A freshly-created open match must not
+  -- overwrite the completed match ID that Play Again depends on.
   if persistLastMatchReplaySettingsFromQMatch then
-    persistLastMatchReplaySettingsFromQMatch(currentQMatch)
+    local _gcMatchEnded = false
+    if tbm and tbm.currentMatch and tbm._getEndStateFromMatch then
+      local _ok, _es = pcall(function()
+        return tbm:_getEndStateFromMatch(tbm.currentMatch)
+      end)
+      _gcMatchEnded = _ok and _es ~= nil
+    end
+    if _gcMatchEnded then
+      persistLastMatchReplaySettingsFromQMatch(currentQMatch)
+    end
   end
-  
+
   defineAvatarsAfterMicrodelay()
 
   -- Gate round start when user selected an already-ended Game Center match.

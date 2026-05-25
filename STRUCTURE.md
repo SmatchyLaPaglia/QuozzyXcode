@@ -44,6 +44,39 @@ touch routing: handleGCSignInOverlayTouch (Main.lua touched(), before state hand
   → any ENDED/CANCELLED touch dismisses
 ```
 
+## Play Again Flow
+
+```
+HaikuMenu.lua: handleMenuTouch() key=="playAgain"
+  → authenticated? no  → openGCSignInOverlay()
+  → authenticated? yes → startLastMatchReplayFromMenu()  [Main.lua]
+
+startLastMatchReplayFromMenu()
+  → getLastMatchReplaySettings()  ← reads lastMatchReplaySettings cache or disk (LAST_MATCH_REPLAY_KEY)
+  → settings nil/false → returns (no-op, no matchmaker)
+  → beginReplayMatchmakingBusy("matching...")  ← sets replayMatchmakingBusy=true
+      !! this blocks ALL touches in touched() until cleared !!
+      !! if async callback never fires, both buttons dead until app restart !!
+  → _tryRematchForLastReplay(settings)
+
+_tryRematchForLastReplay(settings)  [Main.lua]
+  → uses settings.opponentPlayerID (deprecated playerID format e.g. "G:12345")
+    with GKPlayer:loadPlayersForIdentifiers_withCompletionHandler_
+  → IMPORTANT: gamePlayerID ("A:_..." / "G:..." modern format) returns 0 results
+    from loadPlayersForIdentifiers — must use the deprecated playerID field
+  → on success: GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_
+      with request.recipients = {gkOpponent}
+  → on match created: endReplayMatchmakingBusy() → tbm:_setCurrentMatch() → enterQMatch()
+  → all error paths call _showGenericMatchmaker() which also calls endReplayMatchmakingBusy()
+
+Where opponentPlayerID comes from:
+  makeQMatchFromGK() [qMatch_qPlayer.lua] stores q.opponentPlayerID = pl.playerID
+  persistLastMatchReplaySettingsFromQMatch() [Main.lua] saves it to disk payload
+  Call sites: finalizeCompletedTurnBasedMatch() [GameCenter.lua] — unconditional ✓
+              enterQMatch() [GameCenter.lua] — guarded: only fires when tbm match is already ended
+              (guard prevents open rematch from overwriting ended match's saved ID)
+```
+
 ## Versus Button Flow
 
 ```
@@ -151,6 +184,10 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 - openURL_options_completionHandler_(url, {}, nil) — empty table {} works as NSDictionary; nil ok for completion handler
 - "app-settings:" opens app's own Settings.bundle page (not Game Center); requires Settings.bundle to show content
 - Re-assigning authenticateHandler does NOT call the handler again — bridge ignores it after initial auth cycle
+- GKPlayer ID formats: gamePlayerID = modern scoped ID ("A:_..." or "G:..." format); playerID = deprecated old format
+  loadPlayersForIdentifiers only works with playerID — gamePlayerID returns 0 results (confirmed)
+  Always store BOTH on qMatch: q.opponentId=gamePlayerID, q.opponentPlayerID=playerID
+- GKPlayer objects cannot be persisted across app launches — must reconstruct via loadPlayersForIdentifiers(playerID)
 
 ## pointInRect
 

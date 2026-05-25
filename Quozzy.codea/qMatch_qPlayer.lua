@@ -251,9 +251,11 @@ function makeQMatchFromGK(gkMatch, dataTable)
   
   local opponentId =
   (pl and (pl.gamePlayerID or pl.playerID)) or nil
+  local opponentPlayerID =
+  (pl and pl.playerID) or nil
   local opponentName =
   (pl and (pl.alias or pl.displayName)) or nil
-  devLog("COMMENT_DBG makeQMatchFromGK: matchId=", matchId, "localId=", localId, "pl=", tostring(pl~=nil), "opponentId=", tostring(opponentId), "hasDataTablePlayers=", tostring(dataTable and type(dataTable.players)=="table"))
+  devLog("COMMENT_DBG makeQMatchFromGK: matchId=", matchId, "localId=", localId, "pl=", tostring(pl~=nil), "opponentId=", tostring(opponentId), "opponentPlayerID=", tostring(opponentPlayerID), "hasDataTablePlayers=", tostring(dataTable and type(dataTable.players)=="table"))
   
   local requestedBoardSize =
     (tbm and tbm.pendingRequestedBoardSize) or boardSize
@@ -271,6 +273,7 @@ function makeQMatchFromGK(gkMatch, dataTable)
   (dataTable and dataTable.minWordLen) or requestedMinWordLen
   )
   
+  q.opponentPlayerID = opponentPlayerID
   q.boardTiles   = dataTable and dataTable.boardTiles or q.boardTiles
   if dataTable and type(dataTable.commentPhase) == "table" then
     q.commentPhase = dataTable.commentPhase
