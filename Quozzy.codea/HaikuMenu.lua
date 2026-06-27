@@ -2,25 +2,25 @@ function nextHaiku()
   local seasonName = seasons[seasonIndex]
   local key = seasonName and string.lower(seasonName) or nil
   local list = key and haikuBySeason[key] or nil
-  
+
   if not list or #list == 0 then
     currentHaiku = nil
     return
   end
-  
+
   currentHaiku = list[math.random(1, #list)]
 end
 
 function xPositionToCenterText(aText, fontName, fontSizeValue, centerX)
   pushStyle()
-  
+
   if fontName then font(fontName) end
   if fontSizeValue then fontSize(fontSizeValue) end
-  
+
   local w, h = textSize(aText)
-  
+
   popStyle()
-  
+
   return centerX - w * 0.5
 end
 
@@ -28,11 +28,11 @@ end
 -- ONE AND ONLY MENU POOF RENDERER
 ------------------------------------------------------------
 function drawMenuSeasonPoof(r)
-  
+
   ----------------------------------------------------------
   -- Build specs EXACTLY like current code
   ----------------------------------------------------------
-  
+
   menuSpecA = {
     text  = seasons[seasonIndex],
     font  = "HelveticaNeue-LightItalic",
@@ -50,7 +50,7 @@ function drawMenuSeasonPoof(r)
     "Still-song:\nLeaf alone, fluttering alas, leaf alone, fluttering ...\nFloating down the wind",
     font  = "Helvetica-Oblique",
     size  = math.floor(r.h * 0.19),
-    
+
     x = xPositionToCenterText(
     currentHaiku or "",
     "Helvetica-Oblique",
@@ -58,21 +58,21 @@ function drawMenuSeasonPoof(r)
     r.cx
     ),
     y     = r.y * 1.035,
-    
+
     color = Color.uiAccent2,
     mode  = CORNER,
     align = LEFT
   }
-  
+
   ----------------------------------------------------------
   -- Initialize module ONCE
   ----------------------------------------------------------
 
-  
+
   ----------------------------------------------------------
   -- Draw
   ----------------------------------------------------------
-  
+
   pushStyle()
   drawPoofingText(menuSpecA, menuSpecB)
   popStyle()
@@ -82,164 +82,429 @@ function drawMenuSeasonPoof(r)
 end
 
 function drawSeasonScatter(r, seed)
-  
+
   pushStyle()
   fill(Color.uiAccent)
   noStroke()
-  
+
   local function seededUnit(s, i, salt)
     local v = math.sin((s or 0) * 12.9898 + i * 78.233 + salt * 37.719) * 43758.5453
     return v - math.floor(v)
   end
-  
+
   local count = 8
-  
+
   local yCenter = r.cy - r.h * 0.10
   local ySpread = r.h * 0.22
   local xSpread = r.w * 0.45
-  
+
   for i = 1, count do
     local rx = seededUnit(seed, i, 1) * 2 - 1
     local ry = seededUnit(seed, i, 2) * 2 - 1
-    
+
     local x = r.cx + rx * xSpread
     local y = yCenter + ry * ySpread
-    
+
     local d = 2 + math.floor(seededUnit(seed, i, 3) * 4)
     ellipse(x, y, d, d)
   end
-  
+
   popStyle()
 end
+
+------------------------------------------------------------
+-- NEW MENU — 6-SECTION PROPORTIONAL LAYOUT
+------------------------------------------------------------
 
 function drawMenu()
   background(Color.bg)
-  
+
   ------------------------------------------------------------
-  -- LAYOUT SECTIONS (from your guides)
+  -- LAYOUT CONSTANTS
   ------------------------------------------------------------
-  
-  local titleRect   = rectFromGuides(1, 2, 1, 4)
-  local stripRect   = rectFromGuides(2, 3, 1, 4)
-  local seasonRect  = rectFromGuides(4, 5, 1, 4)
-  local buttonsRect = rectFromGuides(6, 7, 2, 3)
-  local footerRect  = rectFromGuides(8, 9, 1, 4)
-  
+
+  local HPAD   = 24
+  local innerW = WIDTH - 48
+
+  -- Section Y boundaries (Codea y-up from bottom):
+  local s = {}
+  s[6] = { yBot = 0,                  yTop = HEIGHT * 0.0606 }
+  s[5] = { yBot = HEIGHT * 0.0606,    yTop = HEIGHT * 0.1414 }
+  s[4] = { yBot = HEIGHT * 0.1414,    yTop = HEIGHT * 0.3030 }
+  s[3] = { yBot = HEIGHT * 0.3030,    yTop = HEIGHT * 0.4040 }
+  s[2] = { yBot = HEIGHT * 0.4040,    yTop = HEIGHT * 0.7272 }
+  s[1] = { yBot = HEIGHT * 0.7272,    yTop = HEIGHT           }
+
+  local function midY(sec)
+    return (s[sec].yBot + s[sec].yTop) * 0.5
+  end
+
+  -- Initialize global hit rects for touch handling
+  menuHitRects = {}
+
   ------------------------------------------------------------
-  -- TITLE
+  -- SECTION 1 — TITLE & SEASON (HANDOFF §3)
   ------------------------------------------------------------
-  
-  drawTitleSection(titleRect)
-  
-  ------------------------------------------------------------
-  -- SMALL STRIP (SEASON LABEL)
-  ------------------------------------------------------------
-  
+
   pushStyle()
-  font("Georgia")
-  fontSize(stripRect.h * 0.45)
-  fill(Color.tileText)
+
+  local h1  = HEIGHT * 0.2727
+  local cx  = WIDTH * 0.5
+  local cy1 = midY(1)
+
+  -- Font sizes
+  local qSize    = math.min(h1 * 0.34, 64)
+  local sSize    = math.min(h1 * 0.16, 28)
+  local wSize    = math.min(h1 * 0.28, 52)
+  local gap      = math.min(h1 * 0.06, 14)
+
+  -- Stack: Quozzy (top), SEASONS (middle), season name (bottom)
+  local totalStackH = qSize + sSize + wSize + 2 * gap
+  local stackBot    = cy1 - totalStackH * 0.5
+
+  local seasonNameY = stackBot + wSize * 0.5
+  local seasonsY    = seasonNameY + wSize * 0.5 + gap + sSize * 0.5
+  local quozzyY     = seasonsY + sSize * 0.5 + gap + qSize * 0.5
+
+  -- "Quozzy" — Georgia Bold
+  font("Georgia-Bold")
+  fontSize(qSize)
+  fill(Color.navy)
   textMode(CENTER)
   textAlign(CENTER)
-  text("SEASONS", stripRect.cx, stripRect.cy)
+  text("Quozzy", cx, quozzyY)
+
+  -- "SEASONS" — Georgia Bold
+  font("Georgia-Bold")
+  fontSize(sSize)
+  text("SEASONS", cx, seasonsY)
+
+  -- Season name — Georgia Italic
+  font("Georgia-Italic")
+  fontSize(wSize)
+  fill(Color.tealSeason)
+  text(seasons[seasonIndex], cx, seasonNameY)
+
   popStyle()
-  
-  ------------------------------------------------------------
-  -- MAIN SEASON (POOF TEXT)
-  ------------------------------------------------------------
-  
-  drawMenuSeasonPoof(seasonRect)
-  ------------------------------------------------------------
-  -- BUTTON GRID
-  ------------------------------------------------------------
-  
-  drawButtonGridSection(buttonsRect)
-  
-  ------------------------------------------------------------
-  -- FOOTER
-  ------------------------------------------------------------
-  
-  drawFooterSection(footerRect)
-  
-end
 
-local function getButtonGridHitRects(r)
-  local gapY = r.h * 0.06
-  local btnH = (r.h - gapY * 3) / 4
-  local targetBtnW = (r.w * 0.47) * 1.25
-  local gutterX = r.w * 0.03
-  local btnW = targetBtnW
-  
-  local halfCenterSpan = btnW * 0.5 + gutterX * 0.5
-  local leftX  = r.cx - halfCenterSpan
-  local rightX = r.cx + halfCenterSpan
-  
-  local y1 = r.y + r.h - btnH * 0.5
-  local y2 = y1 - (btnH + gapY)
-  local y3 = y2 - (btnH + gapY)
-  local y4 = y3 - (btnH + gapY)
-  local fullW = btnW * 2 + gutterX
-  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
-  
-  local out = {
-    size    = { cx=leftX,  cy=y1, w=btnW, h=btnH },
-    min     = { cx=rightX, cy=y1, w=btnW, h=btnH },
-    solo    = { cx=leftX,  cy=y2, w=btnW, h=btnH },
-    versus  = { cx=rightX, cy=y2, w=btnW, h=btnH },
-    records = { cx=leftX,  cy=y3, w=btnW, h=btnH },
-    info    = { cx=rightX, cy=y3, w=btnW, h=btnH },  -- same size as others
-  }
-  if replaySettings and replaySettings.opponentId then
-    out.playAgain = { cx=r.cx, cy=y4, w=fullW, h=btnH }
-  end
-  return out
-end
+  ------------------------------------------------------------
+  -- SECTION 2 — BOARD AREA (HANDOFF §4)
+  ------------------------------------------------------------
 
-local function drawPlayAgainButton(cx, cy, w, h, selected)
   pushStyle()
-  rectMode(CENTER)
-  local accentCol = selected and Color.uiAccent2 or Color.uiAccent
-  local bgCol = Color.bg
-  local borderPx = 2
-  drawRoundedRect(cx, cy, w, h, 10, accentCol, accentCol)
-  drawRoundedRect(cx, cy, w - borderPx * 2, h - borderPx * 2, 8, bgCol, bgCol)
-  
-  local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
-  if not avatar and genericOpponentAvatar then
-    avatar = genericOpponentAvatar()
+
+  local h2       = HEIGHT * 0.3232
+  local GRID_GAP = 5
+
+  -- Determine if wide or narrow layout
+  local boardWideW = innerW * 0.6
+  local cellFromW  = (boardWideW - (boardSize - 1) * GRID_GAP) / boardSize
+  local cellFromH  = h2 * 0.82 / boardSize
+  local isWide     = math.min(cellFromW, cellFromH) >= 6
+  local colW       = isWide and boardWideW or (innerW * 0.5)
+  cellFromW        = (colW - (boardSize - 1) * GRID_GAP) / boardSize
+  local cellPx     = math.max(4, math.floor(math.min(cellFromW, cellFromH)))
+
+  local gridW = boardSize * cellPx + (boardSize - 1) * GRID_GAP
+  local gridH = gridW  -- square
+
+  -- Column split
+  local leftColW    = innerW - colW
+  local rightColCx  = HPAD + leftColW + colW * 0.5
+  local gridCy      = midY(2)
+
+  -- Rocking animation
+  local BOARD_ROCK_BASE   = 6.0
+  local BOARD_ROCK_AMP    = 2.5
+  local BOARD_ROCK_PERIOD = 4.3
+  local boardAngle = BOARD_ROCK_BASE + BOARD_ROCK_AMP * math.sin((ElapsedTime / BOARD_ROCK_PERIOD) * math.pi * 2)
+
+  -- Draw grid preview (right column, tilted)
+  pushMatrix()
+  translate(rightColCx, gridCy)
+  rotate(-boardAngle)  -- Codea rotate is CCW positive; negate for CW tilt
+
+  -- Preview letters seeded by boardSize + elapsed seconds
+  local previewSeed = boardSize * 1000 + math.floor(ElapsedTime)
+  local function seededRand(s, i)
+    local v = math.sin((s or 0) * 12.9898 + i * 78.233 + 37.719) * 43758.5453
+    return v - math.floor(v)
   end
-  
-  local labelLeft = "play"
-  local labelRight = "again"
-  local textSizePx = math.floor(h * 0.38)
-  local avatarSize = h * 0.62
-  local gap = h * 0.20
-  
-  font("Helvetica")
-  fontSize(textSizePx)
-  fill(accentCol)
+
+  local gridLeft = -gridW * 0.5
+  local gridBot  = -gridH * 0.5
+
+  for row = 1, boardSize do
+    for col = 1, boardSize do
+      local idx  = (row - 1) * boardSize + col
+      local tx   = gridLeft + (col - 0.5) * (cellPx + GRID_GAP)
+      local ty   = gridBot  + (row - 0.5) * (cellPx + GRID_GAP)
+      local r    = cellPx * 0.15
+
+      drawRoundedRect(tx, ty, cellPx, cellPx, r, Color.teal, Color.teal)
+
+      -- Decorative letter
+      local ltrIdx = math.floor(seededRand(previewSeed, idx) * 26) + 1
+      local letter = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", ltrIdx, ltrIdx)
+
+      font("Georgia-Bold")
+      fontSize(cellPx * 0.55)
+      fill(255, 255, 255, 255)
+      textMode(CENTER)
+      textAlign(CENTER)
+      text(letter, tx, ty)
+    end
+  end
+
+  popMatrix()
+
+  -- Left column text: "Choose" / "Board Size" / "N x N"
+  local labelSize  = math.max(9,  math.min(h2 * 0.10, 22))
+  local numberSize = math.max(12, math.min(h2 * 0.15, 28))
+  local textLeftX  = HPAD + 8
+
+  textMode(CORNER)
+  textAlign(LEFT)
+
+  -- "N x N" — large size number (bottom of stack)
+  font("Georgia-Bold")
+  fontSize(numberSize)
+  fill(Color.tealLabel)
+  local numberStr   = boardSize .. " x " .. boardSize
+  local numberY     = gridCy - numberSize * 0.2
+  text(numberStr, textLeftX, numberY)
+
+  -- "Board Size" — label above
+  font("Georgia-Italic")
+  fontSize(labelSize)
+  local boardLabelY = numberY + numberSize * 0.65
+  text("Board Size", textLeftX, boardLabelY)
+
+  -- "Choose" — title at top
+  local chooseY = boardLabelY + labelSize * 0.9
+  text("Choose", textLeftX, chooseY)
+
+  popStyle()
+
+  ------------------------------------------------------------
+  -- SECTION 3 — MINIMUM DICE AREA (HANDOFF §5)
+  ------------------------------------------------------------
+
+  pushStyle()
+
+  local h3       = HEIGHT * 0.1010
+  local DICE_GAP = 5
+  local diceColW = innerW * 0.6
+
+  -- Die sizes at each minLen:
+  local die5 = (diceColW - 4 * DICE_GAP) / 5
+  local die6 = (diceColW - 5 * DICE_GAP) / 6
+  local die4 = die5
+  local die3 = die4 * 1.13
+
+  local rawDie   = ({ [3]=die3, [4]=die4, [5]=die5, [6]=die6 })[MIN_WORD_LEN]
+  local maxFromH = h3 * 0.72
+  local dicePx   = math.max(4, math.floor(math.min(rawDie, maxFromH)))
+  local diceRowW = MIN_WORD_LEN * dicePx + (MIN_WORD_LEN - 1) * DICE_GAP
+
+  -- Dice row rocking animation
+  local DICE_ROCK_BASE   = -5.0
+  local DICE_ROCK_AMP    = 2.5
+  local DICE_ROCK_PERIOD = 5.1
+  local diceAngle = DICE_ROCK_BASE + DICE_ROCK_AMP * math.sin((ElapsedTime / DICE_ROCK_PERIOD) * math.pi * 2)
+
+  -- Layout: [dice row] [12px gap] [text column]
+  local textColW  = math.min(diceRowW, innerW - diceRowW - 12)
+  local totalRowW = diceRowW + 12 + textColW
+  local diceRowCx = HPAD + (innerW - totalRowW) * 0.5 + diceRowW * 0.5
+  local textColCx = diceRowCx + diceRowW * 0.5 + 12 + textColW * 0.5
+
+  local cy3 = midY(3)
+
+  -- Draw tilted dice row
+  pushMatrix()
+  translate(diceRowCx, cy3)
+  rotate(diceAngle)  -- negative base means CW tilt in Codea coordinates
+
+  local dieRowLeft = -(diceRowW * 0.5)
+  for i = 1, MIN_WORD_LEN do
+    local dx = dieRowLeft + (i - 0.5) * (dicePx + DICE_GAP)
+    local r  = dicePx * 0.15
+
+    drawRoundedRect(dx, 0, dicePx, dicePx, r, Color.teal, Color.teal)
+
+    -- Decorative letter: A, B, C...
+    local letter = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", i, i)
+    font("Georgia-Bold")
+    fontSize(dicePx * 0.5)
+    fill(255, 255, 255, 255)
+    textMode(CENTER)
+    textAlign(CENTER)
+    text(letter, dx, 0)
+  end
+
+  popMatrix()
+
+  -- Text column
+  local diceLabelSize  = math.max(9,  math.min(h3 * 0.12, 20))
+  local diceNumberSize = math.max(12, math.min(h3 * 0.18, 26))
+
+  font("Georgia-Italic")
+  fontSize(diceLabelSize)
+  fill(Color.tealLabel)
   textMode(CENTER)
   textAlign(CENTER)
-  
-  local leftW = textSize(labelLeft)
-  local rightW = textSize(labelRight)
-  local totalW = leftW + gap + avatarSize + gap + rightW
-  local x0 = cx - totalW * 0.5
-  
-  local leftCx = x0 + leftW * 0.5
-  local avatarCx = x0 + leftW + gap + avatarSize * 0.5
-  local rightCx = x0 + leftW + gap + avatarSize + gap + rightW * 0.5
-  
-  text(labelLeft, leftCx, cy)
-  if drawAvatarCircle then
-    drawAvatarCircle(avatar, avatarCx, cy, avatarSize, nil)
+  text("minimum / letters", textColCx, cy3 + diceLabelSize * 0.3)
+
+  font("Georgia-Bold")
+  fontSize(diceNumberSize)
+  fill(Color.tealLabel)
+  text(tostring(MIN_WORD_LEN), textColCx, cy3 - diceNumberSize * 0.5)
+
+  popStyle()
+
+  ------------------------------------------------------------
+  -- SECTION 4 — PLAY MODES (HANDOFF §6)
+  ------------------------------------------------------------
+
+  pushStyle()
+
+  local h4     = HEIGHT * 0.1616
+  local btnH   = h4 * 0.84
+  local btnW   = btnH * 0.82
+  local btnR   = btnW * 0.18
+  local btnGap = WIDTH * 0.04
+
+  local totalW = 3 * btnW + 2 * btnGap
+  local startX = (WIDTH - totalW) * 0.5 + btnW * 0.5
+
+  local soloCx  = startX
+  local vsCx    = startX + btnW + btnGap
+  local robotCx = startX + 2 * (btnW + btnGap)
+  local btn4Cy  = midY(4)
+
+  -- Rocking angles per button
+  local soloAngle  = -8.0 + 2.5 * math.sin((ElapsedTime / 3.7) * math.pi * 2)
+  local vsAngle    =  4.0 + 2.5 * math.sin((ElapsedTime / 4.9) * math.pi * 2)
+  local robotAngle = -5.0 + 2.5 * math.sin((ElapsedTime / 5.5) * math.pi * 2)
+
+  local labelFontSize = math.min(btnH * 0.28, 30)
+
+  local function drawModeButton(cx, cy, angle, label, key)
+    pushMatrix()
+    translate(cx, cy)
+    rotate(angle)
+
+    local fillCol = (pressedButton == key) and Color.tealDark or Color.teal
+    drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
+
+    font("Georgia-Bold")
+    fontSize(labelFontSize)
+    fill(255, 255, 255, 255)
+    textMode(CENTER)
+    textAlign(CENTER)
+    text(label, 0, 0)
+
+    popMatrix()
   end
-  text(labelRight, rightCx, cy)
+
+  drawModeButton(soloCx, btn4Cy, soloAngle, "solo", "solo")
+  drawModeButton(vsCx,   btn4Cy, vsAngle,   "vs",   "vs")
+  drawModeButton(robotCx, btn4Cy, robotAngle, "🤖", "robot")
+
+  -- Store hit rects
+  menuHitRects.solo  = { cx = soloCx,  cy = btn4Cy, w = btnW, h = btnH }
+  menuHitRects.vs    = { cx = vsCx,    cy = btn4Cy, w = btnW, h = btnH }
+  menuHitRects.robot = { cx = robotCx, cy = btn4Cy, w = btnW, h = btnH }
+
+  popStyle()
+
+  ------------------------------------------------------------
+  -- SECTION 5 — RECORDS / INFO (HANDOFF §7)
+  ------------------------------------------------------------
+
+  pushStyle()
+
+  local h5   = HEIGHT * 0.0808
+  local pad  = math.max(5, math.min((h5 - 2) * 0.5, 10))
+  local btnD = h5 - pad * 2
+  local hGap = math.min(math.max(h5 * 0.5, 20), 60)
+  local midX = WIDTH * 0.5
+  local leftBtnCx  = midX - hGap * 0.5
+  local rightBtnCx = midX + hGap * 0.5
+  local btn5Cy     = midY(5)
+
+  -- Left button (records) — circular
+  local recordsFill = (pressedButton == "records") and Color.tealDark or Color.teal
+  ellipseMode(CENTER)
+  fill(recordsFill)
+  noStroke()
+  ellipse(leftBtnCx, btn5Cy, btnD, btnD)
+
+  -- Notebook icon inside left button
+  pushMatrix()
+  translate(leftBtnCx, btn5Cy)
+  local iconH = btnD * 0.7
+  local iconW = btnD * 0.55
+  local ir    = iconW * 0.15
+  drawRoundedRect(0, 0, iconW, iconH, ir, color(255, 255, 255, 255), color(255, 255, 255, 255))
+  -- horizontal lines
+  stroke(Color.teal)
+  strokeWidth(1.5)
+  noFill()
+  for i = 1, 3 do
+    local ly = -iconH * 0.25 + (i - 1) * iconH * 0.25
+    line(-iconW * 0.35, ly, iconW * 0.35, ly)
+  end
+  popMatrix()
+
+  -- Right button (info) — circular
+  local infoFill = (pressedButton == "info") and Color.tealDark or Color.teal
+  fill(infoFill)
+  ellipse(rightBtnCx, btn5Cy, btnD, btnD)
+
+  -- "i" label
+  fill(255, 255, 255, 255)
+  font("Georgia-Bold")
+  fontSize(btnD * 0.6)
+  textMode(CENTER)
+  textAlign(CENTER)
+  text("i", rightBtnCx, btn5Cy)
+
+  -- Store hit rects
+  menuHitRects.records = { cx = leftBtnCx,  cy = btn5Cy, w = btnD, h = btnD }
+  menuHitRects.info    = { cx = rightBtnCx, cy = btn5Cy, w = btnD, h = btnD }
+
+  popStyle()
+
+  ------------------------------------------------------------
+  -- SECTION 6 — DISCLAIMER (HANDOFF §8)
+  ------------------------------------------------------------
+
+  pushStyle()
+
+  local h6     = HEIGHT * 0.0606
+  local ftSize = math.max(8, math.min(h6 * 0.13, 14))
+  local cy6    = midY(6)
+
+  font("Georgia-Italic")
+  fontSize(ftSize)
+  fill(Color.greyCaption)
+  textMode(CENTER)
+  textAlign(CENTER)
+
+  text("Seasons have no effect on gameplay", WIDTH * 0.5, cy6 + ftSize * 0.35)
+  text("they're just pretty pretty",         WIDTH * 0.5, cy6 - ftSize * 0.45)
+
   popStyle()
 end
 
 pressedButton = pressedButton or nil
 pressedInside = pressedInside or false
+
+------------------------------------------------------------
+-- NEW TOUCH HANDLER — 6-SECTION HIT TESTING
+------------------------------------------------------------
 
 function handleMenuTouch(t)
   if t.state == ENDED then
@@ -247,49 +512,65 @@ function handleMenuTouch(t)
   end
 
   didSwipeOnPoofingText(t)
-  
-  local buttonsRect = rectFromGuides(6, 7, 2, 3)
-  local R = getButtonGridHitRects(buttonsRect)
-  
+
+  -- Recompute section boundaries (must match drawMenu)
+  local HPAD = 24
+  local s = {}
+  s[6] = { yBot = 0,                  yTop = HEIGHT * 0.0606 }
+  s[5] = { yBot = HEIGHT * 0.0606,    yTop = HEIGHT * 0.1414 }
+  s[4] = { yBot = HEIGHT * 0.1414,    yTop = HEIGHT * 0.3030 }
+  s[3] = { yBot = HEIGHT * 0.3030,    yTop = HEIGHT * 0.4040 }
+  s[2] = { yBot = HEIGHT * 0.4040,    yTop = HEIGHT * 0.7272 }
+  s[1] = { yBot = HEIGHT * 0.7272,    yTop = HEIGHT           }
+
+  local function pointInSection(x, y, sec)
+    return x >= HPAD and x <= WIDTH - HPAD and
+           y >= s[sec].yBot and y <= s[sec].yTop
+  end
+
+  -- Find which interactive element was hit
   local function hitKeyAt(x, y)
-    for k, rr in pairs(R) do
-      if pointInRect(x, y, rr.cx, rr.cy, rr.w, rr.h) then
-        return k
+    -- Check named button rects from drawMenu() first
+    if menuHitRects then
+      for k, rr in pairs(menuHitRects) do
+        if type(rr) == "table" and rr.cx and rr.cy and rr.w and rr.h then
+          if pointInRect(x, y, rr.cx, rr.cy, rr.w, rr.h) then
+            return k
+          end
+        end
       end
     end
+    -- Check full-section taps
+    if pointInSection(x, y, 2) then return "boardSize" end
+    if pointInSection(x, y, 3) then return "minWordLen" end
     return nil
   end
-  
+
   if t.state == BEGAN then
     pressedButton = hitKeyAt(t.x, t.y)
     pressedInside = (pressedButton ~= nil)
     return
   end
-  
+
   if t.state == MOVING then
     if pressedButton then
-      local rr = R[pressedButton]
-      pressedInside = pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h)
+      local hit = hitKeyAt(t.x, t.y)
+      pressedInside = (hit == pressedButton)
     end
     return
   end
-  
+
   if t.state ~= ENDED then return end
-  
+
   local key = pressedButton
-  local shouldFire = false
-  
-  if key then
-    local rr = R[key]
-    shouldFire = pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h)
-  end
-  
+  local shouldFire = pressedInside
+
   pressedButton = nil
   pressedInside = false
-  
+
   if not shouldFire then return end
-  
-  if key == "size" then
+
+  if key == "boardSize" then
     if boardSize == 4 then
       boardSize = 5
     elseif boardSize == 5 then
@@ -298,17 +579,17 @@ function handleMenuTouch(t)
       boardSize = 4
     end
     if persistGameplaySettings then persistGameplaySettings() end
-    
-  elseif key == "min" then
+
+  elseif key == "minWordLen" then
     MIN_WORD_LEN = MIN_WORD_LEN + 1
     if MIN_WORD_LEN > 6 then MIN_WORD_LEN = 3 end
     if persistGameplaySettings then persistGameplaySettings() end
-    
+
   elseif key == "solo" then
     setTurnBasedEnabled(false)
     startRoundFromCurrentSettings()
-    
-  elseif key == "versus" then
+
+  elseif key == "vs" then
     devLog("DBG_MENU versus tapped: tbm=", tostring(tbm~=nil), "authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated))
     if not (tbm and tbm.showMatchmaker) then
       openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
@@ -321,20 +602,16 @@ function handleMenuTouch(t)
     else
       openGCSignInOverlay()
     end
-    
+
+  elseif key == "robot" then
+    setTurnBasedEnabled(false)
+    startRoundFromCurrentSettings()
+
   elseif key == "records" then
     openRecordsOverlay()
-    
+
   elseif key == "info" then
     showInfoOverlay = true
-    
-  elseif key == "playAgain" then
-    devLog("DBG_MENU playAgain tapped: tbm=", tostring(tbm~=nil), "authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated))
-    if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
-      openGCSignInOverlay()
-    elseif startLastMatchReplayFromMenu then
-      startLastMatchReplayFromMenu()
-    end
   end
 end
 
@@ -352,7 +629,7 @@ function getGuideLines()
     0.825, -- v3
     0.875  -- v4
   }
-  
+
   local yFrac = {
     0.873, -- h1 (near top)
     0.65, -- h2
@@ -364,15 +641,15 @@ function getGuideLines()
     0.11, -- h8
     0.06  -- h9 (near bottom)
   }
-  
+
   local x = {}
   for i = 1, 4 do x[i] = WIDTH * xFrac[i] end
-  
+
   local y = {}
   for i = 1, 9 do
     y[i] = HEIGHT * math.min(1, yFrac[i] + yShift)
   end
-  
+
   return x, y
 end
 
@@ -382,22 +659,22 @@ end
 
 function drawPinkLines()
   local x, y = getGuideLines()
-  
+
   pushStyle()
   stroke(255, 0, 200, 190)
   strokeWidth(3)
   noFill()
-  
+
   -- verticals
   for i = 1, 4 do
     line(x[i], 0, x[i], HEIGHT)
   end
-  
+
   -- horizontals
   for i = 1, 9 do
     line(0, y[i], WIDTH, y[i])
   end
-  
+
   popStyle()
 end
 
@@ -410,43 +687,43 @@ function drawBoxByGuides(x, y, hTop, hBot, vLeft, vRight)
   local right = x[vRight]
   local top   = y[hTop]
   local bot   = y[hBot]
-  
+
   -- assume y decreases downward? (Codea: y increases upward)
   -- We want a CORNER rect with bottom-left origin:
   local x0 = left
   local y0 = bot
   local w  = right - left
   local h  = top - bot
-  
+
   rect(x0, y0, w, h)
 end
 
 function drawPurpleSquares()
   local x, y = getGuideLines()
-  
+
   pushStyle()
   stroke(120, 60, 255, 210)
   strokeWidth(7)
   noFill()
   rectMode(CORNER)
-  
+
   -- constraints you gave:
-  
+
   -- horizontals 1-2, verticals 1-4
   drawBoxByGuides(x, y, 1, 2, 1, 4)
-  
+
   -- horizontals 2-3, verticals 1-4
   drawBoxByGuides(x, y, 2, 3, 1, 4)
-  
+
   -- horizontals 4-5, verticals 1-4
   drawBoxByGuides(x, y, 4, 5, 1, 4)
-  
+
   -- horizontals 6-7, verticals 2-3
   drawBoxByGuides(x, y, 6, 7, 2, 3)
-  
+
   -- horizontals 8-9, verticals 1-4
   drawBoxByGuides(x, y, 8, 9, 1, 4)
-  
+
   popStyle()
 end
 
@@ -456,12 +733,12 @@ end
 
 function rectFromGuides(hTop, hBot, vLeft, vRight)
   local x, y = getGuideLines()
-  
+
   local left  = x[vLeft]
   local right = x[vRight]
   local top   = y[hTop]
   local bot   = y[hBot]
-  
+
   return {
     x = left,
     y = bot,
@@ -472,152 +749,26 @@ function rectFromGuides(hTop, hBot, vLeft, vRight)
   }
 end
 
-function drawTitleSection(r)
-  pushStyle()
-  
-  font("Georgia-Bold")
-  fontSize(r.h * 0.55)
-  fill(Color.tileText)
-  
-  textMode(CENTER)
-  textAlign(CENTER)
-  text("Quozzy", r.cx, r.cy + r.h * 0.15)
-  
-  fontSize(r.h * 0.25)
-  text("SEASONS", r.cx, r.cy - r.h * 0.2)
-  
-  popStyle()
-end
-
-
-pressedButton = pressedButton or nil
-
-function drawButtonGridSection(r)
-  pushStyle()
-  font("Helvetica")
-  
-  local gapY = r.h * 0.06
-  local btnH = (r.h - gapY * 3) / 4
-  local targetBtnW = (r.w * 0.47) * 1.25
-  local gutterX = r.w * 0.03
-  local btnW = targetBtnW
-  
-  local halfCenterSpan = btnW * 0.5 + gutterX * 0.5
-  local leftX  = r.cx - halfCenterSpan
-  local rightX = r.cx + halfCenterSpan
-  
-  local y = r.y + r.h - btnH * 0.5
-  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
-  
-  ----------------------------------------------------------
-  -- Row 1
-  ----------------------------------------------------------
-  
-  drawButton(
-  leftX, y, btnW, btnH,
-  string.format("size %d x %d", boardSize, boardSize),
-  pressedButton == "size"
-  )
-  
-  drawButton(
-  rightX, y, btnW, btnH,
-  string.format("minimum %d", MIN_WORD_LEN),
-  pressedButton == "min"
-  )
-  
-  y = y - (btnH + gapY)
-  
-  ----------------------------------------------------------
-  -- Row 2
-  ----------------------------------------------------------
-  
-  drawButton(leftX,  y, btnW, btnH, "solo",   pressedButton == "solo")
-  drawButton(rightX, y, btnW, btnH, "versus", pressedButton == "versus")
-  
-  y = y - (btnH + gapY)
-  
-  ----------------------------------------------------------
-  -- Row 3
-  ----------------------------------------------------------
-  
-  drawButton(leftX,  y, btnW, btnH, "records", pressedButton == "records")
-  drawButton(rightX, y, btnW, btnH, "i",       pressedButton == "info")
-  
-  y = y - (btnH + gapY)
-  
-  if replaySettings and replaySettings.opponentId then
-    local fullW = btnW * 2 + gutterX
-    drawPlayAgainButton(r.cx, y, fullW, btnH, pressedButton == "playAgain")
-  end
-  
-  popStyle()
-end
+------------------------------------------------------------
+-- LEGACY BUTTON HELPER (kept for backward compatibility)
+------------------------------------------------------------
 
 function drawMenuButton(x, y, w, h, label, id)
   pushStyle()
-  
+
   rectMode(CENTER)
   textMode(CENTER)
   fontSize(22)
-  
+
   local selected = (pressedButton == id)
   local fillCol  = selected and Color.uiAccent2 or Color.uiAccent
-  
+
   drawRoundedRect(x, y, w, h, 10, fillCol, fillCol)
-  
+
   fill(255,255,255,255) -- allowed exception
   text(label, x, y)
-  
-  popStyle()
-end
 
-function drawFooterSection(r)
-  pushStyle()
-  
-  font("Georgia")
-  fontSize(r.h * 0.45)
-  fill(Color.tileText.r, Color.tileText.g, Color.tileText.b, 110)
-  
-  textMode(CENTER)
-  textAlign(CENTER)
-  textWrapWidth(WIDTH*0.9)
-  local footerRestoreOffset = HEIGHT * 0.04
-  text(
-  "Seasons have no effect on gameplay\n they're just pretty pretty",
-  r.cx,
-  r.cy - footerRestoreOffset
-  )
-  
   popStyle()
-end
-
-function drawMenuLayout()
-  background(Color.bg)
-  
-  -- Title
-  drawTitleSection(
-  rectFromGuides(1, 2, 1, 4)
-  )
-  
-  -- Season label (small strip)
-  drawSeasonSection(
-  rectFromGuides(2, 3, 1, 4)
-  )
-  
-  -- Season name big
-  drawSeasonSection(
-  rectFromGuides(4, 5, 1, 4)
-  )
-  
-  -- Button grid (center box)
-  drawButtonGridSection(
-  rectFromGuides(6, 7, 2, 3)
-  )
-  
-  -- Footer
-  drawFooterSection(
-  rectFromGuides(8, 9, 1, 4)
-  )
 end
 
 menuSpecA = menuSpecA or {

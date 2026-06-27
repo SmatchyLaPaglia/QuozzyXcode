@@ -1,7 +1,8 @@
 -- spring/summer/autumn/winter palettes 
 local SeasonPalettes = {
     Spring = {
-        bg    = color(198, 227, 198),
+        bg    = color(232, 240, 224),
+        menuText = color(42, 90, 40),
         gridBg        = color(220, 245, 230, 255),
         tileFill  = color(235, 255, 245, 255),
         tileStroke= color(120, 190, 150, 255),
@@ -17,7 +18,8 @@ local SeasonPalettes = {
     
     Summer = {
         -- overall background: warm, light, a little “sun-bleached”
-        bg     = color(252, 237, 212, 255),   -- warmer + brighter golden
+        bg     = color(245, 237, 218),   -- warmer + brighter golden
+        menuText = color(122, 74, 16),
         gridBg = color(255, 252, 243, 255),
         -- tiles: bright warm-white with a *teal* stroke so it doesn’t feel wintry navy
         tileFill  = color(255, 253, 246, 255),   -- bright warm-white (sunlit)
@@ -43,7 +45,8 @@ local SeasonPalettes = {
     },
     
     Autumn = {
-        bg     = color(217, 193, 160),   -- more muted brown-orange
+        bg     = color(240, 224, 204),   -- more muted brown-orange
+        menuText = color(106, 42, 8),
         gridBg = color(250, 235, 220, 255),
         tileFill  = color(255, 245, 225, 255),
         tileStroke= color(170, 110, 60, 255),
@@ -58,7 +61,8 @@ local SeasonPalettes = {
     },
     
     Winter = {
-        bg        = color(215, 229, 244, 255),   -- slightly deeper ice-blue
+        bg        = color(200, 220, 232),   -- slightly deeper ice-blue
+        menuText  = color(26, 43, 94),
         gridBg    = color(238, 246, 255, 255),   -- lighter, closer to white-blue
         tileFill  = color(245, 250, 255, 255),
         tileStroke= color(110, 140, 180, 255),
@@ -111,7 +115,15 @@ function applySeasonPalette()
     for k, v in pairs(palette) do
         Color[k] = v
     end
-    
+
+    -- constant (non-seasonal) menu colours
+    Color.teal        = color(75, 192, 184)
+    Color.tealDark    = color(56, 168, 158)
+    Color.tealLabel   = color(74, 188, 180)
+    Color.tealSeason  = color(75, 200, 192)
+    Color.navy        = color(26, 43, 94)
+    Color.greyCaption = color(138, 160, 174)
+
     -- rebuild rounded overlay sprites for this season
     rebuildOverlayPanelsForSeason()
 end

@@ -32,7 +32,7 @@ Four states, defined as constants in `Main.lua`:
 
 | State | Description |
 |-------|-------------|
-| `STATE_MENU` | Main menu with haiku, season selector, game mode buttons |
+| `STATE_MENU` | Main menu with 6-section layout: title/season, board area, min dice, play modes (solo/vs/robot), records/info, disclaimer |
 | `STATE_READY` | Pre-game countdown; shows board and opponent name |
 | `STATE_PLAY` | Active gameplay: timer, board interaction, word discovery |
 | `STATE_END` | Results screen: scores, found words, missed words, win/loss |
@@ -53,6 +53,7 @@ Four states, defined as constants in `Main.lua`:
 | `CodeaTurnBasedMatches.lua` | GameCenter ObjC bridge wrapper (turn lifecycle, callbacks) |
 | `Themes.lua` | Seasonal color palettes; `Color` global table populated per season |
 | `ScrollList.lua` | Reusable inertial scroll list component used throughout UI |
+| `HaikuMenu.lua` | Main menu draw (6-section proportional layout) and touch handling |
 | `Helpers.lua` | `ensureMyWordStore()`, `currentFoundWords()`, `drawBoardPreview()`, `pointInRect()` |
 
 ### Core Data Structures
@@ -86,6 +87,8 @@ Heavy use of globals shared across files — idiomatic Codea Lua. Key ones:
 - `useTurnBased` — false for single-player, true for GameCenter matches
 - `Color` — current season's palette table (populated by `Themes.lua`)
 - `endScreenShowMissed`, `endScreenMissedTabRect` — end screen missed-words tab state
+- `menuHitRects` — hit rects for interactive menu elements (populated each frame by drawMenu)
+- `pressedButton`, `pressedInside` — button press state tracking
 
 ### End Screen Architecture
 

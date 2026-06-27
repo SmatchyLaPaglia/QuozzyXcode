@@ -47,7 +47,10 @@ touch routing: handleGCSignInOverlayTouch (Main.lua touched(), before state hand
 ## Play Again Flow
 
 ```
-HaikuMenu.lua: handleMenuTouch() key=="playAgain"
+NOTE: The playAgain button has been removed from the main menu (HaikuMenu.lua) as of the 6-section redesign. Play again will be re-introduced elsewhere.
+
+Legacy flow (still functional via startLastMatchReplayFromMenu in Main.lua):
+  → getLastMatchReplaySettings()
   → authenticated? no  → openGCSignInOverlay()
   → authenticated? yes → startLastMatchReplayFromMenu()  [Main.lua]
 
@@ -80,7 +83,7 @@ Where opponentPlayerID comes from:
 ## Versus Button Flow
 
 ```
-HaikuMenu.lua: handleMenuButtonTap() key=="versus"
+HaikuMenu.lua: handleMenuTouch() key=="vs"  (section 4 button)
   → tbm exists?  no → openGCMatchmakerErrorOverlay()
   → authenticated? yes → tbm:showMatchmaker()
                    no  → openGCSignInOverlay(function() tbm:showMatchmaker() end)
@@ -154,8 +157,14 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 
 | concern | file | function |
 |---|---|---|
-| versus tap | HaikuMenu.lua | handleMenuButtonTap() key=="versus" |
-| play again tap | HaikuMenu.lua | handleMenuButtonTap() key=="playAgain" |
+| menu draw (6-section layout) | HaikuMenu.lua | drawMenu() |
+| versus tap (section 4) | HaikuMenu.lua | handleMenuTouch() key=="vs" |
+| solo tap (section 4) | HaikuMenu.lua | handleMenuTouch() key=="solo" |
+| board size cycle (section 2) | HaikuMenu.lua | handleMenuTouch() key=="boardSize" |
+| min word len cycle (section 3) | HaikuMenu.lua | handleMenuTouch() key=="minWordLen" |
+| records tap (section 5) | HaikuMenu.lua | handleMenuTouch() key=="records" |
+| info tap (section 5) | HaikuMenu.lua | handleMenuTouch() key=="info" |
+| robot tap (section 4) | HaikuMenu.lua | handleMenuTouch() key=="robot" |
 | GC auth | CodeaTurnBasedMatches.lua | CTBM:_authenticate() |
 | unauthenticated gate | OverlayPanels.lua | openGCSignInOverlay(), drawGCSignInOverlay(), handleGCSignInOverlayTouch() |
 | post-auth setup | Main.lua ~854 | tbm:uponDetectingAuthentication callback |
