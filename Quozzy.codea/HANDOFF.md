@@ -522,17 +522,17 @@ The background and text tints shift per season (board and button teal stays cons
 
 ### Phase 1 — Menu Redesign (current focus)
 
-- [ ] 1. Colour palette — add TEAL, NAVY, GREY_CAPTION, TEAL_LABEL, TEAL_SEASON, TEAL_DARK, BG to Themes.lua
-- [ ] 2. Seasonal BG/text colour variants — spring green, summer cream, autumn tan, winter blue per §12
-- [ ] 3. Section 1 — Title & Season ("Quozzy" / "SEASONS" / season name) per §3
-- [ ] 4. Section 2 — Board Area with size cycling tap and continuous rocking animation per §4
-- [ ] 5. Section 3 — Minimum Dice Area with min-word-length cycling tap and rocking animation per §5
-- [ ] 6. Section 4 — Play Modes (solo / vs / robot) tilted rocking buttons per §6
-- [ ] 7. Section 5 — Records / Info circular icon buttons per §7
-- [ ] 8. Section 6 — Disclaimer text per §8
-- [ ] 9. Touch handling — all interactive elements wired per §4–§7
-- [ ] 10. Season transition integration — BG colour blends during season change
-- [ ] 11. Remove dead code — old drawMenu(), drawButtonGridSection(), drawTitleSection(), drawFooterSection(), drawPlayAgainButton(), drawMenuLayout(), getButtonGridHitRects()
+- [x] 1. Colour palette — add TEAL, NAVY, GREY_CAPTION, TEAL_LABEL, TEAL_SEASON, TEAL_DARK, BG to Themes.lua
+- [x] 2. Seasonal BG/text colour variants — spring green, summer cream, autumn tan, winter blue per §12
+- [x] 3. Section 1 — Title & Season ("Quozzy" / "SEASONS" / season name) per §3
+- [x] 4. Section 2 — Board Area with size cycling tap and continuous rocking animation per §4
+- [x] 5. Section 3 — Minimum Dice Area with min-word-length cycling tap and rocking animation per §5
+- [x] 6. Section 4 — Play Modes (solo / vs / robot) tilted rocking buttons per §6
+- [x] 7. Section 5 — Records / Info circular icon buttons per §7
+- [x] 8. Section 6 — Disclaimer text per §8
+- [x] 9. Touch handling — all interactive elements wired per §4–§7
+- [x] 10. Season transition integration — BG colour blends during season change
+- [x] 11. Remove dead code — old drawTitleSection(), drawButtonGridSection(), drawFooterSection(), drawPlayAgainButton(), drawMenuLayout(), getButtonGridHitRects()
 
 ### Phase 2 — Animations (follow-up)
 
