@@ -112,6 +112,39 @@ function drawSeasonScatter(r, seed)
   popStyle()
 end
 
+-- Six named globals for section height fractions (Codea hot-reload safe with "or")
+titleRow       = titleRow       or (0.2727)   -- Section 1: Title & Season height fraction
+boardRow       = boardRow       or (0.3232)   -- Section 2: Board Area height fraction
+minLettersRow  = minLettersRow  or (0.1010)   -- Section 3: Minimum Dice Area height fraction
+startGameRow   = startGameRow   or (0.1616)   -- Section 4: Play Modes height fraction
+infoRow        = infoRow        or (0.0808)   -- Section 5: Records / Info height fraction
+disclaimerRow  = disclaimerRow  or (0.0606)   -- Section 6: Disclaimer height fraction
+
+function getSectionBoundaries()
+  -- Compute section Y boundaries from the six globals (bottom-up stack)
+  local dBottom = 0
+  local dBot    = dBottom
+  local dTop    = dBot + disclaimerRow
+  local iBot    = dTop
+  local iTop    = iBot + infoRow
+  local sBot    = iTop
+  local sTop    = sBot + startGameRow
+  local mBot    = sTop
+  local mTop    = mBot + minLettersRow
+  local bBot    = mTop
+  local bTop    = bBot + boardRow
+  local tBot    = bTop
+
+  local s = {}
+  s[6] = { yBot = dBot * HEIGHT, yTop = dTop * HEIGHT }
+  s[5] = { yBot = iBot * HEIGHT, yTop = iTop * HEIGHT }
+  s[4] = { yBot = sBot * HEIGHT, yTop = sTop * HEIGHT }
+  s[3] = { yBot = mBot * HEIGHT, yTop = mTop * HEIGHT }
+  s[2] = { yBot = bBot * HEIGHT, yTop = bTop * HEIGHT }
+  s[1] = { yBot = tBot * HEIGHT, yTop = HEIGHT          }
+  return s
+end
+
 ------------------------------------------------------------
 -- NEW MENU — 6-SECTION PROPORTIONAL LAYOUT
 ------------------------------------------------------------
@@ -126,14 +159,8 @@ function drawMenu()
   local HPAD   = 24
   local innerW = WIDTH - 48
 
-  -- Section Y boundaries (Codea y-up from bottom):
-  local s = {}
-  s[6] = { yBot = 0,                  yTop = HEIGHT * 0.0606 }
-  s[5] = { yBot = HEIGHT * 0.0606,    yTop = HEIGHT * 0.1414 }
-  s[4] = { yBot = HEIGHT * 0.1414,    yTop = HEIGHT * 0.3030 }
-  s[3] = { yBot = HEIGHT * 0.3030,    yTop = HEIGHT * 0.4040 }
-  s[2] = { yBot = HEIGHT * 0.4040,    yTop = HEIGHT * 0.7272 }
-  s[1] = { yBot = HEIGHT * 0.7272,    yTop = HEIGHT           }
+  -- Section Y boundaries from named globals
+  local s = getSectionBoundaries()
 
   local function midY(sec)
     return (s[sec].yBot + s[sec].yTop) * 0.5
@@ -148,7 +175,7 @@ function drawMenu()
 
   pushStyle()
 
-  local h1  = HEIGHT * 0.2727
+  local h1  = HEIGHT * titleRow
   local cx  = WIDTH * 0.5
   local cy1 = midY(1)
 
@@ -193,7 +220,7 @@ function drawMenu()
 
   pushStyle()
 
-  local h2       = HEIGHT * 0.3232
+  local h2       = HEIGHT * boardRow
   local GRID_GAP = 5
 
   -- Determine if wide or narrow layout
@@ -292,7 +319,7 @@ function drawMenu()
 
   pushStyle()
 
-  local h3       = HEIGHT * 0.1010
+  local h3       = HEIGHT * minLettersRow
   local DICE_GAP = 5
   local diceColW = innerW * 0.6
 
@@ -369,7 +396,7 @@ function drawMenu()
 
   pushStyle()
 
-  local h4     = HEIGHT * 0.1616
+  local h4     = HEIGHT * startGameRow
   local btnH   = h4 * 0.84
   local btnW   = btnH * 0.82
   local btnR   = btnW * 0.18
@@ -425,7 +452,7 @@ function drawMenu()
 
   pushStyle()
 
-  local h5   = HEIGHT * 0.0808
+  local h5   = HEIGHT * infoRow
   local pad  = math.max(5, math.min((h5 - 2) * 0.5, 10))
   local btnD = h5 - pad * 2
   local hGap = math.min(math.max(h5 * 0.5, 20), 60)
@@ -483,7 +510,7 @@ function drawMenu()
 
   pushStyle()
 
-  local h6     = HEIGHT * 0.0606
+  local h6     = HEIGHT * disclaimerRow
   local ftSize = math.max(8, math.min(h6 * 0.13, 14))
   local cy6    = midY(6)
 
@@ -513,15 +540,9 @@ function handleMenuTouch(t)
 
   didSwipeOnPoofingText(t)
 
-  -- Recompute section boundaries (must match drawMenu)
+  -- Recompute section boundaries from named globals
   local HPAD = 24
-  local s = {}
-  s[6] = { yBot = 0,                  yTop = HEIGHT * 0.0606 }
-  s[5] = { yBot = HEIGHT * 0.0606,    yTop = HEIGHT * 0.1414 }
-  s[4] = { yBot = HEIGHT * 0.1414,    yTop = HEIGHT * 0.3030 }
-  s[3] = { yBot = HEIGHT * 0.3030,    yTop = HEIGHT * 0.4040 }
-  s[2] = { yBot = HEIGHT * 0.4040,    yTop = HEIGHT * 0.7272 }
-  s[1] = { yBot = HEIGHT * 0.7272,    yTop = HEIGHT           }
+  local s = getSectionBoundaries()
 
   local function pointInSection(x, y, sec)
     return x >= HPAD and x <= WIDTH - HPAD and
