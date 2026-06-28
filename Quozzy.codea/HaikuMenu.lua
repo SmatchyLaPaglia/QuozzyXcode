@@ -113,12 +113,13 @@ function drawSeasonScatter(r, seed)
 end
 
 -- Six named globals for section height fractions (Codea hot-reload safe with "or")
-titleRow       = titleRow       or (0.2727)   -- Section 1: Title & Season height fraction
-boardRow       = boardRow       or (0.3232)   -- Section 2: Board Area height fraction
-minLettersRow  = minLettersRow  or (0.1010)   -- Section 3: Minimum Dice Area height fraction
-startGameRow   = startGameRow   or (0.1616)   -- Section 4: Play Modes height fraction
-infoRow        = infoRow        or (0.0808)   -- Section 5: Records / Info height fraction
-disclaimerRow  = disclaimerRow  or (0.0606)   -- Section 6: Disclaimer height fraction
+titleRow       = titleRow       or (0.27)   -- Section 1: Title & Season height fraction
+boardRow       = boardRow       or (0.33)   -- Section 2: Board Area height fraction
+minLettersRow  = minLettersRow  or (0.14)   -- Section 3: Minimum Dice Area height fraction
+startGameRow   = startGameRow   or (0.13)   -- Section 4: Play Modes height fraction
+infoRow        = infoRow        or (0.07)   -- Section 5: Records / Info height fraction
+disclaimerRow  = disclaimerRow  or (0.06)   -- Section 6: Disclaimer height fraction
+showRowDividers = true  -- toggle pink section boundary lines
 
 function getSectionBoundaries()
   -- Compute section Y boundaries from the six globals (bottom-up stack)
@@ -529,6 +530,24 @@ function drawMenu()
   text("they're just pretty pretty",         WIDTH * 0.5, cy6 - ftSize * 0.45)
 
   popStyle()
+
+  -- Draw row dividers (pink lines at section boundaries)
+  if showRowDividers then
+    pushStyle()
+    stroke(255, 105, 180, 220)  -- pink
+    strokeWidth(2)
+    noFill()
+    local s = getSectionBoundaries()
+    -- Draw lines at each section boundary (the yBot of each section is the boundary)
+    for sec = 5, 1, -1 do
+      local y = s[sec].yBot  -- bottom of this section = top of section below it
+      line(0, y, WIDTH, y)
+    end
+    -- Also draw y=0 (bottom) and y=HEIGHT (top) boundaries
+    line(0, 0, WIDTH, 0)
+    line(0, HEIGHT, WIDTH, HEIGHT)
+    popStyle()
+  end
 end
 
 pressedButton = pressedButton or nil
