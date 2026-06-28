@@ -210,6 +210,8 @@ function drawMenu()
   local seasonRect = {
     cx = cx,
     cy = seasonNameY,
+    x  = cx - innerW * 0.5,
+    y  = seasonNameY - wSize * 1.5 * 0.5,
     w  = innerW,
     h  = wSize * 1.5
   }
