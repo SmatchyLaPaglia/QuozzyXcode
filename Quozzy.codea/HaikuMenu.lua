@@ -196,7 +196,7 @@ function drawMenu()
   -- "Quozzy" — Georgia Bold
   font("Georgia-Bold")
   fontSize(qSize)
-  fill(Color.navy)
+  fill(Color.tileText)
   textMode(CENTER)
   textAlign(CENTER)
   text("Quozzy", cx, quozzyY)
@@ -206,11 +206,14 @@ function drawMenu()
   fontSize(sSize)
   text("SEASONS", cx, seasonsY)
 
-  -- Season name — Georgia Italic
-  font("Georgia-Italic")
-  fontSize(wSize)
-  fill(Color.tealSeason)
-  text(seasons[seasonIndex], cx, seasonNameY)
+  -- Season name / haiku poof area
+  local seasonRect = {
+    cx = cx,
+    cy = seasonNameY,
+    w  = innerW,
+    h  = wSize * 1.5
+  }
+  drawMenuSeasonPoof(seasonRect)
 
   popStyle()
 
@@ -268,7 +271,7 @@ function drawMenu()
       local ty   = gridBot  + (row - 0.5) * (cellPx + GRID_GAP)
       local r    = cellPx * 0.15
 
-      drawRoundedRect(tx, ty, cellPx, cellPx, r, Color.teal, Color.teal)
+      drawRoundedRect(tx, ty, cellPx, cellPx, r, Color.uiAccent, Color.uiAccent)
 
       -- Decorative letter
       local ltrIdx = math.floor(seededRand(previewSeed, idx) * 26) + 1
@@ -296,7 +299,7 @@ function drawMenu()
   -- "N x N" — large size number (bottom of stack)
   font("Georgia-Bold")
   fontSize(numberSize)
-  fill(Color.tealLabel)
+  fill(Color.uiAccent)
   local numberStr   = boardSize .. " x " .. boardSize
   local numberY     = gridCy - numberSize * 0.2
   text(numberStr, textLeftX, numberY)
@@ -358,7 +361,7 @@ function drawMenu()
     local dx = dieRowLeft + (i - 0.5) * (dicePx + DICE_GAP)
     local r  = dicePx * 0.15
 
-    drawRoundedRect(dx, 0, dicePx, dicePx, r, Color.teal, Color.teal)
+    drawRoundedRect(dx, 0, dicePx, dicePx, r, Color.uiAccent, Color.uiAccent)
 
     -- Decorative letter: A, B, C...
     local letter = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", i, i)
@@ -378,14 +381,14 @@ function drawMenu()
 
   font("Georgia-Italic")
   fontSize(diceLabelSize)
-  fill(Color.tealLabel)
+  fill(Color.uiAccent)
   textMode(CENTER)
   textAlign(CENTER)
   text("minimum / letters", textColCx, cy3 + diceLabelSize * 0.3)
 
   font("Georgia-Bold")
   fontSize(diceNumberSize)
-  fill(Color.tealLabel)
+  fill(Color.uiAccent)
   text(tostring(MIN_WORD_LEN), textColCx, cy3 - diceNumberSize * 0.5)
 
   popStyle()
@@ -422,7 +425,7 @@ function drawMenu()
     translate(cx, cy)
     rotate(angle)
 
-    local fillCol = (pressedButton == key) and Color.tealDark or Color.teal
+    local fillCol = (pressedButton == key) and Color.uiAccent2 or Color.uiAccent
     drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
 
     font("Georgia-Bold")
@@ -462,7 +465,7 @@ function drawMenu()
   local btn5Cy     = midY(5)
 
   -- Left button (records) — circular
-  local recordsFill = (pressedButton == "records") and Color.tealDark or Color.teal
+  local recordsFill = (pressedButton == "records") and Color.uiAccent2 or Color.uiAccent
   ellipseMode(CENTER)
   fill(recordsFill)
   noStroke()
@@ -476,7 +479,7 @@ function drawMenu()
   local ir    = iconW * 0.15
   drawRoundedRect(0, 0, iconW, iconH, ir, color(255, 255, 255, 255), color(255, 255, 255, 255))
   -- horizontal lines
-  stroke(Color.teal)
+  stroke(Color.uiAccent)
   strokeWidth(1.5)
   noFill()
   for i = 1, 3 do
@@ -486,7 +489,7 @@ function drawMenu()
   popMatrix()
 
   -- Right button (info) — circular
-  local infoFill = (pressedButton == "info") and Color.tealDark or Color.teal
+  local infoFill = (pressedButton == "info") and Color.uiAccent2 or Color.uiAccent
   fill(infoFill)
   ellipse(rightBtnCx, btn5Cy, btnD, btnD)
 
@@ -516,7 +519,7 @@ function drawMenu()
 
   font("Georgia-Italic")
   fontSize(ftSize)
-  fill(Color.greyCaption)
+  fill(Color.tileText.r, Color.tileText.g, Color.tileText.b, 110)
   textMode(CENTER)
   textAlign(CENTER)
 
