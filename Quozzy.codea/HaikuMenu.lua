@@ -229,33 +229,29 @@ function drawMenu()
   local h2       = HEIGHT * boardRow
   local GRID_GAP = 5
 
-  -- Determine if wide or narrow layout
-  local boardWideW = innerW * 0.6
-  local cellFromW  = (boardWideW - (boardSize - 1) * GRID_GAP) / boardSize
-  local cellFromH  = h2 * 0.82 / boardSize
-  local isWide     = math.min(cellFromW, cellFromH) >= 6
-  local colW       = isWide and boardWideW or (innerW * 0.5)
-  cellFromW        = (colW - (boardSize - 1) * GRID_GAP) / boardSize
-  local cellPx     = math.max(4, math.floor(math.min(cellFromW, cellFromH)))
+  -- Grid center
+  local gridCy = midY(2)
 
-  local gridW = boardSize * cellPx + (boardSize - 1) * GRID_GAP
-  local gridH = gridW  -- square
+  -- Board grid fills the FULL row height (square)
+  local gridW = h2
+  local gridH = h2
+
+  -- Derive cell size
+  local cellPx = math.max(4, math.floor((gridW - (boardSize - 1) * GRID_GAP) / boardSize))
+
+  -- Recompute exact grid size from cell size
+  gridW = boardSize * cellPx + (boardSize - 1) * GRID_GAP
+  gridH = gridW
 
   -- Column split
+  local colW       = gridW  -- right column matches grid width
   local leftColW    = innerW - colW
   local rightColCx  = HPAD + leftColW + colW * 0.5
-  local gridCy      = midY(2)
 
-  -- Rocking animation
-  local BOARD_ROCK_BASE   = 6.0
-  local BOARD_ROCK_AMP    = 2.5
-  local BOARD_ROCK_PERIOD = 4.3
-  local boardAngle = BOARD_ROCK_BASE + BOARD_ROCK_AMP * math.sin((ElapsedTime / BOARD_ROCK_PERIOD) * math.pi * 2)
-
-  -- Draw grid preview (right column, tilted)
+  -- Draw grid preview (right column, upright)
   pushMatrix()
   translate(rightColCx, gridCy)
-  rotate(-boardAngle)  -- Codea rotate is CCW positive; negate for CW tilt
+  -- no rotation — board is drawn upright
 
   -- Preview letters seeded by boardSize + elapsed seconds
   local previewSeed = boardSize * 1000 + math.floor(ElapsedTime)
@@ -291,31 +287,25 @@ function drawMenu()
 
   popMatrix()
 
-  -- Left column text: "Choose" / "Board Size" / "N x N"
+  -- Left column text: "size" above "N x N"
   local labelSize  = math.max(9,  math.min(h2 * 0.10, 22))
   local numberSize = math.max(12, math.min(h2 * 0.15, 28))
   local textLeftX  = HPAD + 8
 
+  font("Georgia-Italic")
+  fontSize(labelSize)
+  fill(Color.uiAccent)
   textMode(CORNER)
   textAlign(LEFT)
+  local sizeLabelY = gridCy + numberSize * 0.2
+  text("size", textLeftX, sizeLabelY)
 
-  -- "N x N" — large size number (bottom of stack)
   font("Georgia-Bold")
   fontSize(numberSize)
   fill(Color.uiAccent)
-  local numberStr   = boardSize .. " x " .. boardSize
-  local numberY     = gridCy - numberSize * 0.2
+  local numberStr = boardSize .. " x " .. boardSize
+  local numberY   = gridCy - numberSize * 0.5
   text(numberStr, textLeftX, numberY)
-
-  -- "Board Size" — label above
-  font("Georgia-Italic")
-  fontSize(labelSize)
-  local boardLabelY = numberY + numberSize * 0.65
-  text("Board Size", textLeftX, boardLabelY)
-
-  -- "Choose" — title at top
-  local chooseY = boardLabelY + labelSize * 0.9
-  text("Choose", textLeftX, chooseY)
 
   popStyle()
 
@@ -327,23 +317,27 @@ function drawMenu()
 
   local h3       = HEIGHT * minLettersRow
   local DICE_GAP = 5
-  local diceColW = innerW * 0.6
+  local cy3      = midY(3)
 
-  -- Die sizes at each minLen:
+  -- Rocking constants (dice still rocks, just no padding constraint)
+  local DICE_ROCK_BASE   = -5.0
+  local DICE_ROCK_AMP    = 2.5
+  local DICE_ROCK_PERIOD = 5.1
+
+  -- Width constraint from column (as before, no padding constraint)
+  local diceColW = innerW * 0.6
   local die5 = (diceColW - 4 * DICE_GAP) / 5
   local die6 = (diceColW - 5 * DICE_GAP) / 6
   local die4 = die5
   local die3 = die4 * 1.13
+  local rawDie = ({ [3]=die3, [4]=die4, [5]=die5, [6]=die6 })[MIN_WORD_LEN]
 
-  local rawDie   = ({ [3]=die3, [4]=die4, [5]=die5, [6]=die6 })[MIN_WORD_LEN]
+  -- Height cap: limit die size to 72% of row height
   local maxFromH = h3 * 0.72
-  local dicePx   = math.max(4, math.floor(math.min(rawDie, maxFromH)))
+  local dicePx = math.max(4, math.floor(math.min(rawDie, maxFromH)))
   local diceRowW = MIN_WORD_LEN * dicePx + (MIN_WORD_LEN - 1) * DICE_GAP
 
   -- Dice row rocking animation
-  local DICE_ROCK_BASE   = -5.0
-  local DICE_ROCK_AMP    = 2.5
-  local DICE_ROCK_PERIOD = 5.1
   local diceAngle = DICE_ROCK_BASE + DICE_ROCK_AMP * math.sin((ElapsedTime / DICE_ROCK_PERIOD) * math.pi * 2)
 
   -- Layout: [dice row] [12px gap] [text column]
@@ -351,8 +345,6 @@ function drawMenu()
   local totalRowW = diceRowW + 12 + textColW
   local diceRowCx = HPAD + (innerW - totalRowW) * 0.5 + diceRowW * 0.5
   local textColCx = diceRowCx + diceRowW * 0.5 + 12 + textColW * 0.5
-
-  local cy3 = midY(3)
 
   -- Draw tilted dice row
   pushMatrix()
@@ -378,7 +370,7 @@ function drawMenu()
 
   popMatrix()
 
-  -- Text column
+  -- Text column: "minimum" above the number
   local diceLabelSize  = math.max(9,  math.min(h3 * 0.12, 20))
   local diceNumberSize = math.max(12, math.min(h3 * 0.18, 26))
 
@@ -387,7 +379,7 @@ function drawMenu()
   fill(Color.uiAccent)
   textMode(CENTER)
   textAlign(CENTER)
-  text("minimum / letters", textColCx, cy3 + diceLabelSize * 0.3)
+  text("minimum", textColCx, cy3 + diceLabelSize * 0.3)
 
   font("Georgia-Bold")
   fontSize(diceNumberSize)
