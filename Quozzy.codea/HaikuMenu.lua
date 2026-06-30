@@ -113,13 +113,19 @@ function drawSeasonScatter(r, seed)
 end
 
 -- Six named globals for section height fractions (Codea hot-reload safe with "or")
-titleRow       = titleRow       or (0.27)   -- Section 1: Title & Season height fraction
+titleRow       = titleRow       or (0.29)   -- Section 1: Title & Season height fraction
 boardRow       = boardRow       or (0.33)   -- Section 2: Board Area height fraction
-minLettersRow  = minLettersRow  or (0.14)   -- Section 3: Minimum Dice Area height fraction
+minLettersRow  = minLettersRow  or (0.12)   -- Section 3: Minimum Dice Area height fraction
 startGameRow   = startGameRow   or (0.13)   -- Section 4: Play Modes height fraction
 infoRow        = infoRow        or (0.07)   -- Section 5: Records / Info height fraction
 disclaimerRow  = disclaimerRow  or (0.06)   -- Section 6: Disclaimer height fraction
 showRowDividers = true  -- toggle pink section boundary lines
+
+-- Board preview controls for Section 2 (Codea hot-reload safe with "or")
+menuBoardSizeAsPercentOfRow = menuBoardSizeAsPercentOfRow or 0.9   -- 0.0–1.0, fraction of row height the board fills
+menuBoardTiltDegrees        = menuBoardTiltDegrees        or 8.0     -- static tilt angle in degrees
+menuBoardXOffset            = menuBoardXOffset            or 0     -- horizontal pixel offset from default position
+menuBoardRotationAnimationDegrees = menuBoardRotationAnimationDegrees or 1.4  -- rocking amplitude in degrees
 
 function getSectionBoundaries()
   -- Compute section Y boundaries from the six globals (bottom-up stack)
@@ -233,7 +239,7 @@ function drawMenu()
   local gridCy = midY(2)
 
   -- Board grid fills the FULL row height (square)
-  local gridW = h2
+  local gridW = h2 * menuBoardSizeAsPercentOfRow
   local gridH = h2
 
   -- Derive cell size
@@ -248,10 +254,15 @@ function drawMenu()
   local leftColW    = innerW - colW
   local rightColCx  = HPAD + leftColW + colW * 0.5
 
-  -- Draw grid preview (right column, upright)
+  -- Draw grid preview (right column, with configurable transforms)
   pushMatrix()
-  translate(rightColCx, gridCy)
-  -- no rotation — board is drawn upright
+  translate(rightColCx + menuBoardXOffset, gridCy)
+  -- Board rocking animation: tilt base + sinusoidal rock
+  local BOARD_ROCK_PERIOD = 4.3
+  local boardAngle = menuBoardTiltDegrees + menuBoardRotationAnimationDegrees * math.sin((ElapsedTime / BOARD_ROCK_PERIOD) * math.pi * 2)
+  if boardAngle ~= 0 then
+    rotate(-boardAngle)  -- Codea rotate is CCW positive; negate for CW
+  end
 
   -- Preview letters seeded by boardSize + elapsed seconds
   local previewSeed = boardSize * 1000 + math.floor(ElapsedTime)
