@@ -203,3 +203,12 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 - Helpers.lua:24 — expects CENTER coordinates: pointInRect(px, py, cx, cy, w, h)
 - checks: px in [cx-w/2, cx+w/2] and py in [cy-h/2, cy+h/2]
 - ALWAYS store hit rects as {cx, cy, w, h} — passing corner coords silently halves the hit area
+
+## Diagnostic Logging
+
+| concern | file | detail |
+|---|---|---|
+| logging system | Main.lua ~49 | `devLog()`, `print = devLog`, ring buffer, `_flushLogBuffer()` |
+| ring buffer key | Main.lua | `DevLogBuffer` in `saveLocalData`, JSON array of last 200 lines |
+| system log access | CLI | `xcrun simctl spawn $SIM log show --last Ns --predicate 'process == "Quozzy"'` |
+| plist access | CLI | `plutil -p <container>/Library/Preferences/<bundle-id>.plist \| grep DevLogBuffer` |

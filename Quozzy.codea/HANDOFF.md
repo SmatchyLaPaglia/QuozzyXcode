@@ -1,5 +1,34 @@
 # Quozzy Main Menu — Design Handoff for Codea
 
+## Project Constants
+
+These are consumed by the `xcode-orchestrator` skill and any CLI-based diagnostics.
+
+| Constant   | Value |
+|------------|-------|
+| SCHEME     | `Quozzy` |
+| BUNDLE_ID  | `com.jessewonderclark.quozzyseasons` |
+| BUILD_PATH | `/tmp/quozzy-build` |
+| SIM_ID     | `0EF8AE50-8899-40DD-A77E-359C06732886` (iPhone 16e — primary for this project) |
+| SIM_ID_ALT | `1B48ACAA-0AE2-40C3-B28B-BFDB1A4A3044` (iPhone 17 — DO NOT USE for this project) |
+
+> **Pending rename:** The app will be released as **Kotoba**. When the Xcode
+> project is renamed, update SCHEME and BUNDLE_ID above, and the paths in
+> `xcode-orchestrator.md` will pick them up transitively. The orchestrator
+> file itself is project-agnostic — it reads these values from here.
+
+### Diagnostic Log Access
+
+| Channel | How to read from outside the simulator |
+|---------|----------------------------------------|
+| `devLog()` → system log | `xcrun simctl spawn $SIM_ID log show --last Ns --predicate 'process == "Quozzy"'` |
+| `saveLocalData` ring buffer | `plutil -p $(xcrun simctl get_app_container $SIM_ID $BUNDLE_ID data)/Library/Preferences/com.jessewonderclark.quozzyseasons.plist \| grep DevLogBuffer` |
+
+The ring buffer holds the last 200 `devLog()`/`print()` lines as a JSON array, flushed to disk every second.
+It is cleared on each launch; stale data persists only until the first flush of the new session.
+
+---
+
 This document is the complete specification for the redesigned Quozzy main menu
 and its associated animations, derived from an interactive React prototype.
 All values are ready for translation into Codea/Lua (coordinate origin bottom-left,
@@ -539,3 +568,218 @@ The background and text tints shift per season (board and button teal stays cons
 - [ ] 12. Die wobble animation on tap per §9
 - [ ] 13. Board roll animation (spinning + resolving phases) per §10
 - [ ] 14. Emoji burst particle system per §11
+
+---
+
+## 16. TROUBLESHOOTING
+
+### Simulator Hangs (Black Screen on Launch)
+
+**Symptoms:**
+- App launches but shows only a black screen, never reaches the menu
+- `xcrun simctl terminate` hangs/times out
+- `xcrun simctl` commands become unresponsive
+
+**Root Cause:** The CoreSimulator service and/or individual simulator processes enter a deadlocked state. This is common after repeated build/install/launch cycles or after an app crashes inside the simulator.
+
+**Recovery Procedure:**
+
+```bash
+# Step 1: Force-kill all simulator processes
+killall -9 "Simulator" 2>/dev/null
+killall -9 "SimulatorTrampoline" 2>/dev/null
+
+# Step 2: Shut down all simulator devices (may timeout if badly hung; proceed to step 3)
+xcrun simctl shutdown all 2>/dev/null &
+
+# Step 3: Kill the CoreSimulator service daemon
+sudo killall -9 "com.apple.CoreSimulator.CoreSimulatorService" 2>/dev/null || \
+  killall -9 "com.apple.CoreSimulator.CoreSimulatorService" 2>/dev/null
+
+# Step 4: Wait for services to restart
+sleep 5
+
+# Step 5: Verify clean state (no booted simulators)
+xcrun simctl list | grep Booted
+# Should output nothing
+
+# Step 6: Boot the target simulator
+xcrun simctl boot <SIM_ID>
+
+# Step 7: Wait for boot to complete
+until xcrun simctl list | grep "<SIM_ID>" | grep -q Booted; do sleep 2; done
+
+# Step 8: Clean rebuild (clear DerivedData to avoid stale cache)
+rm -rf /tmp/quozzy-build
+xcodebuild -scheme Quozzy \
+  -destination "platform=iOS Simulator,id=<SIM_ID>" \
+  -derivedDataPath /tmp/quozzy-build \
+  -quiet build
+
+# Step 9: Install and launch
+xcrun simctl install <SIM_ID> /tmp/quozzy-build/Build/Products/Debug-iphonesimulator/Quozzy.app
+xcrun simctl launch <SIM_ID> com.jessewonderclark.quozzyseasons
+```
+
+**SIM_ID for this project:**
+- iPhone 17: `1B48ACAA-0AE2-40C3-B28B-BFDB1A4A3044`
+- iPhone 16e (other project): `0EF8AE50-8899-40DD-A77E-359C06732886` -- DO NOT TOUCH
+- Find current booted: `xcrun simctl list | grep Booted`
+
+**Prevention:**
+- Always terminate the app before rebuilding: `xcrun simctl terminate <SIM_ID> com.jessewonderclark.quozzyseasons`
+- If terminate hangs (>10s), the simulator is already hung -- proceed to recovery
+- Clean builds (`rm -rf /tmp/quozzy-build`) prevent stale binary caches after code changes
+
+---
+
+### Game Center Auth and "re" Button Activation
+
+**How the "re" (play again) button appears:**
+
+The button is conditional -- it only shows in Section 4 when `getLastMatchReplaySettings()` returns a valid `opponentId`. This data comes from a previously completed Game Center match.
+
+**Data persistence flow:**
+```
+Game Center match completed
+  -> finalizeCompletedTurnBasedMatch()         [GameCenter.lua:173]
+    -> persistLastMatchReplaySettingsFromQMatch()  [Main.lua:177]
+      -> saves {opponentId, opponentPlayerID, opponentName, boardSize, minWordLen}
+        to LAST_MATCH_REPLAY_KEY via saveLocalData()
+      -> saves opponent avatar to LAST_MATCH_REPLAY_AVATAR_KEY
+```
+
+**On subsequent app launch with GC auth:**
+```
+CTBM auth succeeds
+  -> uponDetectingAuthentication callback      [Main.lua:870]
+    -> requestAutoOpenFinishedMatchCheck("auth")  [Main.lua:378]
+      -> sets finishedMatchAutoCheckPendingReason flag
+  -> draw() loop                               [Main.lua:1021]
+    -> maybeAutoOpenMostRecentFinishedMatch()  [Main.lua:438]
+      -> loads GC matches, finds most recent ended one
+      -> enterQMatch(q)                        [GameCenter.lua:238]
+        -> persistLastMatchReplaySettingsFromQMatch() again  [line 275]
+        -> opens end screen for finished match
+```
+
+**After auto-open end screen dismissed -> back to menu:**
+```
+drawMenu() -> Section 4                         [HaikuMenu.lua:531]
+  -> getLastMatchReplaySettings()
+    -> reads LAST_MATCH_REPLAY_KEY from persistent storage
+    -> hasReplay = (replaySettings.opponentId ~= nil)
+      -> true:  3 buttons (solo | vs | avatar+"re")
+      -> false: 2 buttons (solo | vs only)
+```
+
+**The "re" button will NOT appear if:**
+- No Game Center match has ever been completed on this device/account
+- The opponent data in the replay settings has a nil/empty opponentId
+- The simulator is not signed into Game Center (Settings -> Game Center)
+
+**GC Auth state is independent of button visibility:**
+- The button appears based on REPLAY DATA, not auth state
+- If replay data exists but GC is not authenticated, the button STILL appears
+- Tapping it when unauthenticated shows the "Something Ker-Flumped" sign-in overlay
+- After signing in, tapping "re" shows the confirmation dialog ("heck yeah" / "nah")
+
+**Verifying the flow from logs:**
+```
+# Auth startup
+- CTBM | init start
+- CTBM | _authenticate start | authenticated= | false/true
+
+# Auth success
+- CTBM | authentication succeeded; firing app callback
+
+# Auto-open (if pending)
+- Auto-opening finished match | match= | ...
+
+# Button tap
+- DBG_MENU playAgain tapped
+```
+
+**Cache behavior of getLastMatchReplaySettings():**
+- First call: reads from persistent storage, caches result in `lastMatchReplaySettings`
+- If no data found: caches `false` -> returns nil
+- Later calls: returns cached value (avoids repeated disk reads)
+- `persistLastMatchReplaySettingsFromQMatch()` updates the cache when it saves new data
+- This means the button can appear mid-session after auto-open completes
+
+---
+
+## 17. HANDOFF STATE — 2026-07-02
+
+### Simulator
+
+**Primary simulator for this project:** iPhone 16e (`0EF8AE50-8899-40DD-A77E-359C06732886`)
+- iPhone 17 (`1B48ACAA-0AE2-40C3-B28B-BFDB1A4A3044`) is used by a different project — DO NOT TOUCH
+
+### Build command
+
+```bash
+rm -rf /tmp/quozzy-build
+xcodebuild -scheme Quozzy \
+  -destination "platform=iOS Simulator,id=0EF8AE50-8899-40DD-A77E-359C06732886" \
+  -derivedDataPath /tmp/quozzy-build -quiet build
+xcrun simctl install 0EF8AE50-8899-40DD-A77E-359C06732886 \
+  /tmp/quozzy-build/Build/Products/Debug-iphonesimulator/Quozzy.app
+xcrun simctl launch 0EF8AE50-8899-40DD-A77E-359C06732886 \
+  com.jessewonderclark.quozzyseasons
+```
+
+### What's implemented
+
+| Feature | Status | File(s) |
+|---------|--------|---------|
+| 6-section proportional layout | Done | HaikuMenu.lua |
+| Seasonal palette colors (uiAccent/tileText) | Done | HaikuMenu.lua, Themes.lua |
+| Section globals (titleRow, boardRow, etc.) | Done | HaikuMenu.lua |
+| Row dividers (showRowDividers) | Done | HaikuMenu.lua |
+| Board size cycling (Section 2 tap) | Done | HaikuMenu.lua |
+| Min word length cycling (Section 3 tap) | Done | HaikuMenu.lua |
+| Solo/VS/Re buttons (Section 4) | Done | HaikuMenu.lua |
+| VS button → GC matchmaker + auth gate | Done | HaikuMenu.lua, Main.lua |
+| Re button → conditional on last opponent | Done | HaikuMenu.lua |
+| Re button → confirmation dialog | Done | HaikuMenu.lua |
+| Re button → opponent avatar display | Done | HaikuMenu.lua |
+| Records/Info buttons (Section 5) | Done | HaikuMenu.lua |
+| Disclaimer text (Section 6) | Done | HaikuMenu.lua |
+| GC sign-in overlay (wired to draw+touch) | Done | Main.lua |
+| Swipe-to-reveal haiku (poof system) | Done | HaikuMenu.lua |
+| Board control globals (size%, tilt, xOffset, rocking amplitude) | Done | HaikuMenu.lua |
+| Debug 🐛 button (triggers confirmation dialog) | Done | HaikuMenu.lua |
+| Confirmation dialog debug logging (DEBUG_DIALOG) | Done | HaikuMenu.lua |
+| Troubleshooting doc (§16) | Done | HANDOFF.md |
+
+### Confirmation dialog layout (verified 2026-07-02)
+
+On iPhone 16e (390×844 logical, WIDTH=390 at 3x):
+
+```
+devLog output:
+  panelX=195  panelY=422  panelW=335  panelH=244
+  contentTop=511  textH=82  textWrapW=203
+  avatarSize=60  bodyFont=18
+```
+
+- Panel: 335×244, centered at (195, 422)
+- Panel top at y=544, panel bottom at y=300
+- Text at y=511 (33px below panel top), extends to y=429
+- Buttons at y=372–328
+- Layout is correct — text sits inside panel with space between text and buttons
+
+The dialog uses fixed panel height (244px with margin=28) rather than computing from `textSize()`, because `textSize()` with `textWrapWidth()` was producing unreliable height values in Codea's runtime.
+
+### Unresolved issues
+
+1. **"re" button activation depends on GC match replay data** — `getLastMatchReplaySettings()` reads `LAST_MATCH_REPLAY_KEY` from `saveLocalData()` (line 150 of Main.lua). On simulator rebuilds, `saveLocalData` may not persist the data container. The button won't appear until a GC match is completed and persisted. Switching to `saveProjectData`/`readProjectData` was attempted but reverted (that change was meant for a different project).
+
+2. **Simulator hangs** — after repeated build/install/launch cycles, the CoreSimulator service can deadlock. See §16 recovery procedure. The hang manifests as black screen on launch with `xcrun simctl` commands timing out.
+
+3. **Game Center auth in simulator** — requires signing into Settings → Game Center on the simulator. Without auth, the "Something Ker-Flumped" overlay appears when tapping VS or Re buttons. Auth state is independent of button visibility.
+
+4. **Confirmation dialog text spacing** — uses single `text()` call with `textMode(CORNER)` and fixed panel height. The `textH` measurement from `textSize()` was 82px (correct for the wrapped text) but was not used for panel sizing. If text content changes significantly, the fixed 120px text area may need adjustment.
+
+5. **Uncommitted changes** — several files have uncommitted modifications (HaikuMenu.lua, Main.lua, HANDOFF.md, Board.lua, EndScreen.lua, EndScreenFP.lua, Info.plist, ProjectAddon.mm, DebugBalloonPanel.lua). Only HaikuMenu.lua, Main.lua, and HANDOFF.md changes are from this session. The others were pre-existing.

@@ -101,9 +101,25 @@ The end screen has two rendering paths. **Only the FP path is active** — the o
 
 ### Persistence
 
-- `readLocalData(key)` / `saveLocalData(key, val)` — Codea's built-in key-value store
+- `readLocalData(key)` / `saveLocalData(key, val)` — Codea's built-in key-value store (backed by `NSUserDefaults`, writable to `Library/Preferences/<bundle-id>.plist`)
 - `readText(path)` / `saveText(path, text)` — file I/O for SOWPODS caching
 - `opponentRecords` — win/loss history persisted as JSON via `saveLocalData`
+
+### Diagnostic Logging
+
+All `print()` and `devLog()` output reaches three channels:
+
+| Channel | Mechanism | How to read from outside simulator |
+|---------|-----------|-------------------------------------|
+| Codea console | native `print()` | Not accessible outside app |
+| System log | `objc.log("🧑‍💻 " .. msg)` | `xcrun simctl spawn $SIM_ID log show --last Ns --predicate 'process == "Quozzy"'` |
+| Ring buffer | `saveLocalData("DevLogBuffer", json.encode(buffer))` | `plutil -p <container>/Library/Preferences/<bundle-id>.plist \| grep DevLogBuffer` |
+
+- `print` is redefined to `devLog`, so both functions reach all three channels
+- Ring buffer holds last 200 lines, flushed to `saveLocalData` every 1 second
+- Buffer cleared at each launch (`saveLocalData("DevLogBuffer", "[]")` in `setup()`)
+- For crash forensics: stale buffer from previous session is overwritten on first flush (~1s into new session)
+- See `Main.lua:~49` for the implementation (`_nativePrint`, `_appendToLogBuffer`, `_flushLogBuffer`)
 
 ### GameCenter / ObjC Bridge
 

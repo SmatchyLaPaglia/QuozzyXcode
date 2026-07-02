@@ -153,6 +153,147 @@ function getSectionBoundaries()
 end
 
 ------------------------------------------------------------
+-- GENERIC ALERT OVERLAY
+-- Usage:
+--   showGenericAlert({
+--     message = "Are you sure?",
+--     avatar  = someSpriteOrNil,
+--     buttons = {
+--       { text = "yes", callback = function() ... end, isPrimary = true },
+--       { text = "no",  callback = function() end },
+--     },
+--   })
+-- Buttons default to isPrimary=true when not specified.
+-- All colours come from the seasonal Color palette.
+------------------------------------------------------------
+
+function showGenericAlert(config)
+  genericAlertActive = true
+  genericAlertConfig = config
+  genericAlertRects = nil
+end
+
+function dismissGenericAlert()
+  genericAlertActive = false
+  genericAlertConfig = nil
+  genericAlertRects = nil
+end
+
+function drawGenericAlert()
+  if not genericAlertActive then return end
+
+  local config = genericAlertConfig
+  if not config or not config.message then
+    genericAlertActive = false
+    return
+  end
+
+  pushStyle()
+
+  -- Dimmed background (seasonal)
+  fill(Color.panelDim)
+  noStroke()
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+
+  -- Panel
+  local margin  = 28
+  local panelW  = math.min(WIDTH * 0.86, 560)
+  local innerW  = panelW - margin * 2
+  local panelX  = WIDTH / 2
+  local panelY  = HEIGHT / 2
+
+  local message    = config.message
+  local buttons    = config.buttons or {}
+  local avatar     = config.avatar
+  local bodyFont   = config.bodyFont or 18
+  local btnFont    = config.btnFont or 20
+  local hasAvatar  = (avatar ~= nil)
+  local avatarSize = hasAvatar and 60 or 0
+  local avatarGap  = hasAvatar and 16 or 0
+  local textWrapW  = innerW - avatarSize - avatarGap
+
+  -- Fixed generous panel height (don't rely on textSize for layout)
+  local panelH = margin + 120 + 24 + 44 + margin  -- 120px for text+avatar, 44 for buttons
+
+  local left       = panelX - panelW/2 + margin
+  local contentTop = panelY + panelH/2 - margin - 5
+
+  -- Panel background (seasonal)
+  rectMode(CENTER); noStroke()
+  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
+
+  -- Avatar (if provided)
+  if hasAvatar then
+    if drawAvatarCircle then
+      drawAvatarCircle(avatar, left + avatarSize/2, contentTop - avatarSize/2, avatarSize, nil)
+    else
+      spriteMode(CENTER)
+      sprite(avatar, left + avatarSize/2, contentTop - avatarSize/2, avatarSize, avatarSize)
+    end
+  end
+
+  -- Message text (seasonal tileText colour)
+  local textLeft = left + avatarSize + avatarGap
+  fill(Color.tileText or color(255))
+  font("Georgia")
+  fontSize(bodyFont); textWrapWidth(textWrapW); textMode(CORNER)
+  text(message, textLeft, contentTop)
+
+  -- Buttons
+  local btnAreaTop = panelY - panelH/2 + margin + 44  -- buttons above bottom margin
+  local numBtns    = math.max(1, #buttons)
+  local gap        = 16
+  local btnW       = (innerW - gap * (numBtns - 1)) / numBtns
+  local btnH       = 44
+
+  local newRects = {}
+
+  for i, btn in ipairs(buttons) do
+    local btnCx = panelX - innerW/2 + btnW/2 + (i - 1) * (btnW + gap)
+    local btnCy = btnAreaTop - btnH/2
+    local btnKey = "btn" .. i
+
+    local isPrimary = (btn.isPrimary ~= false)
+    local isPressed = (pressedButton == btnKey)
+
+    -- Seasonal colours: primary uses uiAccent, secondary blends uiAccent2 toward panelBG
+    local fillCol
+    if isPrimary then
+      fillCol = isPressed and Color.uiAccent2 or Color.uiAccent
+    else
+      if isPressed then
+        fillCol = Color.uiAccent2
+      else
+        local a2 = Color.uiAccent2
+        local bg = Color.panelBG
+        fillCol = color(
+          a2.r * 0.65 + bg.r * 0.35,
+          a2.g * 0.65 + bg.g * 0.35,
+          a2.b * 0.65 + bg.b * 0.35,
+          255
+        )
+      end
+    end
+
+    drawRoundedRect(btnCx, btnCy, btnW, btnH, 12, fillCol, fillCol)
+    fill(255, 255, 255, 255)
+    font("Georgia-Bold")
+    fontSize(btnFont)
+    textMode(CENTER)
+    textAlign(CENTER)
+    text(btn.text or "", btnCx, btnCy)
+
+    newRects[btnKey] = { cx = btnCx, cy = btnCy, w = btnW, h = btnH, index = i }
+  end
+
+  popStyle()
+
+  genericAlertRects = newRects
+end
+
+------------------------------------------------------------
 -- NEW MENU — 6-SECTION PROPORTIONAL LAYOUT
 ------------------------------------------------------------
 
@@ -411,47 +552,91 @@ function drawMenu()
   local btnR   = btnW * 0.18
   local btnGap = WIDTH * 0.04
 
-  local totalW = 3 * btnW + 2 * btnGap
+  -- Check for last opponent
+  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
+  local hasReplay = replaySettings and replaySettings.opponentId
+
+  -- 2 or 3 buttons
+  local buttonCount = hasReplay and 3 or 2
+  local totalW = buttonCount * btnW + (buttonCount - 1) * btnGap
   local startX = (WIDTH - totalW) * 0.5 + btnW * 0.5
 
-  local soloCx  = startX
-  local vsCx    = startX + btnW + btnGap
-  local robotCx = startX + 2 * (btnW + btnGap)
-  local btn4Cy  = midY(4)
+  local soloCx   = startX
+  local vsCx     = startX + btnW + btnGap
+  local replayCx = hasReplay and (startX + 2 * (btnW + btnGap)) or nil
+  local btn4Cy   = midY(4)
 
-  -- Rocking angles per button
-  local soloAngle  = -8.0 + 2.5 * math.sin((ElapsedTime / 3.7) * math.pi * 2)
-  local vsAngle    =  4.0 + 2.5 * math.sin((ElapsedTime / 4.9) * math.pi * 2)
-  local robotAngle = -5.0 + 2.5 * math.sin((ElapsedTime / 5.5) * math.pi * 2)
+  -- Rocking angles
+  local soloAngle   = -8.0 + 2.5 * math.sin((ElapsedTime / 3.7) * math.pi * 2)
+  local vsAngle     =  4.0 + 2.5 * math.sin((ElapsedTime / 4.9) * math.pi * 2)
+  local replayAngle = -5.0 + 2.5 * math.sin((ElapsedTime / 5.5) * math.pi * 2)
 
   local labelFontSize = math.min(btnH * 0.28, 30)
 
+  -- Standard button drawing function (for solo and vs)
   local function drawModeButton(cx, cy, angle, label, key)
     pushMatrix()
     translate(cx, cy)
     rotate(angle)
-
     local fillCol = (pressedButton == key) and Color.uiAccent2 or Color.uiAccent
     drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
-
     font("Georgia-Bold")
     fontSize(labelFontSize)
     fill(255, 255, 255, 255)
     textMode(CENTER)
     textAlign(CENTER)
     text(label, 0, 0)
-
     popMatrix()
   end
 
   drawModeButton(soloCx, btn4Cy, soloAngle, "solo", "solo")
   drawModeButton(vsCx,   btn4Cy, vsAngle,   "vs",   "vs")
-  drawModeButton(robotCx, btn4Cy, robotAngle, "🤖", "robot")
 
-  -- Store hit rects
-  menuHitRects.solo  = { cx = soloCx,  cy = btn4Cy, w = btnW, h = btnH }
-  menuHitRects.vs    = { cx = vsCx,    cy = btn4Cy, w = btnW, h = btnH }
-  menuHitRects.robot = { cx = robotCx, cy = btn4Cy, w = btnW, h = btnH }
+  menuHitRects.solo = { cx = soloCx, cy = btn4Cy, w = btnW, h = btnH }
+  menuHitRects.vs   = { cx = vsCx,   cy = btn4Cy, w = btnW, h = btnH }
+
+  if hasReplay then
+    -- Avatar button
+    pushMatrix()
+    translate(replayCx, btn4Cy)
+    rotate(replayAngle)
+
+    local fillCol = (pressedButton == "playAgain") and Color.uiAccent2 or Color.uiAccent
+    drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
+
+    -- Draw opponent avatar
+    local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
+    local avatarSize = btnH * 0.55
+    if avatar then
+      -- Use drawAvatarCircle if available, otherwise fall back to sprite
+      if drawAvatarCircle then
+        drawAvatarCircle(avatar, 0, avatarSize * 0.15, avatarSize, nil)
+      else
+        spriteMode(CENTER)
+        sprite(avatar, 0, avatarSize * 0.15, avatarSize, avatarSize)
+      end
+    else
+      -- Generic opponent placeholder
+      if genericOpponentAvatar then
+        local genAv = genericOpponentAvatar()
+        if genAv and drawAvatarCircle then
+          drawAvatarCircle(genAv, 0, avatarSize * 0.15, avatarSize, nil)
+        end
+      end
+    end
+
+    -- "re" label below avatar
+    font("Georgia-Bold")
+    fontSize(labelFontSize * 0.7)
+    fill(255, 255, 255, 255)
+    textMode(CENTER)
+    textAlign(CENTER)
+    text("re", 0, -btnH * 0.28)
+
+    popMatrix()
+
+    menuHitRects.playAgain = { cx = replayCx, cy = btn4Cy, w = btnW, h = btnH }
+  end
 
   popStyle()
 
@@ -469,6 +654,25 @@ function drawMenu()
   local leftBtnCx  = midX - hGap * 0.5
   local rightBtnCx = midX + hGap * 0.5
   local btn5Cy     = midY(5)
+
+  -- Debug button (far left) — triggers play-again confirmation dialog for inspection
+  local debugBtnD = btnD * 0.7
+  local debugBtnCx = HPAD + debugBtnD * 0.6
+  local debugBtnCy = btn5Cy
+  local debugFill = (pressedButton == "debugDialog") and Color.uiAccent2 or Color.uiAccent
+  ellipseMode(CENTER)
+  fill(debugFill)
+  noStroke()
+  ellipse(debugBtnCx, btn5Cy, debugBtnD, debugBtnD)
+  -- Bug emoji as icon
+  fill(255, 255, 255, 255)
+  font("Georgia-Bold")
+  fontSize(debugBtnD * 0.55)
+  textMode(CENTER)
+  textAlign(CENTER)
+  text("🐛", debugBtnCx, btn5Cy)
+
+  menuHitRects.debugDialog = { cx = debugBtnCx, cy = btn5Cy, w = debugBtnD, h = debugBtnD }
 
   -- Left button (records) — circular
   local recordsFill = (pressedButton == "records") and Color.uiAccent2 or Color.uiAccent
@@ -534,6 +738,9 @@ function drawMenu()
 
   popStyle()
 
+  -- Generic alert overlay (drawn on top of everything)
+  drawGenericAlert()
+
   -- Draw row dividers (pink lines at section boundaries)
   if showRowDividers then
     pushStyle()
@@ -555,12 +762,61 @@ end
 
 pressedButton = pressedButton or nil
 pressedInside = pressedInside or false
+genericAlertActive = genericAlertActive or false
+genericAlertConfig = genericAlertConfig or nil
+genericAlertRects = genericAlertRects or nil
 
 ------------------------------------------------------------
 -- NEW TOUCH HANDLER — 6-SECTION HIT TESTING
 ------------------------------------------------------------
 
 function handleMenuTouch(t)
+  -- Generic alert overlay eats all touches
+  if genericAlertActive then
+    if t.state == BEGAN then
+      -- Check which alert button was hit
+      if genericAlertRects then
+        for btnKey, rr in pairs(genericAlertRects) do
+          if type(rr) == "table" and rr.cx and pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h) then
+            pressedButton = btnKey
+            pressedInside = true
+            return
+          end
+        end
+      end
+      pressedButton = nil
+      pressedInside = false
+      return
+    elseif t.state == MOVING then
+      if pressedButton and genericAlertRects and genericAlertRects[pressedButton] then
+        local rr = genericAlertRects[pressedButton]
+        pressedInside = pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h)
+      end
+      return
+    elseif t.state == ENDED then
+      if pressedButton and pressedInside and genericAlertConfig and genericAlertConfig.buttons then
+        -- Extract button index from key ("btn1" -> 1)
+        local btnIdx = tonumber(string.match(pressedButton, "^btn(%d+)$"))
+        if btnIdx then
+          local btn = genericAlertConfig.buttons[btnIdx]
+          if btn and btn.callback then
+            dismissGenericAlert()
+            pressedButton = nil
+            pressedInside = false
+            btn.callback()
+            return
+          end
+        end
+      end
+      -- Tap outside buttons also dismisses
+      dismissGenericAlert()
+      pressedButton = nil
+      pressedInside = false
+      return
+    end
+    return
+  end
+
   if t.state == ENDED then
     devLog("DBG_MENU handleMenuTouch ENDED: pressedButton=", tostring(pressedButton))
   end
@@ -651,15 +907,41 @@ function handleMenuTouch(t)
       openGCSignInOverlay()
     end
 
-  elseif key == "robot" then
-    setTurnBasedEnabled(false)
-    startRoundFromCurrentSettings()
+  elseif key == "playAgain" then
+    devLog("DBG_MENU playAgain tapped")
+    if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
+      openGCSignInOverlay()
+    else
+      local settings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
+      if not settings then return end
+      local oppName = settings.opponentName or "that player"
+      local bs = settings.boardSize or boardSize
+      local mwl = settings.minWordLen or MIN_WORD_LEN
+      local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
+      showGenericAlert({
+        message = "Play another " .. bs .. " x " .. bs .. ", minimum word length " .. mwl .. " game against " .. oppName .. "?",
+        avatar  = avatar,
+        buttons = {
+          { text = "heck yeah", callback = function() if startLastMatchReplayFromMenu then startLastMatchReplayFromMenu() end end, isPrimary = true },
+          { text = "nah",       callback = function() end, isPrimary = false },
+        },
+      })
+    end
 
   elseif key == "records" then
     openRecordsOverlay()
 
   elseif key == "info" then
     showInfoOverlay = true
+
+  elseif key == "debugDialog" then
+    showGenericAlert({
+      message = "This is a debug confirmation dialog. Press a button to dismiss.",
+      buttons = {
+        { text = "ok", callback = function() end, isPrimary = true },
+        { text = "cancel", callback = function() end, isPrimary = false },
+      },
+    })
   end
 end
 

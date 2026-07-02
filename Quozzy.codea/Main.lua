@@ -46,22 +46,54 @@ local function bootstrapCTBM()
 end
 ]]
 
+------------------------------------------------------------
+-- DIAGNOSTIC LOGGING SYSTEM
+-- All print() and devLog() output reaches:
+--   1. Codea console (via native print)
+--   2. Xcode / system log (via objc.log, prefix 🧑‍💻)
+--   3. Persistent ring buffer in saveLocalData (key "DevLogBuffer", JSON array)
+-- Read from outside the sim with:
+--   log show: xcrun simctl spawn <SIM> log show --last Ns --predicate 'process == "Quozzy"'
+--   plist:    plutil -p <container>/Library/Preferences/com.jessewonderclark.quozzyseasons.plist | grep DevLogBuffer
+------------------------------------------------------------
+
+local _nativePrint = print  -- captured before we replace the global
+
+DEV_LOG_BUFFER = DEV_LOG_BUFFER or {}
+DEV_LOG_BUFFER_MAX = 200
+DEV_LOG_FLUSH_INTERVAL = 1.0  -- seconds between saveLocalData flushes
+DEV_LOG_TIME_SINCE_FLUSH = DEV_LOG_TIME_SINCE_FLUSH or 0
+
+local function _appendToLogBuffer(msg)
+  DEV_LOG_BUFFER[#DEV_LOG_BUFFER + 1] = msg
+  if #DEV_LOG_BUFFER > DEV_LOG_BUFFER_MAX then
+    table.remove(DEV_LOG_BUFFER, 1)
+  end
+end
+
+function _flushLogBuffer()
+  local ok, encoded = pcall(json.encode, DEV_LOG_BUFFER)
+  if ok then
+    saveLocalData("DevLogBuffer", encoded)
+  end
+end
+
 function devLog(...)
   local parts = {}
   for i = 1, select("#", ...) do
     parts[#parts + 1] = tostring(select(i, ...))
   end
   local msg = table.concat(parts, " ")
-  print(msg)
+  _nativePrint(msg)                       -- Codea console
+  _appendToLogBuffer(os.date("!%H:%M:%S") .. " " .. msg)  -- ring buffer with timestamp
   if objc and objc.log then
-    msg = "🧑‍💻 " .. msg
-    objc.log(msg)
+    objc.log("🧑‍💻 " .. msg)              -- Xcode / system log
   end
 end
 
---bootstrapCTBM()
+print = devLog  -- all print() calls now reach all three channels
 
---print = devLog
+--bootstrapCTBM()
 
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
@@ -830,6 +862,8 @@ end
 --####################################################################
 
 function setup()
+  -- Clear stale log buffer from previous session; fresh buffer for this launch
+  saveLocalData("DevLogBuffer", "[]")
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
   if isRunningOnSimulator() then
     AUTO_OPEN_FINISHED_MATCH_ENABLED = false
@@ -990,6 +1024,13 @@ function draw()
     return
   end
 
+  -- Periodic flush of diagnostic log ring buffer to saveLocalData
+  DEV_LOG_TIME_SINCE_FLUSH = (DEV_LOG_TIME_SINCE_FLUSH or 0) + DeltaTime
+  if DEV_LOG_TIME_SINCE_FLUSH >= DEV_LOG_FLUSH_INTERVAL then
+    _flushLogBuffer()
+    DEV_LOG_TIME_SINCE_FLUSH = 0
+  end
+
   local function safeDrawCall(name, fn)
     local ok, err = pcall(fn)
     if not ok then
@@ -1058,6 +1099,7 @@ function draw()
     drawRecordsOverlay()
     drawMatchBadge()
     drawInfoOverlay()
+    drawGCSignInOverlay()
     drawGCMatchmakerErrorOverlay()
     drawReplayMatchmakingOverlay()
     drawConfetti()        
@@ -1147,6 +1189,8 @@ function touched(t)
     showInfoOverlay = false
     return
   end
+
+  if handleGCSignInOverlayTouch(t) then return end
 
   if gcMatchmakerErrorOverlay and (t.state == ENDED or t.state == CANCELLED) then
     gcMatchmakerErrorOverlay = false
