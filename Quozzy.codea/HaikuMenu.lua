@@ -113,9 +113,9 @@ function drawSeasonScatter(r, seed)
 end
 
 -- Six named globals for section height fractions (Codea hot-reload safe with "or")
-titleRow       = titleRow       or (0.29)   -- Section 1: Title & Season height fraction
+titleRow       = titleRow       or (0.22)   -- Section 1: Title & Season height fraction (3/4 of original 0.29)
 boardRow       = boardRow       or (0.33)   -- Section 2: Board Area height fraction
-minLettersRow  = minLettersRow  or (0.12)   -- Section 3: Minimum Dice Area height fraction
+minLettersRow  = minLettersRow  or (0.19)   -- Section 3: Minimum Dice Area height fraction (0.12 + 1/4 of 0.29)
 startGameRow   = startGameRow   or (0.13)   -- Section 4: Play Modes height fraction
 infoRow        = infoRow        or (0.07)   -- Section 5: Records / Info height fraction
 disclaimerRow  = disclaimerRow  or (0.06)   -- Section 6: Disclaimer height fraction
@@ -128,7 +128,7 @@ menuBoardXOffset            = menuBoardXOffset            or 0     -- horizontal
 menuBoardRotationAnimationDegrees = menuBoardRotationAnimationDegrees or 1.4  -- rocking amplitude in degrees
 
 -- Min-word-length dice controls for Section 3 (Codea hot-reload safe with "or")
-menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 0.72  -- fraction of row height the dice fill
+menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 0.45  -- fraction of row height the dice fill
 menuDiceTiltDegrees              = menuDiceTiltDegrees              or -5.0  -- static tilt angle in degrees
 menuDiceXOffset                  = menuDiceXOffset                  or 0     -- horizontal pixel offset from default position
 menuDiceRotationAnimationDegrees = menuDiceRotationAnimationDegrees or 2.5   -- rocking amplitude in degrees
@@ -336,39 +336,15 @@ function drawMenu()
   local cx  = WIDTH * 0.5
   local cy1 = midY(1)
 
-  -- Font sizes
-  local qSize    = math.min(h1 * 0.34, 64)
-  local sSize    = math.min(h1 * 0.16, 28)
-  local wSize    = math.min(h1 * 0.28, 52)
-  local gap      = math.min(h1 * 0.06, 14)
+  -- Font size for season name
+  local wSize    = math.min(h1 * 0.85, 52)
 
-  -- Stack: Quozzy (top), SEASONS (middle), season name (bottom)
-  local totalStackH = qSize + sSize + wSize + 2 * gap
-  local stackBot    = cy1 - totalStackH * 0.5
-
-  local seasonNameY = stackBot + wSize * 0.5
-  local seasonsY    = seasonNameY + wSize * 0.5 + gap + sSize * 0.5
-  local quozzyY     = seasonsY + sSize * 0.5 + gap + qSize * 0.5
-
-  -- "Quozzy" — Georgia Bold
-  font("Georgia-Bold")
-  fontSize(qSize)
-  fill(Color.tileText)
-  textMode(CENTER)
-  textAlign(CENTER)
-  text("Quozzy", cx, quozzyY)
-
-  -- "SEASONS" — Georgia Bold
-  font("Georgia-Bold")
-  fontSize(sSize)
-  text("SEASONS", cx, seasonsY)
-
-  -- Season name / haiku poof area
+  -- Season name / haiku poof area (centered vertically in section)
   local seasonRect = {
     cx = cx,
-    cy = seasonNameY,
+    cy = cy1,
     x  = cx - innerW * 0.5,
-    y  = seasonNameY - wSize * 1.5 * 0.5,
+    y  = cy1 - wSize * 1.5 * 0.5,
     w  = innerW,
     h  = wSize * 1.5
   }
@@ -478,7 +454,8 @@ function drawMenu()
 
   local h3       = HEIGHT * minLettersRow
   local DICE_GAP = 5
-  local cy3      = midY(3)
+  local DICE_TOP_OFFSET = 0.06  -- distance from section top to dice center (fraction of HEIGHT)
+  local cy3      = s[3].yTop - DICE_TOP_OFFSET * HEIGHT
 
   -- Rocking constants (dice still rocks, just no padding constraint)
   local DICE_ROCK_BASE   = menuDiceTiltDegrees
