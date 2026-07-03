@@ -98,7 +98,7 @@ print = devLog  -- all print() calls now reach all three channels
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
 FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
-AUTO_SHOW_DEBUG_ALERT = true  -- auto-show debug alert on launch for layout testing
+AUTO_SHOW_DEBUG_ALERT = false  -- auto-show debug alert on launch for layout testing
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"

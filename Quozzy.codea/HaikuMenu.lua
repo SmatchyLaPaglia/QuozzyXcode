@@ -128,7 +128,7 @@ menuBoardXOffset            = menuBoardXOffset            or 0     -- horizontal
 menuBoardRotationAnimationDegrees = menuBoardRotationAnimationDegrees or 1.4  -- rocking amplitude in degrees
 
 -- Min-word-length dice controls for Section 3 (Codea hot-reload safe with "or")
-menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 5.0  -- fraction of row height the dice fill
+menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 0.72  -- fraction of row height the dice fill
 menuDiceTiltDegrees              = menuDiceTiltDegrees              or -5.0  -- static tilt angle in degrees
 menuDiceXOffset                  = menuDiceXOffset                  or 0     -- horizontal pixel offset from default position
 menuDiceRotationAnimationDegrees = menuDiceRotationAnimationDegrees or 2.5   -- rocking amplitude in degrees
@@ -485,8 +485,8 @@ function drawMenu()
   local DICE_ROCK_AMP    = menuDiceRotationAnimationDegrees
   local DICE_ROCK_PERIOD = 5.1
 
-  -- Width constraint from column (as before, no padding constraint)
-  local diceColW = innerW * 0.6
+  -- Width constraint: full inner width (height cap controls max size)
+  local diceColW = innerW
   local die5 = (diceColW - 4 * DICE_GAP) / 5
   local die6 = (diceColW - 5 * DICE_GAP) / 6
   local die4 = die5
