@@ -4,6 +4,18 @@ When I ask a question without a clear task, discuss it conversationally before p
 `STRUCTURE.md` (repo root) — use as first stop before searching. Contains: auth/GC flow, state machine transitions, key function→file index. Read it before grepping.
 Before searching or asking about code structure, architecture, or file locations, read STRUCTURE.md first. It is a living index of the codebase written to save you analysis time. Treat it as ground truth until you find evidence it's outdated, then update it. When you discover architectural facts through investigation, add them to STRUCTURE.md immediately, in the same terse format.
 
+**Before debugging file I/O or other platform quirks:** read `XCODE_CODEA.md` (repo root). It documents what works and doesn't for `saveText`/`readText`/`saveImage`/`readImage` across `Documents:` and `asset.documents` paths in the Xcode-exported Codea runtime. Saves hours of confusion.
+
+## Codea Drawing Rules — read before touching ANY draw code
+
+Codea uses OpenGL-style **y-up** coordinates. Origin (0,0) is **bottom-left**.
+
+**CORNER = BOTTOM-LEFT. Always.** `rectMode(CORNER)`, `textMode(CORNER)`, `ellipseMode(CORNER)` — all of them. The given (x, y) is the bottom-left corner.
+
+**Text in CORNER mode: anchored at bottom-left, flows UPWARD.** This is the opposite of CSS/web (y-down, top-left). If you don't actively think about this before every `text()` call, you will get it wrong.
+
+**Before any `rect(`, `text(`, `ellipse(`, `sprite(` call, ask yourself: "Am I assuming top-left right now?"** If yes, stop and flip your Y.
+
 ## Project Overview
 
 **Quozzy** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#8 (1.0.8)`.

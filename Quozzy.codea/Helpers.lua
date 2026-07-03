@@ -286,3 +286,20 @@ function currentFoundWords()
   meP   = (q and q.players and q.players[myId]) or nil
   return ensureMyWordStore(currentQMatch)
 end
+
+-- Fits text into a w×h box at (x, y) by binary-searching for the largest
+-- font size that still fits vertically. Reusable: works with any font/wrap width.
+function textFitToRect(textToFit, x, y, w, h)
+  pushStyle()
+  textWrapWidth(w)
+  local lo, hi = 1, 1000
+  while hi - lo > 0.5 do
+    local mid = (lo + hi) * 0.5
+    fontSize(mid)
+    local _, th = textSize(textToFit)
+    if th > h then hi = mid else lo = mid end
+  end
+  fontSize(lo)
+  text(textToFit, x, y)
+  popStyle()
+end

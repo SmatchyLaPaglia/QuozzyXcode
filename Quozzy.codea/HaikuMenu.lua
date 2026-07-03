@@ -127,6 +127,12 @@ menuBoardTiltDegrees        = menuBoardTiltDegrees        or 8.0     -- static t
 menuBoardXOffset            = menuBoardXOffset            or 0     -- horizontal pixel offset from default position
 menuBoardRotationAnimationDegrees = menuBoardRotationAnimationDegrees or 1.4  -- rocking amplitude in degrees
 
+-- Min-word-length dice controls for Section 3 (Codea hot-reload safe with "or")
+menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 5.0  -- fraction of row height the dice fill
+menuDiceTiltDegrees              = menuDiceTiltDegrees              or -5.0  -- static tilt angle in degrees
+menuDiceXOffset                  = menuDiceXOffset                  or 0     -- horizontal pixel offset from default position
+menuDiceRotationAnimationDegrees = menuDiceRotationAnimationDegrees or 2.5   -- rocking amplitude in degrees
+
 function getSectionBoundaries()
   -- Compute section Y boundaries from the six globals (bottom-up stack)
   local dBottom = 0
@@ -210,36 +216,39 @@ function drawGenericAlert()
   local btnFont    = config.btnFont or 20
   local hasAvatar  = (avatar ~= nil)
   local avatarSize = hasAvatar and 60 or 0
-  local avatarGap  = hasAvatar and 16 or 0
-  local textWrapW  = innerW - avatarSize - avatarGap
+  local avatarGap  = hasAvatar and 12 or 0
 
   -- Fixed generous panel height (don't rely on textSize for layout)
   local panelH = margin + 120 + 24 + 44 + margin  -- 120px for text+avatar, 44 for buttons
 
   local left       = panelX - panelW/2 + margin
-  local contentTop = panelY + panelH/2 - margin - 5
+  local printTop   = panelY + panelH/2 - margin      -- top of printable text area
+  local printBot   = panelY + panelH/2 - margin - 120 -- bottom of printable text area
 
   -- Panel background (seasonal)
   rectMode(CENTER); noStroke()
   local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
   drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
 
-  -- Avatar (if provided)
+  -- Avatar vertically centered with text area (if provided)
   if hasAvatar then
+    local avatarCY = printBot + 60  -- center of text rect
     if drawAvatarCircle then
-      drawAvatarCircle(avatar, left + avatarSize/2, contentTop - avatarSize/2, avatarSize, nil)
+      drawAvatarCircle(avatar, left + avatarSize/2, avatarCY, avatarSize, nil)
     else
       spriteMode(CENTER)
-      sprite(avatar, left + avatarSize/2, contentTop - avatarSize/2, avatarSize, avatarSize)
+      sprite(avatar, left + avatarSize/2, avatarCY, avatarSize, avatarSize)
     end
   end
 
-  -- Message text (seasonal tileText colour)
-  local textLeft = left + avatarSize + avatarGap
+  -- Message text (sized and centered within printable area)
+  local textLeft  = left + avatarSize + avatarGap
+  local textAreaW = innerW - avatarSize - avatarGap
   fill(Color.tileText or color(255))
   font("Georgia")
-  fontSize(bodyFont); textWrapWidth(textWrapW); textMode(CORNER)
-  text(message, textLeft, contentTop)
+  textMode(CENTER)
+  textAlign(CENTER)
+  textFitToRect(message, textLeft + textAreaW/2, printBot + 60, textAreaW, 120)
 
   -- Buttons
   local btnAreaTop = panelY - panelH/2 + margin + 44  -- buttons above bottom margin
@@ -472,8 +481,8 @@ function drawMenu()
   local cy3      = midY(3)
 
   -- Rocking constants (dice still rocks, just no padding constraint)
-  local DICE_ROCK_BASE   = -5.0
-  local DICE_ROCK_AMP    = 2.5
+  local DICE_ROCK_BASE   = menuDiceTiltDegrees
+  local DICE_ROCK_AMP    = menuDiceRotationAnimationDegrees
   local DICE_ROCK_PERIOD = 5.1
 
   -- Width constraint from column (as before, no padding constraint)
@@ -484,8 +493,8 @@ function drawMenu()
   local die3 = die4 * 1.13
   local rawDie = ({ [3]=die3, [4]=die4, [5]=die5, [6]=die6 })[MIN_WORD_LEN]
 
-  -- Height cap: limit die size to 72% of row height
-  local maxFromH = h3 * 0.72
+  -- Height cap: limit die size to percentage of row height
+  local maxFromH = h3 * menuDiceSizeAsPercentOfRow
   local dicePx = math.max(4, math.floor(math.min(rawDie, maxFromH)))
   local diceRowW = MIN_WORD_LEN * dicePx + (MIN_WORD_LEN - 1) * DICE_GAP
 
@@ -495,13 +504,20 @@ function drawMenu()
   -- Layout: [dice row] [12px gap] [text column]
   local textColW  = math.min(diceRowW, innerW - diceRowW - 12)
   local totalRowW = diceRowW + 12 + textColW
-  local diceRowCx = HPAD + (innerW - totalRowW) * 0.5 + diceRowW * 0.5
+  local diceRowCx = HPAD + (innerW - totalRowW) * 0.5 + diceRowW * 0.5 + menuDiceXOffset
   local textColCx = diceRowCx + diceRowW * 0.5 + 12 + textColW * 0.5
 
   -- Draw tilted dice row
   pushMatrix()
   translate(diceRowCx, cy3)
   rotate(diceAngle)  -- negative base means CW tilt in Codea coordinates
+
+  -- Cycle to a new SOWPODS word every few seconds
+  menuDiceWordTimer = (menuDiceWordTimer or 0) + DeltaTime
+  if menuDiceWordTimer >= 3.0 or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
+    menuDiceWordTimer = 0
+    menuDiceDisplayWord = randomWordOfLength(MIN_WORD_LEN)
+  end
 
   local dieRowLeft = -(diceRowW * 0.5)
   for i = 1, MIN_WORD_LEN do
@@ -510,8 +526,8 @@ function drawMenu()
 
     drawRoundedRect(dx, 0, dicePx, dicePx, r, Color.uiAccent, Color.uiAccent)
 
-    -- Decorative letter: A, B, C...
-    local letter = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", i, i)
+    -- Letter from current SOWPODS word
+    local letter = string.sub(menuDiceDisplayWord or string.rep("?", MIN_WORD_LEN), i, i)
     font("Georgia-Bold")
     fontSize(dicePx * 0.5)
     fill(255, 255, 255, 255)
@@ -919,7 +935,7 @@ function handleMenuTouch(t)
       local mwl = settings.minWordLen or MIN_WORD_LEN
       local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
       showGenericAlert({
-        message = "Play another " .. bs .. " x " .. bs .. ", minimum word length " .. mwl .. " game against " .. oppName .. "?",
+        message = "Play another " .. bs .. "x" .. bs .. " (minimum word length " .. mwl .. ") game against " .. oppName .. "?",
         avatar  = avatar,
         buttons = {
           { text = "heck yeah", callback = function() if startLastMatchReplayFromMenu then startLastMatchReplayFromMenu() end end, isPrimary = true },
@@ -935,14 +951,47 @@ function handleMenuTouch(t)
     showInfoOverlay = true
 
   elseif key == "debugDialog" then
+    -- Simulate the re-play confirmation dialog for testing
+    local bs = boardSize or 4
+    local mwl = MIN_WORD_LEN or 3
+    local oppName = "DebugPlayer"
+    local avatar = nil
+    if getLastMatchReplayAvatar then
+      local a = getLastMatchReplayAvatar()
+      if a then avatar = a end
+    end
     showGenericAlert({
-      message = "This is a debug confirmation dialog. Press a button to dismiss.",
+      message = "Play another " .. bs .. "x" .. bs .. " (minimum word length " .. mwl .. ") game against " .. oppName .. "?",
+      avatar  = avatar,
       buttons = {
-        { text = "ok", callback = function() end, isPrimary = true },
-        { text = "cancel", callback = function() end, isPrimary = false },
+        { text = "heck yeah", callback = function() dismissGenericAlert() end, isPrimary = true },
+        { text = "nah",       callback = function() dismissGenericAlert() end, isPrimary = false },
       },
     })
   end
+end
+
+------------------------------------------------------------
+-- SOWPODS WORD LOOKUP (for MWL dice display)
+------------------------------------------------------------
+
+function ensureWordsByLength()
+  if WORDS_BY_LENGTH then return end
+  WORDS_BY_LENGTH = {}
+  for w, _ in pairs(DICT) do
+    local n = #w
+    if n >= 3 and n <= 6 then
+      if not WORDS_BY_LENGTH[n] then WORDS_BY_LENGTH[n] = {} end
+      table.insert(WORDS_BY_LENGTH[n], w)
+    end
+  end
+end
+
+function randomWordOfLength(n)
+  ensureWordsByLength()
+  local list = WORDS_BY_LENGTH[n]
+  if not list or #list == 0 then return nil end
+  return list[math.random(1, #list)]
 end
 
 ------------------------------------------------------------

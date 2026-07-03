@@ -98,6 +98,7 @@ print = devLog  -- all print() calls now reach all three channels
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
 FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
+AUTO_SHOW_DEBUG_ALERT = true  -- auto-show debug alert on launch for layout testing
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
@@ -859,12 +860,75 @@ end
 
 --####################################################################
 -- Game Loop
---####################################################################
+function launchNumber()
+  local n = (readLocalData("PIN_lc") or 0) + 1
+  saveLocalData("PIN_lc", n)
+  return n
+end
+
+function textsFoundByDocuments()
+  local a = readText("Documents:_pin_str.txt")
+  return a and ("'" .. a .. "'") or "nil"
+end
+
+function textsFoundByAssetDocuments()
+  local a = readText(asset.documents .. "_pin_key.txt")
+  return a and ("'" .. a .. "'") or "nil"
+end
+
+function saveTextsBothWays()
+  saveText("Documents:_pin_str.txt", "hello")
+  saveText(asset.documents .. "_pin_key.txt", "hello")
+  return "saved"
+end
+
+function testTextSaves()
+  devLog("launch " .. launchNumber())
+  devLog("texts found by 'Documents:': " .. textsFoundByDocuments())
+  devLog("texts found by asset.documents: " .. textsFoundByAssetDocuments())
+  devLog(saveTextsBothWays())
+end
+
+function resetTestState()
+  saveLocalData("PIN_lc", 0)
+  saveText("Documents:_pin_str.txt", nil)
+  saveText(asset.documents .. "_pin_key.txt", nil)
+  saveImage("Documents:_pin_str_img", nil)
+  saveImage(asset.documents .. "_pin_key_img", nil)
+  devLog("reset done — next launch will be launch 1 with all nil")
+end
+
+function imagesFoundByDocuments()
+  local a = nil; pcall(function() a = readImage("Documents:_pin_str_img") end)
+  return a and ("image " .. a.width .. "x" .. a.height) or "nil"
+end
+
+function imagesFoundByAssetDocuments()
+  local a = nil; pcall(function() a = readImage(asset.documents .. "_pin_key_img") end)
+  return a and ("image " .. a.width .. "x" .. a.height) or "nil"
+end
+
+function saveImagesBothWays()
+  local r = image(32,32); setContext(r); background(255,0,0,255); setContext()
+  saveImage("Documents:_pin_str_img", r)
+  saveImage(asset.documents .. "_pin_key_img", r)
+  return "saved"
+end
+
+function testImageSaves()
+  devLog("images found by 'Documents:': " .. imagesFoundByDocuments())
+  devLog("images found by asset.documents: " .. imagesFoundByAssetDocuments())
+  devLog(saveImagesBothWays())
+end
+
 
 function setup()
   -- Clear stale log buffer from previous session; fresh buffer for this launch
   saveLocalData("DevLogBuffer", "[]")
   devLog("started Main setup()", "SAFE_BOOT=", SAFE_BOOT)
+  testTextSaves()
+  testImageSaves()
+  --resetTestState()
   if isRunningOnSimulator() then
     AUTO_OPEN_FINISHED_MATCH_ENABLED = false
     devLog("Auto-open finished match disabled on Simulator")
@@ -952,6 +1016,12 @@ function setup()
   setupGCDebugParameters()
   if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
     openDebugCommentPhasePreview()
+  end
+
+  -- Auto-test hooks (set to true to auto-navigate on launch)
+  if AUTO_SHOW_DEBUG_ALERT then
+    -- Delayed call: generic alert needs HaikuMenu globals loaded
+    autoShowDebugAlertPending = true
   end
 end
 
@@ -1093,6 +1163,21 @@ function draw()
         devLog("Menu capture failed", "captureOk=", tostring(okCapture), "saveOk=", tostring(okSave))
       end
       menuFrameCapturePending = false
+    end
+
+    -- Auto-test: show debug alert on first menu frame
+    if autoShowDebugAlertPending then
+      autoShowDebugAlertPending = nil
+      if showGenericAlert then
+        showGenericAlert({
+          message = "Play another 4x4 (minimum word length 3) game against DebugPlayer?",
+          avatar = nil,
+          buttons = {
+            { text = "heck yeah", callback = function() dismissGenericAlert() end, isPrimary = true },
+            { text = "nah",       callback = function() dismissGenericAlert() end, isPrimary = false },
+          },
+        })
+      end
     end
 
     drawMenu()
