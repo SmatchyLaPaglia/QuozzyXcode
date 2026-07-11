@@ -38,14 +38,6 @@
 }
     
 - (void)codeaWillDrawFrame:(ThreadedRuntimeViewController *)controller withDelta:(CGFloat)deltaTime {
-    static NSUInteger frameCount = 0;
-    frameCount += 1;
-    
-    if (frameCount <= 10 || frameCount % 60 == 0) {
-        NSLog(@"[Quozzy] Native frame heartbeat: %lu (dt=%f)",
-              (unsigned long)frameCount,
-              deltaTime);
-    }
 }
     
 - (void)codeaDidFinishSetup:(CodeaViewController *)controller {
