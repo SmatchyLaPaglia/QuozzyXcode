@@ -180,6 +180,12 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 | end screen draw | EndScreenFP.lua | drawEndScreenFP() → buildEndScreenModel() → drawEndScreenWith() |
 | end screen touch | EndScreen.lua | handleEndScreenTouch() |
 | avatars | Avatars.lua | loadLocalPlayerAvatar() |
+| generic alert | HaikuMenu.lua | showGenericAlert(), drawGenericAlert(), dismissGenericAlert() |
+| play-again tap (section 4) | HaikuMenu.lua | handleMenuTouch() key=="playAgain" |
+| debug dialog tap | HaikuMenu.lua | handleMenuTouch() key=="debugDialog" |
+| logging system | Main.lua ~49 | devLog(), print = devLog, ring buffer, _flushLogBuffer() |
+| file I/O diagnostic | Main.lua ~862 | testTextSaves(), testImageSaves(), resetTestState() |
+| platform gotchas | XCODE_CODEA.md | File I/O reference, path behavior matrix |
 
 ## ObjC Bridge: Key Patterns
 
@@ -197,6 +203,41 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
   loadPlayersForIdentifiers only works with playerID — gamePlayerID returns 0 results (confirmed)
   Always store BOTH on qMatch: q.opponentId=gamePlayerID, q.opponentPlayerID=playerID
 - GKPlayer objects cannot be persisted across app launches — must reconstruct via loadPlayersForIdentifiers(playerID)
+
+## Seasonal Particle Engine (ConfettiEffectsEtc.lua)
+
+```
+Reusable seasonal-emoji particle system:
+  spawnPathParticles(x,y)  → bursts SeasonConfettiEmoji[season] + generic emoji at (x,y),
+                             tuned by Sparkler{} table (spawnFrequency/velocity/spin/size/fade)
+  updatePathParticles(dt)  → Main.lua:1206 (every frame, all states)
+  drawPathParticles()      → Main.lua:1219, ONLY inside `if STATE_READY or STATE_PLAY`
+                             (⇒ pathParticles are invisible in the menu even if spawned there)
+
+Current wiring: spawn is called ONLY from gameplay tile touches (WordLogic.lua:160, :226).
+  There is NO season-name particle binding in the menu — not in HaikuMenu.lua, not in git
+  history. Menu season name only has drawSeasonScatter() (8 static dots) + poof-on-swipe.
+  To make particles burst around the menu season name, one would call spawnPathParticles at
+  the title center AND move the drawPathParticles call outside the STATE_PLAY/READY guard.
+
+Also here: startSeasonTransition()/updateSeasonTransition() (0.7s palette fade → STATE_MENU),
+  confetti{} full-screen burst (updateConfetti/drawConfetti), SeasonConfettiEmoji table.
+```
+
+## Menu Title/Season Band (HaikuMenu.lua)
+
+```
+drawMenu() Section 1 builds seasonRect spanning the band top→bottom minus a top safe-area
+  inset (max(HEIGHT-getTopSafeY(), HEIGHT*0.035, 24)) and a small bottom pad, then calls
+  drawMenuSeasonPoof(seasonRect).
+drawMenuSeasonPoof(r): season name (specA) + haiku (specB) both CENTER mode + CENTER align
+  at (r.cx, r.cy). Font sizes come from menuMeasureFitSize()/menuMaxHaikuFitSize() which
+  measure textSize at ref=100 and scale to fill r; haiku size = size at which the season's
+  LARGEST haiku fits. Cached in menuFitCache keyed by seasonIndex + floor(r.w)+floor(r.h).
+  Season fit box capped to 500x248 so the poof raster image (512x256, TextGoPoof.startPoof)
+  never clips.
+showRowDividers (pink section boundary lines) default = false.
+```
 
 ## pointInRect
 

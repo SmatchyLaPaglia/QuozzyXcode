@@ -742,44 +742,45 @@ xcrun simctl launch 0EF8AE50-8899-40DD-A77E-359C06732886 \
 | Solo/VS/Re buttons (Section 4) | Done | HaikuMenu.lua |
 | VS button → GC matchmaker + auth gate | Done | HaikuMenu.lua, Main.lua |
 | Re button → conditional on last opponent | Done | HaikuMenu.lua |
-| Re button → confirmation dialog | Done | HaikuMenu.lua |
+| Re button → confirmation dialog (now generic alert) | Done | HaikuMenu.lua |
 | Re button → opponent avatar display | Done | HaikuMenu.lua |
 | Records/Info buttons (Section 5) | Done | HaikuMenu.lua |
 | Disclaimer text (Section 6) | Done | HaikuMenu.lua |
 | GC sign-in overlay (wired to draw+touch) | Done | Main.lua |
 | Swipe-to-reveal haiku (poof system) | Done | HaikuMenu.lua |
 | Board control globals (size%, tilt, xOffset, rocking amplitude) | Done | HaikuMenu.lua |
-| Debug 🐛 button (triggers confirmation dialog) | Done | HaikuMenu.lua |
-| Confirmation dialog debug logging (DEBUG_DIALOG) | Done | HaikuMenu.lua |
-| Troubleshooting doc (§16) | Done | HANDOFF.md |
+| Debug 🐛 button (triggers generic alert) | Done | HaikuMenu.lua |
+| Generic alert system (showGenericAlert/drawGenericAlert) | Done | HaikuMenu.lua |
+| Diagnostic logging (print→devLog, ring buffer, _flushLogBuffer) | Done | Main.lua |
+| File I/O diagnostic tests (testTextSaves/testImageSaves) | Done | Main.lua |
+| Platform gotchas reference | Done | XCODE_CODEA.md |
+| Project-agnostic orchestrator skill | Done | xcode-orchestrator.md |
 
-### Confirmation dialog layout (verified 2026-07-02)
+### Confirmation dialog → Generic alert (refactored 2026-07-02)
 
-On iPhone 16e (390×844 logical, WIDTH=390 at 3x):
-
+The play-again confirmation was refactored into `showGenericAlert(config)` / `drawGenericAlert()`.
+Usage:
+```lua
+showGenericAlert({
+  message = "Are you sure?",
+  avatar  = someSpriteOrNil,
+  buttons = {
+    { text = "yes", callback = function() ... end, isPrimary = true },
+    { text = "no",  callback = function() end },
+  },
+})
 ```
-devLog output:
-  panelX=195  panelY=422  panelW=335  panelH=244
-  contentTop=511  textH=82  textWrapW=203
-  avatarSize=60  bodyFont=18
-```
-
-- Panel: 335×244, centered at (195, 422)
-- Panel top at y=544, panel bottom at y=300
-- Text at y=511 (33px below panel top), extends to y=429
-- Buttons at y=372–328
-- Layout is correct — text sits inside panel with space between text and buttons
-
-The dialog uses fixed panel height (244px with margin=28) rather than computing from `textSize()`, because `textSize()` with `textWrapWidth()` was producing unreliable height values in Codea's runtime.
+All colors come from the seasonal `Color` palette. Buttons auto-layout across the panel width.
+The "re" button and debug 🐛 button both use it.
 
 ### Unresolved issues
 
-1. **"re" button activation depends on GC match replay data** — `getLastMatchReplaySettings()` reads `LAST_MATCH_REPLAY_KEY` from `saveLocalData()` (line 150 of Main.lua). On simulator rebuilds, `saveLocalData` may not persist the data container. The button won't appear until a GC match is completed and persisted. Switching to `saveProjectData`/`readProjectData` was attempted but reverted (that change was meant for a different project).
+1. **Generic alert text overflow** — text can render partially outside the alert panel boundaries.
+   The fixed panel height (244px) doesn't adapt to message length. `textSize()` with `textWrapWidth()`
+   was unreliable for layout in this runtime, but a dynamic approach is still needed.
 
-2. **Simulator hangs** — after repeated build/install/launch cycles, the CoreSimulator service can deadlock. See §16 recovery procedure. The hang manifests as black screen on launch with `xcrun simctl` commands timing out.
+2. **"re" button activation depends on GC match replay data** — `getLastMatchReplaySettings()` reads `LAST_MATCH_REPLAY_KEY` from `saveLocalData()`. The button won't appear until a GC match is completed and persisted.
 
-3. **Game Center auth in simulator** — requires signing into Settings → Game Center on the simulator. Without auth, the "Something Ker-Flumped" overlay appears when tapping VS or Re buttons. Auth state is independent of button visibility.
+3. **Simulator hangs** — after repeated build/install/launch cycles, the CoreSimulator service can deadlock. See §16 recovery procedure.
 
-4. **Confirmation dialog text spacing** — uses single `text()` call with `textMode(CORNER)` and fixed panel height. The `textH` measurement from `textSize()` was 82px (correct for the wrapped text) but was not used for panel sizing. If text content changes significantly, the fixed 120px text area may need adjustment.
-
-5. **Uncommitted changes** — several files have uncommitted modifications (HaikuMenu.lua, Main.lua, HANDOFF.md, Board.lua, EndScreen.lua, EndScreenFP.lua, Info.plist, ProjectAddon.mm, DebugBalloonPanel.lua). Only HaikuMenu.lua, Main.lua, and HANDOFF.md changes are from this session. The others were pre-existing.
+4. **Game Center auth in simulator** — requires signing into Settings → Game Center. Without auth, the "Something Ker-Flumped" overlay appears when tapping VS or Re buttons.

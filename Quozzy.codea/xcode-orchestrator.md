@@ -30,6 +30,7 @@ If HANDOFF.md lists multiple SIM_ID values, use the one marked "primary for this
 - CLAUDE.md exists and has been read
 - HANDOFF.md exists and has been read (contains project constants)
 - STRUCTURE.md exists and has been read
+- `XCODE_CODEA.md` exists and has been read (platform gotchas)
 - Simulator is booted (verify with `xcrun simctl list | grep Booted`)
 
 ## Workflow
@@ -53,7 +54,52 @@ Write a task spec containing:
   - Acceptance criteria (observable, testable)
   - Relevant code context (paste only the relevant function/block)
 
-### 3. DELEGATE
+### 3. DECIDE: Fix or Diagnose?
+
+If you already know the root cause with high confidence:
+  → Proceed to DELEGATE (step 4) with a fix spec.
+
+If the failure cause is unknown or unconfirmed (e.g., "save silently failing
+vs load returning nil", "file path wrong vs image generation broken"):
+  → Proceed to DIAGNOSE (step 3A) before writing any fix code.
+
+Ask: **Could I explain to the user exactly why this breaks, or am I guessing?**
+If guessing, diagnose first.
+
+#### 3A. DIAGNOSE
+
+The purpose of this phase is to isolate the failure to a specific operation
+before attempting any fix. Do NOT write fix code here — only instrumentation
+that reveals what the runtime is actually doing.
+
+**Diagnostic strategies (pick one or both):**
+
+| Strategy | How | Use when |
+|----------|-----|----------|
+| Read-back probe | After `saveImage`/`saveText`, immediately call `readImage`/`readText` on the same path and `devLog()` success/failure, the resolved path, dimensions, and any error messages. | Need to know if save itself succeeds |
+| Path-prefix probe | Write a small text file to the suspected path then read it back. If readable, the prefix works and the problem is elsewhere. | Need to confirm the path prefix is valid |
+| On-screen indicator | Draw a colored rectangle or status text on-screen (green=OK, red=FAIL) visible in screenshot. | Log capture is unreliable or feature requires UI interaction to trigger |
+| Host-side file check | Use `xcrun simctl get_app_container` to find the sandbox, then `find`/`ls` the Documents or bundle directory to check if files exist on disk. | Need to confirm files actually landed on disk |
+| Ring-buffer read | Read `DevLogBuffer` from the plist (see HANDOFF.md Diagnostic Log Access). | Need crash-proof log access after app terminates |
+
+**How logging actually works in this runtime:**
+
+`print()` goes to Codea's internal console only — **not** capturable from outside the simulator.
+`devLog()` calls `objc.log()` which writes to the system log — capturable via `log show`.
+After `print = devLog` (set in Main.lua), both reach the system log.
+
+**Execute:**
+1. Write a task spec for diagnostic instrumentation (NOT a fix)
+2. Delegate to subagent: "Add diagnostic devLog() statements to [file] to determine whether [operation] succeeds or fails"
+3. Integrate, Build, Launch, Trigger the feature
+4. Capture logs and/or check files on disk
+5. Report findings to user before proceeding to fix
+
+**Exit criteria:** You now know definitively whether the failure is on the
+save side, load side, or both, and what the actual error is. You can explain
+it to the user in one sentence.
+
+### 4. DELEGATE
 Spawn a subagent via Task tool for each subtask:
 
   Task({
@@ -72,13 +118,13 @@ Subagent contract — subagent MUST return:
 
 Do not spawn more than 2 subagents in parallel.
 
-### 4. INTEGRATE
+### 5. INTEGRATE
 Receive subagent result.
 Write the returned file content to disk.
 Do not modify it. If it needs changes, send back to a new subagent
 with specific correction notes.
 
-### 5. TEST
+### 6. TEST
 Build, terminate any running instance, relaunch fresh, then screenshot.
 All project-specific values (scheme, bundle ID, build path, sim ID)
 come from HANDOFF.md.
@@ -104,15 +150,15 @@ sleep 5
 # Screenshot
 xcrun simctl io $SIM_ID screenshot /tmp/test.png
 
-# Logs (read persisted ring buffer — see HANDOFF.md Diagnostic Log Access)
+# Logs (ring buffer — crash-proof, survives termination)
 CONTAINER=$(xcrun simctl get_app_container $SIM_ID $BUNDLE_ID data)
 plutil -p "$CONTAINER/Library/Preferences/${BUNDLE_ID}.plist" | grep DevLogBuffer
 
-# System log (last 30s of devLog output)
-xcrun simctl spawn $SIM_ID log show --last 30s --predicate 'process == "Quozzy"' > /tmp/test.log
+# System log (last 30s of devLog output — the process name matches SCHEME)
+xcrun simctl spawn $SIM_ID log show --last 30s --predicate "process == '$SCHEME'" > /tmp/test.log
 ```
 
-### 6. EVALUATE
+### 7. EVALUATE
 Examine screenshot and logs.
 Pass criteria: BUILD SUCCEEDED + no runtime crashes in log + visual
 result matches acceptance criteria.
