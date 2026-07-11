@@ -30,6 +30,7 @@
 		<string>opponentRecords</string>
 		<string>Scratch</string>
 		<string>TextGoPoof</string>
+		<string>DebugBalloonPanel</string>
 	</array>
 	<key>Selected Buffer</key>
 	<dict>
