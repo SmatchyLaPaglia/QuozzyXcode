@@ -110,6 +110,7 @@ recordsScrollTouchId = nil
 recordsScrollPrevY = 0
 
 showInfoOverlay = false
+colorInspectorOverlay = false
 
 STATE_MENU   = "menu"
 STATE_PLAY   = "play"
@@ -1184,6 +1185,7 @@ function draw()
     drawRecordsOverlay()
     drawMatchBadge()
     drawInfoOverlay()
+    drawColorInspectorOverlay()
     drawGCSignInOverlay()
     drawGCMatchmakerErrorOverlay()
     drawReplayMatchmakingOverlay()
@@ -1272,6 +1274,14 @@ function touched(t)
   
   if showInfoOverlay and (t.state == ENDED or t.state == CANCELLED) then
     showInfoOverlay = false
+    return
+  end
+
+  -- Color inspector overlay eats all touches; dismiss on release
+  if colorInspectorOverlay then
+    if t.state == ENDED or t.state == CANCELLED then
+      colorInspectorOverlay = false
+    end
     return
   end
 

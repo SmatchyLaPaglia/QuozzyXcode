@@ -120,6 +120,120 @@ function drawInfoOverlay()
   popStyle()
 end
 
+------------------------------------------------------------
+-- THEME COLOR INSPECTOR OVERLAY (debug)
+-- Lists every color in the live Color palette (reflects the
+-- active season) as swatch + key name + RGBA. Tap to dismiss.
+------------------------------------------------------------
+
+colorInspectorOverlay = colorInspectorOverlay or false
+
+function drawColorInspectorOverlay()
+  if not colorInspectorOverlay then return end
+
+  pushStyle()
+
+  -- Dim background
+  fill(Color.panelDim)
+  noStroke()
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+
+  -- Collect color entries from the live palette
+  local entries = {}
+  for k, v in pairs(Color) do
+    if type(v) == "userdata" and v.r ~= nil then
+      entries[#entries + 1] = { name = k, col = v }
+    end
+  end
+  table.sort(entries, function(a, b) return a.name < b.name end)
+
+  -- Panel
+  local panelX, panelY = WIDTH * 0.5, HEIGHT * 0.5
+  local panelW = WIDTH - 32
+  local panelH = HEIGHT - 110
+  local solid  = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  rectMode(CENTER)
+  noStroke()
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
+
+  local pad    = 22
+  local left   = panelX - panelW / 2 + pad
+  local right   = panelX + panelW / 2 - pad
+  local top    = panelY + panelH / 2 - pad
+  local bottom = panelY - panelH / 2 + pad
+
+  local tileText = Color.tileText or color(255)
+
+  -- Title + hint
+  fill(tileText)
+  font("Georgia-Bold")
+  fontSize(22)
+  textMode(CENTER)
+  textAlign(CENTER)
+  text("Theme colors — " .. (seasons[seasonIndex] or "?"), panelX, top - 14)
+
+  fill(tileText.r, tileText.g, tileText.b, 130)
+  font("Georgia-Italic")
+  fontSize(12)
+  text("tap anywhere to close", panelX, bottom + 4)
+
+  -- Grid (2 columns)
+  local gridTop = top - 40
+  local gridBot = bottom + 22
+  local cols    = 2
+  local colGap  = 14
+  local cellW   = (right - left - colGap * (cols - 1)) / cols
+  local n       = #entries
+  local rows    = math.ceil(n / cols)
+  local rowH    = (gridTop - gridBot) / math.max(1, rows)
+
+  for i, e in ipairs(entries) do
+    local ci     = (i - 1) % cols
+    local ri     = math.floor((i - 1) / cols)
+    local cellX  = left + ci * (cellW + colGap)
+    local cellCy = gridTop - (ri + 0.5) * rowH
+
+    -- Swatch (bordered so light colors show against the panel)
+    local sw = math.min(rowH * 0.62, 32)
+    rectMode(CENTER)
+    stroke(tileText.r, tileText.g, tileText.b, 120)
+    strokeWidth(1)
+    fill(e.col)
+    rect(cellX + sw / 2, cellCy, sw, sw, 6)
+    noStroke()
+
+    local tx     = cellX + sw + 8
+    local availW = cellW - sw - 8
+
+    -- Name (shrink to fit the cell; the longest key is an outlier)
+    local nameFs = 14
+    font("Georgia-Bold")
+    fontSize(nameFs)
+    local nw = textSize(e.name)
+    if nw and nw > availW and nw > 0 then
+      nameFs = math.max(8, nameFs * availW / nw)
+    end
+    fontSize(nameFs)
+    textMode(CORNER)
+    textAlign(LEFT)
+    fill(tileText)
+    text(e.name, tx, cellCy + 1)
+
+    -- RGBA below the name
+    local c = e.col
+    font("Georgia")
+    fontSize(10)
+    fill(tileText.r, tileText.g, tileText.b, 150)
+    text(string.format("%d, %d, %d, %d",
+      math.floor(c.r + 0.5), math.floor(c.g + 0.5),
+      math.floor(c.b + 0.5), math.floor(c.a + 0.5)),
+      tx, cellCy - 13)
+  end
+
+  popStyle()
+end
+
 gcMatchmakerErrorOverlay = gcMatchmakerErrorOverlay or false
 gcMatchmakerErrorText = gcMatchmakerErrorText or "Could not open Game Center matchmaking."
 
