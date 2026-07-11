@@ -25,18 +25,94 @@ function xPositionToCenterText(aText, fontName, fontSizeValue, centerX)
 end
 
 ------------------------------------------------------------
+-- TEXT-FIT HELPERS (size text to fill a box without overflow)
+------------------------------------------------------------
+
+-- Largest font size at which `str` (may be multi-line) fits within availW x availH.
+-- Font scaling is linear, so measure once at a reference size and scale.
+function menuMeasureFitSize(str, fontName, availW, availH)
+  if not str or str == "" or availW <= 0 or availH <= 0 then return 12 end
+  local ref = 100
+  pushStyle()
+  font(fontName)
+  fontSize(ref)
+  local w, h = textSize(str)
+  popStyle()
+  if not w or w <= 0 or not h or h <= 0 then return 12 end
+  return ref * math.min(availW / w, availH / h)
+end
+
+-- Largest font size at which EVERY haiku in `list` fits the box (the biggest one wins).
+function menuMaxHaikuFitSize(list, fontName, availW, availH)
+  if not list or #list == 0 or availW <= 0 or availH <= 0 then return 14 end
+  local ref = 100
+  local best = nil
+  pushStyle()
+  font(fontName)
+  fontSize(ref)
+  for _, s in ipairs(list) do
+    if s and s ~= "" then
+      local w, h = textSize(s)
+      if w and w > 0 and h and h > 0 then
+        local sz = ref * math.min(availW / w, availH / h)
+        if not best or sz < best then best = sz end
+      end
+    end
+  end
+  popStyle()
+  return best or 14
+end
+
+------------------------------------------------------------
 -- ONE AND ONLY MENU POOF RENDERER
 ------------------------------------------------------------
 function drawMenuSeasonPoof(r)
 
   ----------------------------------------------------------
-  -- Build specs EXACTLY like current code
+  -- Fonts
+  ----------------------------------------------------------
+
+  local SEASON_FONT = "HelveticaNeue-LightItalic"
+  local HAIKU_FONT  = "Helvetica-Oblique"  -- italic
+
+  ----------------------------------------------------------
+  -- Current-season haiku list (same lookup as nextHaiku)
+  ----------------------------------------------------------
+
+  local seasonName = seasons[seasonIndex]
+  local key  = seasonName and string.lower(seasonName) or nil
+  local list = key and haikuBySeason[key] or nil
+
+  ----------------------------------------------------------
+  -- Fit sizes, cached per season + area dimensions.
+  -- Season name (1 line) and the largest haiku in the season each
+  -- get sized to fill r (which already carries safe-area/padding).
+  -- The season box is capped to keep the poof raster (512x256) safe.
+  ----------------------------------------------------------
+
+  menuFitCache = menuFitCache or {}
+  local sig = string.format("%d:%d:%d", seasonIndex or 0, math.floor(r.w), math.floor(r.h))
+  local fit = menuFitCache[sig]
+  if not fit then
+    local seasonBoxW = math.min(r.w, 500)
+    local seasonBoxH = math.min(r.h, 248)
+    local seasonSize = menuMeasureFitSize(seasonName or "Season", SEASON_FONT, seasonBoxW, seasonBoxH)
+    local haikuSize  = list and menuMaxHaikuFitSize(list, HAIKU_FONT, r.w, r.h) or (r.h * 0.19)
+    fit = { season = math.floor(seasonSize), haiku = math.floor(haikuSize) }
+    menuFitCache[sig] = fit
+  end
+
+  ----------------------------------------------------------
+  -- Build specs.
+  -- Season name: CENTER mode + CENTER align at r.cx, r.cy.
+  -- Haiku: lines LEFT-justified, but the whole block centered on r.cx, r.cy
+  --        via its measured bounds (CORNER anchor at block's bottom-left).
   ----------------------------------------------------------
 
   menuSpecA = {
-    text  = seasons[seasonIndex],
-    font  = "HelveticaNeue-LightItalic",
-    size  = math.floor(r.h * 0.75),
+    text  = seasonName,
+    font  = SEASON_FONT,
+    size  = fit.season,
     x     = r.cx,
     y     = r.cy,
     color = Color.uiAccent,
@@ -44,30 +120,29 @@ function drawMenuSeasonPoof(r)
     align = CENTER
   }
 
+  local haikuText = (currentHaiku and currentHaiku ~= "" and currentHaiku)
+                    or (list and list[1])
+                    or "Still-song:\nLeaf alone, fluttering alas ...\nFloating down the wind"
+
+  -- Measure the block so we can left-justify lines yet center the block onscreen
+  pushStyle()
+  font(HAIKU_FONT)
+  fontSize(fit.haiku)
+  local hbw, hbh = textSize(haikuText)
+  popStyle()
+  hbw = hbw or 0
+  hbh = hbh or 0
+
   menuSpecB = {
-    text = (currentHaiku and currentHaiku ~= "" and currentHaiku)
-    or "Still-song:\nLeaf alone, fluttering alas, leaf alone, fluttering ...\nFloating down the wind",
-    "Still-song:\nLeaf alone, fluttering alas, leaf alone, fluttering ...\nFloating down the wind",
-    font  = "Helvetica-Oblique",
-    size  = math.floor(r.h * 0.19),
-
-    x = xPositionToCenterText(
-    currentHaiku or "",
-    "Helvetica-Oblique",
-    math.floor(r.h * 0.19),
-    r.cx
-    ),
-    y     = r.y * 1.035,
-
-    color = Color.uiAccent2,
+    text  = haikuText,
+    font  = HAIKU_FONT,
+    size  = fit.haiku,
+    x     = r.cx - hbw * 0.5,
+    y     = r.cy - hbh * 0.5,
+    color = Color.menuText,
     mode  = CORNER,
     align = LEFT
   }
-
-  ----------------------------------------------------------
-  -- Initialize module ONCE
-  ----------------------------------------------------------
-
 
   ----------------------------------------------------------
   -- Draw
@@ -115,11 +190,11 @@ end
 -- Six named globals for section height fractions (Codea hot-reload safe with "or")
 titleRow       = titleRow       or (0.22)   -- Section 1: Title & Season height fraction (3/4 of original 0.29)
 boardRow       = boardRow       or (0.33)   -- Section 2: Board Area height fraction
-minLettersRow  = minLettersRow  or (0.19)   -- Section 3: Minimum Dice Area height fraction (0.12 + 1/4 of 0.29)
+minLettersRow  = minLettersRow  or (0.14)   -- Section 3: Minimum Dice Area height fraction (3/4 of previous 0.19)
 startGameRow   = startGameRow   or (0.13)   -- Section 4: Play Modes height fraction
 infoRow        = infoRow        or (0.07)   -- Section 5: Records / Info height fraction
 disclaimerRow  = disclaimerRow  or (0.06)   -- Section 6: Disclaimer height fraction
-showRowDividers = true  -- toggle pink section boundary lines
+showRowDividers = false  -- toggle pink section boundary lines (off in production)
 
 -- Board preview controls for Section 2 (Codea hot-reload safe with "or")
 menuBoardSizeAsPercentOfRow = menuBoardSizeAsPercentOfRow or 0.9   -- 0.0–1.0, fraction of row height the board fills
@@ -128,7 +203,7 @@ menuBoardXOffset            = menuBoardXOffset            or 0     -- horizontal
 menuBoardRotationAnimationDegrees = menuBoardRotationAnimationDegrees or 1.4  -- rocking amplitude in degrees
 
 -- Min-word-length dice controls for Section 3 (Codea hot-reload safe with "or")
-menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 0.45  -- fraction of row height the dice fill
+menuDiceSizeAsPercentOfRow       = menuDiceSizeAsPercentOfRow       or 0.61  -- fraction of row height the dice fill
 menuDiceTiltDegrees              = menuDiceTiltDegrees              or -5.0  -- static tilt angle in degrees
 menuDiceXOffset                  = menuDiceXOffset                  or 0     -- horizontal pixel offset from default position
 menuDiceRotationAnimationDegrees = menuDiceRotationAnimationDegrees or 2.5   -- rocking amplitude in degrees
@@ -334,19 +409,27 @@ function drawMenu()
 
   local h1  = HEIGHT * titleRow
   local cx  = WIDTH * 0.5
-  local cy1 = midY(1)
 
-  -- Font size for season name
-  local wSize    = math.min(h1 * 0.85, 52)
+  -- The title/season band spans from the top of section 1 (HEIGHT) down to
+  -- its bottom boundary. Reserve a safe-area inset at the top and a small
+  -- pad at the bottom, then let the text fill what remains.
+  local topSafeY  = (getTopSafeY and getTopSafeY()) or HEIGHT
+  local topInset  = math.max(HEIGHT - topSafeY, HEIGHT * 0.035, 24)  -- notch/status-bar allowance
+  local bottomPad = math.max(h1 * 0.06, 6)
 
-  -- Season name / haiku poof area (centered vertically in section)
+  local areaTop = HEIGHT - topInset
+  local areaBot = s[1].yBot + bottomPad
+  local areaCy  = (areaTop + areaBot) * 0.5
+  local areaH   = math.max(areaTop - areaBot, 8)
+
+  -- Season name / haiku poof area (fills the band, minus insets)
   local seasonRect = {
     cx = cx,
-    cy = cy1,
+    cy = areaCy,
     x  = cx - innerW * 0.5,
-    y  = cy1 - wSize * 1.5 * 0.5,
+    y  = areaBot,
     w  = innerW,
-    h  = wSize * 1.5
+    h  = areaH
   }
   drawMenuSeasonPoof(seasonRect)
 
@@ -424,25 +507,28 @@ function drawMenu()
 
   popMatrix()
 
-  -- Left column text: "size" above "N x N"
+  -- Left column text: "board" centered above "N x N"
   local labelSize  = math.max(9,  math.min(h2 * 0.10, 22))
   local numberSize = math.max(12, math.min(h2 * 0.15, 28))
-  local textLeftX  = HPAD + 8
+  local textCx     = HPAD + leftColW * 0.5
+
+  -- Shift whole unit up by its total height + 10px, narrow gap to ~1/3
+  local textShift = labelSize + numberSize + 10
+  local labelY    = gridCy + textShift + numberSize * 0.2 + 10  -- slight air above the number (+6 for the high-baseline "6" digit)
+  local numberY   = gridCy + textShift - numberSize * 0.25
 
   font("Georgia-Italic")
   fontSize(labelSize)
   fill(Color.uiAccent)
-  textMode(CORNER)
-  textAlign(LEFT)
-  local sizeLabelY = gridCy + numberSize * 0.2
-  text("size", textLeftX, sizeLabelY)
+  textMode(CENTER)
+  textAlign(CENTER)
+  text("board", textCx, labelY)
 
   font("Georgia-Bold")
   fontSize(numberSize)
   fill(Color.uiAccent)
   local numberStr = boardSize .. " x " .. boardSize
-  local numberY   = gridCy - numberSize * 0.5
-  text(numberStr, textLeftX, numberY)
+  text(numberStr, textCx, numberY)
 
   popStyle()
 
@@ -478,11 +564,10 @@ function drawMenu()
   -- Dice row rocking animation
   local diceAngle = DICE_ROCK_BASE + DICE_ROCK_AMP * math.sin((ElapsedTime / DICE_ROCK_PERIOD) * math.pi * 2)
 
-  -- Layout: [dice row] [12px gap] [text column]
+  -- Layout: dice row (original centering with text column for balance)
   local textColW  = math.min(diceRowW, innerW - diceRowW - 12)
   local totalRowW = diceRowW + 12 + textColW
   local diceRowCx = HPAD + (innerW - totalRowW) * 0.5 + diceRowW * 0.5 + menuDiceXOffset
-  local textColCx = diceRowCx + diceRowW * 0.5 + 12 + textColW * 0.5
 
   -- Draw tilted dice row
   pushMatrix()
@@ -515,21 +600,30 @@ function drawMenu()
 
   popMatrix()
 
-  -- Text column: "minimum" above the number
+  -- Text: "minimum length" + number, vertically centered together
   local diceLabelSize  = math.max(9,  math.min(h3 * 0.12, 20))
   local diceNumberSize = math.max(12, math.min(h3 * 0.18, 26))
 
+  local textX   = HPAD + 4
+  local textPad = 6
+  local textCY  = s[3].yBot + textPad + diceNumberSize * 0.5  -- vertical center
+
+  -- Measure label first for positioning
   font("Georgia-Italic")
   fontSize(diceLabelSize)
+  local labelW, _ = textSize("minimum length")
+
+  -- Label: CENTER mode, positioned so left edge is at textX
   fill(Color.uiAccent)
   textMode(CENTER)
-  textAlign(CENTER)
-  text("minimum", textColCx, cy3 + diceLabelSize * 0.3)
+  text("minimum length", textX + labelW * 0.5, textCY)
 
+  -- Number to the right, same vertical center
   font("Georgia-Bold")
   fontSize(diceNumberSize)
   fill(Color.uiAccent)
-  text(tostring(MIN_WORD_LEN), textColCx, cy3 - diceNumberSize * 0.5)
+  textMode(CENTER)
+  text(tostring(MIN_WORD_LEN), textX + labelW + 8 + diceNumberSize * 0.4, textCY)
 
   popStyle()
 
@@ -928,23 +1022,8 @@ function handleMenuTouch(t)
     showInfoOverlay = true
 
   elseif key == "debugDialog" then
-    -- Simulate the re-play confirmation dialog for testing
-    local bs = boardSize or 4
-    local mwl = MIN_WORD_LEN or 3
-    local oppName = "DebugPlayer"
-    local avatar = nil
-    if getLastMatchReplayAvatar then
-      local a = getLastMatchReplayAvatar()
-      if a then avatar = a end
-    end
-    showGenericAlert({
-      message = "Play another " .. bs .. "x" .. bs .. " (minimum word length " .. mwl .. ") game against " .. oppName .. "?",
-      avatar  = avatar,
-      buttons = {
-        { text = "heck yeah", callback = function() dismissGenericAlert() end, isPrimary = true },
-        { text = "nah",       callback = function() dismissGenericAlert() end, isPrimary = false },
-      },
-    })
+    -- Open the theme color inspector overlay
+    colorInspectorOverlay = true
   end
 end
 
