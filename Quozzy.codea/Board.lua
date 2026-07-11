@@ -75,18 +75,22 @@ function getWordListLayout()
     
     -- HUD row is at safeTopY - 32 in drawTopHUD
     local hudTopY = safeTopY - 32
-    
-    -- label sits a little below the HUD
-    local labelY = hudTopY - 28
-    
+
+    -- BOTTOM of list area: a bit above the board
+    local gapToBoard = 20
+    local viewBot = boardTopY + gapToBoard
+
+    -- "words found:" sits 2 row-steps below the HUD (row 1: time/score/size,
+    -- row 2: letters/vs, row 3: words found). rowStep = numSize * 1.5.
+    local numSize = math.floor(WIDTH * 0.035 + 0.5)
+    if numSize < 22 then numSize = 22 end
+    if numSize > 28 then numSize = 28 end
+    local rowStep = math.floor(numSize * 1.5 + 0.5)
+    local labelY = hudTopY - 2 * rowStep
+
     -- TOP of list area: only ~8px under the label
     local gapLabelToList = 8
     local viewTop = labelY - gapLabelToList
-    
-    -- BOTTOM of list area: a bit above the board
-    -- (move this UP a little compared to before)
-    local gapToBoard = 20   -- tweak to taste (18–22 range)
-    local viewBot = boardTopY + gapToBoard
     
     -- height of list viewport
     local viewH = viewTop - viewBot
@@ -227,13 +231,25 @@ function computeGridLayout()
     usableWidth  = WIDTH  - 2 * sideMargin
     local usableHeight = HEIGHT - topMargin - bottomMargin
     local tileSize = math.min(usableWidth / boardSize, usableHeight / boardSize)
-    
+
+    if boardSize > 4 then
+        -- Push tiles toward 4×4 size by shrinking side gap to the minimum.
+        -- bgW = boardSize * tileSize + 28, so gap = (WIDTH - bgW) / 2.
+        -- Require gap ≥ 8px → tileSize ≤ (WIDTH - 28 - 16) / boardSize.
+        local startY = bottomMargin * 1.45
+        local minTopSpace = topMargin + 100  -- HUD + info rows + minimal word-list room
+        local maxFromWidth  = (WIDTH  - 44) / boardSize
+        local maxFromHeight = (HEIGHT - startY - minTopSpace) / boardSize
+        local expanded = math.min(maxFromWidth, maxFromHeight)
+        if expanded > tileSize then tileSize = expanded end
+    end
+
     local gridWidth  = tileSize * boardSize
     local gridHeight = tileSize * boardSize
-    
+
     local startX = WIDTH/2  - gridWidth/2
     local startY = bottomMargin * 1.45
-    
+
     return tileSize, startX, startY
 end
 
@@ -462,108 +478,110 @@ function drawTopHUD()
     pushStyle()
     textMode(CORNER)
     fill(40, 80, 60, 255)
-    
+
     local safeTopY = getTopSafeY()
-    local hudTopY  = safeTopY - 32   -- row for timer/score
-    
-    ------------------------------------------------
-    -- Font sizes (numbers ~26, labels 3/4 of that)
-    ------------------------------------------------
+    local hudTopY  = safeTopY - 32
+
     local numSize = math.floor(WIDTH * 0.035 + 0.5)
     if numSize < 22 then numSize = 22 end
     if numSize > 28 then numSize = 28 end
     local labelSize = math.floor(numSize * 0.75 + 0.5)
-    
+    local rowStep   = math.floor(numSize * 1.5 + 0.5)
+    local innerGap  = 3    -- between a label and its value
+    local groupGap  = 16   -- between groups on the same line
+    local hudLeft   = sideMargin - 10   -- lines start 10px left of board margin
+    local hudRight  = sideMargin - 10   -- quit sits 10px right of board margin
+
     ------------------------------------------------
-    -- TIME (left)
+    -- Quit button (right) — compute first for layout
     ------------------------------------------------
-    local timeLabel = "Time:"
+    local quitLabel = "quit"
     fontSize(labelSize)
-    local timeLabelW, timeLabelH = textSize(timeLabel)
-    text(timeLabel, sideMargin, hudTopY)
-    
-    local t    = math.max(0, timeRemaining)
-    local tStr = string.format("%d", math.floor(t + 0.5))
-    fontSize(numSize)
-    local timeNumW, timeNumH = textSize(tStr)
-    
-    local timeNumX = sideMargin + timeLabelW + 6
-    text(tStr, timeNumX, hudTopY)
-    
-    ------------------------------------------------
-    -- QUIT button (right)
-    ------------------------------------------------
-    local quitLabel = "Quit"
-    fontSize(labelSize)
-    local qW, qH = textSize(quitLabel)
-    local padX, padY = 20, 4        -- was 4; smaller vertical padding
-    
+    local qW, qH   = textSize(quitLabel)
+    local padX, padY = 20, 4
     local btnW = qW + padX * 2
     local btnH = qH + padY * 2
-    
-    local btnX = WIDTH - sideMargin - btnW
-    -- bottom is padY (~2px) below the baseline (hudTopY)
-    local btnY = hudTopY - padY + 4      -- keeps text baseline at hudTopY
-    
+    local btnX = WIDTH - hudRight - btnW
+    local btnY = hudTopY - padY + 4
     quitButtonRect = { x = btnX, y = btnY, w = btnW, h = btnH }
-    
+
     ------------------------------------------------
-    -- SCORE (snug to the left of Quit)
+    -- Row 1: time  score  size  [quit]
     ------------------------------------------------
-    local scoreLabel = "Score:"
+    local x = hudLeft
+
     fontSize(labelSize)
-    local scoreLabelW, scoreLabelH = textSize(scoreLabel)
-    
+    local timeLabelW = textSize("time:")
+    text("time:", x, hudTopY)
+    x = x + timeLabelW + innerGap
+
+    local tStr = string.format("%d", math.floor(math.max(0, timeRemaining) + 0.5))
+    fontSize(numSize)
+    local timeNumW = textSize(tStr)
+    text(tStr, x, hudTopY)
+    x = x + timeNumW + groupGap
+
+    fontSize(labelSize)
+    local scoreLabelW = textSize("score:")
+    text("score:", x, hudTopY)
+    x = x + scoreLabelW + innerGap
+
     local scoreStr = tostring(score)
     fontSize(numSize)
-    local scoreNumW, scoreNumH = textSize(scoreStr)
-    
-    local gapAfterTime = 16           -- space after time number
-    local gapToQuit    = 16           -- space before Quit button
-    local innerGap     = 6            -- between "Score:" and number
-    
-    -- band between time block and quit button
-    local bandLeft   = timeNumX + timeNumW + gapAfterTime
-    local bandRight  = btnX - gapToQuit
-    local bandCenter = (bandLeft + bandRight) * 0.5
-    
-    local scoreTotalW = scoreLabelW + innerGap + scoreNumW
-    local scoreLabelX = bandCenter - scoreTotalW * 0.5
-    local scoreNumX   = scoreLabelX + scoreLabelW + innerGap
-    
+    local scoreNumW = textSize(scoreStr)
+    text(scoreStr, x, hudTopY)
+    x = x + scoreNumW + groupGap
+
+    local sizeVal = boardSize .. "x" .. boardSize
     fontSize(labelSize)
-    text(scoreLabel, scoreLabelX, hudTopY)
-    
+    local sizeLabelW = textSize("size:")
+    text("size:", x, hudTopY)
+    x = x + sizeLabelW + innerGap
+
     fontSize(numSize)
-    text(scoreStr, scoreNumX, hudTopY)
-    
-    ------------------------------------------------
-    -- Quit button rect + text (colors unchanged)
-    ------------------------------------------------
-    local fillCol   = Color.tileStroke
-    local strokeCol = fillCol
-    drawRoundedRect(
-    btnX + btnW/2,
-    btnY + btnH/2,
-    btnW,
-    btnH,
-    8,
-    fillCol,
-    strokeCol
-    )
-    
+    text(sizeVal, x, hudTopY)
+
+    -- quit button
+    drawRoundedRect(btnX + btnW/2, btnY + btnH/2, btnW, btnH, 8,
+                    Color.tileStroke, Color.tileStroke)
     fill(255)
     fontSize(labelSize)
-    textMode(CORNER)
     text(quitLabel, btnX + padX, btnY + padY)
-    
+
+    ------------------------------------------------
+    -- Row 2: letters  vs
+    ------------------------------------------------
+    local row2Y = hudTopY - rowStep
+    x = hudLeft
+    fill(40, 80, 60, 255)
+
+    fontSize(labelSize)
+    local letLabelW = textSize("letters:")
+    text("letters:", x, row2Y)
+    x = x + letLabelW + innerGap
+
+    fontSize(numSize)
+    local letValW = textSize(tostring(MIN_WORD_LEN))
+    text(tostring(MIN_WORD_LEN), x, row2Y)
+    x = x + letValW + groupGap
+
+    local vsVal = (useTurnBased and opponentAlias and opponentAlias ~= "")
+                  and opponentAlias or "solo"
+    fontSize(labelSize)
+    local vsLabelW = textSize("vs:")
+    text("vs:", x, row2Y)
+    x = x + vsLabelW + innerGap
+
+    fontSize(numSize)
+    text(vsVal, x, row2Y)
+
     ------------------------------------------------
     -- Dictionary status at bottom (unchanged)
     ------------------------------------------------
     fontSize(18)
     fill(60, 90, 70, 255)
     text("Dict: "..dictStatus, sideMargin, 10)
-    
+
     popStyle()
 end
 
@@ -642,10 +660,13 @@ function drawInGameWordList()
     textAlign(LEFT)
     textMode(CORNER)
     
-    -- label ALWAYS visible
-    fontSize(16)
-    fill(Color.tileText or color(40, 80, 60, 255))
-    text("Words found:", sideMargin, labelY)
+    -- label ALWAYS visible; match HUD label style
+    local numSz = math.floor(WIDTH * 0.035 + 0.5)
+    if numSz < 22 then numSz = 22 end
+    if numSz > 28 then numSz = 28 end
+    fontSize(math.floor(numSz * 0.75 + 0.5))
+    fill(40, 80, 60, 255)
+    text("words found:", sideMargin - 10, labelY)
     
     -- if nothing else, we're done (label only)
     if nFound == 0 and not hasInvalid then
