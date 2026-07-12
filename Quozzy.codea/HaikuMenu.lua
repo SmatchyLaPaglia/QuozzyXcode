@@ -83,11 +83,17 @@ function drawMenuSeasonPoof(r)
   local key  = seasonName and string.lower(seasonName) or nil
   local list = key and haikuBySeason[key] or nil
 
+  -- Reserve a strip at the bottom of the band for the attribution line, and
+  -- lift the haiku so haiku + attribution together read as vertically centered.
+  local attrZoneH  = r.h * 0.22
+  local haikuAreaH = r.h - attrZoneH
+  local haikuCy    = r.cy + attrZoneH * 0.5
+
   ----------------------------------------------------------
   -- Fit sizes, cached per season + area dimensions.
-  -- Season name (1 line) and the largest haiku in the season each
-  -- get sized to fill r (which already carries safe-area/padding).
-  -- The season box is capped to keep the poof raster (512x256) safe.
+  -- Season name (1 line) fills r; the largest haiku fills the haiku area
+  -- (r minus the attribution strip). The season box is capped to keep the
+  -- poof raster (512x256) safe.
   ----------------------------------------------------------
 
   menuFitCache = menuFitCache or {}
@@ -97,7 +103,7 @@ function drawMenuSeasonPoof(r)
     local seasonBoxW = math.min(r.w, 500)
     local seasonBoxH = math.min(r.h, 248)
     local seasonSize = menuMeasureFitSize(seasonName or "Season", SEASON_FONT, seasonBoxW, seasonBoxH)
-    local haikuSize  = list and menuMaxHaikuFitSize(list, HAIKU_FONT, r.w, r.h) or (r.h * 0.19)
+    local haikuSize  = list and menuMaxHaikuFitSize(list, HAIKU_FONT, r.w, haikuAreaH) or (haikuAreaH * 0.19)
     fit = { season = math.floor(seasonSize), haiku = math.floor(haikuSize) }
     menuFitCache[sig] = fit
   end
@@ -138,7 +144,7 @@ function drawMenuSeasonPoof(r)
     font  = HAIKU_FONT,
     size  = fit.haiku,
     x     = r.cx - hbw * 0.5,
-    y     = r.cy - hbh * 0.5,
+    y     = haikuCy - hbh * 0.5,
     color = Color.menuText,
     mode  = CORNER,
     align = LEFT
@@ -153,6 +159,27 @@ function drawMenuSeasonPoof(r)
   popStyle()
   if TextGoPoof_state() == "A" then
     drawSeasonScatter(r, seasonIndex * 1000 + 17)
+  end
+
+  -- Generic attribution, beneath the haiku (only once the haiku has settled)
+  if TextGoPoof_state() == "B" then
+    local attrText = "— Japanese Haiku, 17th-19th c."
+    local attrSize = math.max(11, math.floor(math.min(fit.haiku * 0.78, attrZoneH * 0.55)))
+    pushStyle()
+    font(HAIKU_FONT)
+    fontSize(attrSize)
+    textMode(CENTER)
+    textAlign(CENTER)
+    local aw, ah = textSize(attrText)
+    ah = ah or attrSize
+    local haikuBottom = haikuCy - hbh * 0.5
+    local gap    = attrSize * 0.6
+    local attrCy = haikuBottom - gap - ah * 0.5
+    local minCy  = r.y + ah * 0.5 + 2            -- keep inside the band
+    if attrCy < minCy then attrCy = minCy end
+    fill(Color.tileStroke)
+    text(attrText, r.cx, attrCy)
+    popStyle()
   end
 end
 
