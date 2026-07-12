@@ -157,9 +157,8 @@ function drawMenuSeasonPoof(r)
   pushStyle()
   drawPoofingText(menuSpecA, menuSpecB)
   popStyle()
-  if TextGoPoof_state() == "A" then
-    drawSeasonScatter(r, seasonIndex * 1000 + 17)
-  end
+  -- (ambient motion around the word is now provided by SeasonFlecks;
+  --  the old static drawSeasonScatter dots are no longer drawn)
 
   -- Generic attribution, beneath the haiku (only once the haiku has settled)
   if TextGoPoof_state() == "B" then
@@ -458,6 +457,17 @@ function drawMenu()
     w  = innerW,
     h  = areaH
   }
+
+  -- Ambient season flecks, drifting around the word (behind it).
+  -- Init lazily and rebuild whenever the season changes.
+  if seasonFlecksSeason ~= seasonIndex or #seasonFlecks == 0 then
+    initFlecks(seasonRect.cx, seasonRect.cy)
+    seasonFlecksSeason = seasonIndex
+  end
+  local fleckRecycle = (TextGoPoof_state() == "A")
+  updateFlecks(seasonRect.cx, seasonRect.cy, fleckRecycle)
+  drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
+
   drawMenuSeasonPoof(seasonRect)
 
   popStyle()

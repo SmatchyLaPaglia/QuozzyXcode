@@ -94,26 +94,32 @@ function startPoof(specsA, specsB)
   
   for x = 1, img.width, 3 do
     for y = 1, img.height, 3 do
-      
+
       local _,_,_,a = img:get(x,y)
-      
-      if a > 0 then
-        
+
+      -- Keep only ~50% of lit pixels for a sparser, driftier poof
+      if a > 0 and math.random() < 0.50 then
+
         local p = {}
-        
+
         p.x = specsA.x - img.width/2 + x
         p.y = specsA.y - img.height/2 + y
-        
-        p.vx = P.direction * math.random(20,60) / 10
-        + math.random(-10,10) / 10
-        
-        p.vy = math.random(0,15) / 10
-        p.phase = math.random(0,628) / 100
-        
-        p.life = math.random(30,60)
-        p.size = math.random(2,3)
-        p.ground = p.y
-        
+
+        -- Base drift in the swipe direction, small spread + upward lift.
+        -- NOTE: Codea is y-up, so a positive vy floats the particle UPWARD
+        -- (the source brief was y-down, where lift was negative).
+        local baseSpd = 0.6 + math.random() * 1.2
+        local spread  = (math.random() - 0.5) * 1.0
+        local lift    = math.random() * 0.5
+
+        p.vx = P.direction * baseSpd + spread * 0.3
+        p.vy = lift + (math.random() - 0.5) * 0.4
+
+        p.life    = 0
+        p.maxLife = 90 + math.random(0, 60)
+        p.size    = math.random(2, 3)          -- keep the existing poof dot size
+        p.phase   = math.random() * math.pi * 2
+
         table.insert(P.parts, p)
       end
     end
@@ -185,37 +191,41 @@ function drawPoofingText(specA, specB)
     popStyle()
   end
   
-  -- Update particles
-  
+  -- Update particles — directional drift in the swipe direction + sine float.
+
+  local pc = P.specsA and P.specsA.color or DEFAULT_COLOR
+
   for _,p in ipairs(P.parts) do
-    
-    if p.life > 0 then
-      
+
+    p.life = p.life + 1
+    local progress = p.life / p.maxLife
+
+    if progress < 1 then
+
       alive = true
-      
-      p.vx = p.vx + (p.vx > 0 and 0.05 or -0.05)
-      p.vx = p.vx + math.sin(t*2 + p.phase) * 0.03
-      p.vy = p.vy + math.cos(t*1.5 + p.phase) * 0.02
-      p.vy = p.vy - 0.08
-      
+
+      -- Gentle acceleration in the swipe direction, mild drag
+      p.vx = p.vx + P.direction * 0.04
+      p.vx = p.vx * 0.98
+
+      -- Sine float on y (spatially varied by p.x)
+      p.vy = p.vy + math.sin(p.life * 0.14 + p.x * 0.01) * 0.03
+      p.vy = p.vy * 0.98
+
       p.x = p.x + p.vx
       p.y = p.y + p.vy
-      
-      if p.y < p.ground then
-        p.y = p.ground
-        p.vy = -p.vy * 0.3
-        p.vx = p.vx * 0.9
-        if math.abs(p.vy) < 0.2 then p.vy = 0 end
+
+      -- Full opacity for the first 40% of life, then linear fade to 0
+      local alpha
+      if progress < 0.4 then
+        alpha = 255
+      else
+        alpha = 255 * (1 - (progress - 0.4) / 0.6)
       end
-      
-      p.vx = p.vx * 0.995
-      p.vy = p.vy * 0.995
-      
-      fill(120,100,70,p.life * 3)
+
+      fill(pc.r, pc.g, pc.b, alpha * 0.75)
       rectMode(CENTER)
-      rect(p.x,p.y,p.size,p.size)
-      
-      p.life = p.life - 1
+      rect(p.x, p.y, p.size, p.size)
     end
   end
   
@@ -237,4 +247,12 @@ end
 
 function TextGoPoof_state()
   return P.state
+end
+
+-- Ambient-fleck opacity multiplier: 1 while idle (state A), ramps to 0 during
+-- the sweep as the haiku fades in, 0 once the haiku is showing (state B).
+function TextGoPoof_flecksFade()
+  if P.state == "A" then return 1 end
+  if P.state == "B" then return 0 end
+  return math.max(0, 1 - (P.alphaB / 255))
 end
