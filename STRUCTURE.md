@@ -224,6 +224,29 @@ Also here: startSeasonTransition()/updateSeasonTransition() (0.7s palette fade �
   confetti{} full-screen burst (updateConfetti/drawConfetti), SeasonConfettiEmoji table.
 ```
 
+## Menu Season Word — Ambient Flecks + Poof (SeasonFlecks.lua + TextGoPoof.lua)
+
+```
+SeasonFlecks.lua (NEW tab — registered in Info.plist "Buffer Order"):
+  Ambient dots drifting around the menu season word (leaves/seeds/snow feel).
+  FLECK_COLOR[Spring/Summer/Autumn/Winter] — dedicated palette (NOT Color.uiAccent).
+  initFlecks(cx,cy) / updateFlecks(cx,cy,recycle) / drawFlecks(seasonName, fade).
+  Per-frame motion (no DeltaTime) to match TextGoPoof's style. Pool = 80.
+  Driven from HaikuMenu.drawMenu() Section 1 (STATE_MENU only), centered on
+  seasonRect.cx/cy, re-init when seasonIndex changes (seasonFlecksSeason guard).
+  fade = TextGoPoof_flecksFade(): 1 in state A, ramps to 0 as haiku fades in
+  (1 - alphaB/255), 0 in state B. recycle=false during the sweep so the pool empties.
+  Replaced the old static drawSeasonScatter() 8-dot call (no longer drawn).
+
+TextGoPoof.lua poof (swipe → haiku) reworked to DIRECTIONAL DRIFT:
+  startPoof: keep only ~50% of lit pixels; per particle vx = P.direction*baseSpd,
+    vy = lift (POSITIVE = up in Codea y-up; source brief was y-down), life counts
+    UP to maxLife (90–150 frames), size 2–3 (unchanged).
+  drawPoofingText ANIM: vx += P.direction*0.04 (drag 0.98), vy += sine float,
+    color = P.specsA.color (season accent), full opacity to 40% of life then fade.
+  No gravity/ground-bounce anymore. Word is NOT redrawn during ANIM (no word-fade).
+```
+
 ## Menu Title/Season Band (HaikuMenu.lua)
 
 ```
