@@ -18,7 +18,9 @@ Codea uses OpenGL-style **y-up** coordinates. Origin (0,0) is **bottom-left**.
 
 ## Project Overview
 
-**Quozzy** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#8 (1.0.8)`.
+**Kotoba** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#8 (1.0.8)`.
+
+> **Name split:** The app is branded **Kotoba** to users (home-screen `CFBundleDisplayName` + the in-game loading screen). Everything internal is still **Quozzy** and stays that way: the Xcode target/scheme (`Quozzy`), the Codea bundle (`Quozzy.codea`), the executable/process name (`Quozzy` — so `log show ... process == "Quozzy"` is correct), and the bundle ID (`com.jessewonderclark.quozzyseasons`). Don't "fix" internal `Quozzy` references to `Kotoba` — it would break diagnostics and orphan App Store/GameCenter identity. The static launch-screen PNG (`Loading_QuozzySeasons`) still shows "Quozzy" baked into the art; regenerating it is a separate art task.
 
 ## Running the Project
 

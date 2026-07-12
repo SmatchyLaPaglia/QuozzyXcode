@@ -138,7 +138,7 @@ local INSTALL_SIGNATURE_KEY = "LastInstalledBundleSignature"
 local INSTALL_EPOCH_KEY = "LastInstalledAtEpoch"
 local INSTALL_TEXT_KEY = "LastInstalledAtText"
 local LOADING_ART_VERSION_KEY = "LoadingArtVersion"
-local LOADING_ART_VERSION = 6
+local LOADING_ART_VERSION = 7
 local LOADING_ART_NAME = "Loading_QuozzySeasons"
 local ENABLE_LOADING_ART_GENERATOR = false -- set true temporarily when you want to regenerate
 local MENU_CAPTURE_NAME = "MenuFrameCapture"
@@ -630,7 +630,7 @@ function generateLoadingScreenImage(force)
       for col = -1, 1 do
         local x = cx + col * (targetW * 0.50)
         local y = cy + row * (targetH * 0.32)
-        text("Quozzy", x, y + targetH * 0.03)
+        text("Kotoba", x, y + targetH * 0.03)
         fontSize(targetH * 0.085)
         text("SEASONS", x, y - targetH * 0.09)
         fontSize(targetH * 0.17)
@@ -655,7 +655,7 @@ function generateLoadingScreenImage(force)
       local qSize = math.floor(titleBlockH * 0.55)
       local sSize = math.floor(titleBlockH * 0.25)
       fontSize(qSize)
-      local qW = textSize("Quozzy")
+      local qW = textSize("Kotoba")
       fontSize(sSize)
       local sW = textSize("SEASONS")
       if qW <= maxTitleW and sW <= maxTitleW then
@@ -670,7 +670,7 @@ function generateLoadingScreenImage(force)
     local sY = cy - titleBlockH * 0.20
 
     fontSize(qSize)
-    text("Quozzy", cx, qY)
+    text("Kotoba", cx, qY)
     fontSize(sSize)
     text("SEASONS", cx, sY)
     popStyle()
