@@ -160,8 +160,8 @@ function drawMenuSeasonPoof(r)
   -- (ambient motion around the word is now provided by SeasonFlecks;
   --  the old static drawSeasonScatter dots are no longer drawn)
 
-  -- Generic attribution, beneath the haiku (only once the haiku has settled)
-  if TextGoPoof_state() == "B" then
+  -- Generic attribution, beneath the haiku (appears partway through the poof)
+  if TextGoPoof_attributionReady() then
     local attrText = "— Japanese Haiku, 17th-19th c."
     local attrSize = math.max(11, math.floor(math.min(fit.haiku * 0.78, attrZoneH * 0.55)))
     pushStyle()
@@ -611,10 +611,11 @@ function drawMenu()
   translate(diceRowCx, cy3)
   rotate(diceAngle)  -- negative base means CW tilt in Codea coordinates
 
-  -- Cycle to a new SOWPODS word every few seconds
-  menuDiceWordTimer = (menuDiceWordTimer or 0) + DeltaTime
-  if menuDiceWordTimer >= 3.0 or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
-    menuDiceWordTimer = 0
+  -- Cycle to a new SOWPODS word in sync with the board preview letters
+  -- (both reseed on each whole second of ElapsedTime).
+  local diceWordSec = math.floor(ElapsedTime)
+  if menuDiceWordSec ~= diceWordSec or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
+    menuDiceWordSec = diceWordSec
     menuDiceDisplayWord = randomWordOfLength(MIN_WORD_LEN)
   end
 
@@ -728,34 +729,51 @@ function drawMenu()
     local fillCol = (pressedButton == "playAgain") and Color.uiAccent2 or Color.uiAccent
     drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
 
-    -- Draw opponent avatar
+    -- Draw opponent avatar (smaller, upper portion of the button)
     local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
-    local avatarSize = btnH * 0.55
+    local avatarSize = btnH * 0.48
+    local avatarCY   = btnH * 0.20
     if avatar then
       -- Use drawAvatarCircle if available, otherwise fall back to sprite
       if drawAvatarCircle then
-        drawAvatarCircle(avatar, 0, avatarSize * 0.15, avatarSize, nil)
+        drawAvatarCircle(avatar, 0, avatarCY, avatarSize, nil)
       else
         spriteMode(CENTER)
-        sprite(avatar, 0, avatarSize * 0.15, avatarSize, avatarSize)
+        sprite(avatar, 0, avatarCY, avatarSize, avatarSize)
       end
     else
       -- Generic opponent placeholder
       if genericOpponentAvatar then
         local genAv = genericOpponentAvatar()
         if genAv and drawAvatarCircle then
-          drawAvatarCircle(genAv, 0, avatarSize * 0.15, avatarSize, nil)
+          drawAvatarCircle(genAv, 0, avatarCY, avatarSize, nil)
         end
       end
     end
 
-    -- "re" label below avatar
-    font("Georgia-Bold")
-    fontSize(labelFontSize * 0.7)
+    -- Win/loss standing vs this opponent, as red circles (records-screen style),
+    -- separated by a dash: wins - losses.
+    local rec    = opponentRecords and opponentRecords[replaySettings.opponentId]
+    local wins   = (rec and rec.wins)   or 0
+    local losses = (rec and rec.losses) or 0
+
+    local badgeR  = btnH * 0.13
+    local sep     = badgeR * 1.5
+    local badgesY = -btnH * 0.22
+    local leftCx  = -(sep * 0.5 + badgeR)
+    local rightCx =  (sep * 0.5 + badgeR)
+
+    -- Win/loss numbers with a dash separator (no circles)
+    font("HelveticaNeue-Bold")
+    fontSize(badgeR * 1.05)
     fill(255, 255, 255, 255)
     textMode(CENTER)
     textAlign(CENTER)
-    text("re", 0, -btnH * 0.28)
+    text(tostring(wins),   leftCx,  badgesY)
+    text(tostring(losses), rightCx, badgesY)
+
+    fontSize(badgeR * 1.5)
+    text("-", 0, badgesY)
 
     popMatrix()
 
@@ -1042,8 +1060,11 @@ function handleMenuTouch(t)
       local bs = settings.boardSize or boardSize
       local mwl = settings.minWordLen or MIN_WORD_LEN
       local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
+      local rec    = opponentRecords and opponentRecords[settings.opponentId]
+      local recWins   = (rec and rec.wins)   or 0
+      local recLosses = (rec and rec.losses) or 0
       showGenericAlert({
-        message = "Play another " .. bs .. "x" .. bs .. " (minimum word length " .. mwl .. ") game against " .. oppName .. "?",
+        message = "Play another " .. bs .. "x" .. bs .. " (minimum length " .. mwl .. ") game against " .. oppName .. "? Your record against them is " .. recWins .. " to " .. recLosses .. ".",
         avatar  = avatar,
         buttons = {
           { text = "heck yeah", callback = function() if startLastMatchReplayFromMenu then startLastMatchReplayFromMenu() end end, isPrimary = true },

@@ -63,11 +63,12 @@ end
 ------------------------------------------------------------
 
 function startPoof(specsA, specsB)
-  
+
   P.parts = {}
   P.alphaB = 0
+  P.animT = 0
   P.state = "ANIM"
-  
+
   --------------------------------------------------------
   -- Rasterize A text
   --------------------------------------------------------
@@ -170,9 +171,11 @@ function drawPoofingText(specA, specB)
   
   local alive = false
   local t = ElapsedTime
-  
+
+  P.animT = (P.animT or 0) + DeltaTime
+
   -- Fade in B text
-  
+
   P.alphaB = math.min(255, P.alphaB + 6)
   
   if P.specsB then
@@ -255,4 +258,14 @@ function TextGoPoof_flecksFade()
   if P.state == "A" then return 1 end
   if P.state == "B" then return 0 end
   return math.max(0, 1 - (P.alphaB / 255))
+end
+
+-- Whether the haiku attribution should be shown yet. True once the haiku has
+-- settled (state B), OR partway through the poof (~half its full duration) so
+-- the attribution appears sooner without shortening the poof drift itself.
+POOF_ATTRIB_DELAY = POOF_ATTRIB_DELAY or 1.1   -- seconds into the sweep
+function TextGoPoof_attributionReady()
+  if P.state == "B" then return true end
+  if P.state == "ANIM" then return (P.animT or 0) >= POOF_ATTRIB_DELAY end
+  return false
 end
