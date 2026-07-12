@@ -111,3 +111,7 @@ xcrun simctl get_app_container $SIM $BUNDLE app    # app bundle (asset.documents
 - `saveImage` auto-appends `.png`, so images don't have this problem.
 - `saveLocalData`/`readLocalData` writes to `NSUserDefaults`, backed by `Library/Preferences/<bundle-id>.plist` in the data container.
 - `devLog()` calls `objc.log()` which shows up in the system log. `print()` only goes to the Codea internal console. This project redirects `print = devLog`.
+
+## Text rendering
+
+- `text()` silently **drops the en dash `–` (U+2013)** — it renders as nothing. The em dash `—` (U+2014) and the ASCII hyphen `-` render fine. Use `—` for attribution/quote dashes.
