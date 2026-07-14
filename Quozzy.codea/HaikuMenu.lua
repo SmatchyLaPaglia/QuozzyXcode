@@ -1080,8 +1080,10 @@ function handleMenuTouch(t)
     showInfoOverlay = true
 
   elseif key == "debugDialog" then
-    -- Open the balloon mockup overlay
+    -- Open the balloon mockup overlay (balloon shown, text entry on)
     balloonMockupOverlay = true
+    mockupBalloonShown = true
+    mockupTextEntryEnabled = true
   end
 end
 

@@ -303,17 +303,50 @@ drawSpeechBalloon(rect, text, tailAnchorX, tailAnchorY, tailSide, fill, outline,
   NOTE: fill point stays sharp; only outline is rounded. No fill cap circle (that read as a "ball").
 ```
 
-### Dev mockup (visual QA without playing a match)
+### drawEndScreenSpeechBalloons — model.commentUI fields
 
 ```
-drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons
-  synthetic model + real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
+Optional overrides (used by the mockup; backward-compatible):
+  suppressText    → opponent balloon draws shape only (transparent text color)
+  fillOverride    → replaces Color.uiAccent for the balloon fill
+  strokeOverride  → replaces Color.tileText for the balloon outline
+Side effect: sets global endScreenOppBalloonRect = the opponent balloon's screen rect
+  (or nil when not drawn) so callers can position a native view over it.
+```
+
+### Dev mockup = comment-entry prototype (menu 🐛 button)
+
+```
+drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons.
+  Shows ONE balloon (first speaker / opponent slot) with a native UITextField inside
+  for real typing. Placeholder text: "tap to comment on this match".
+  real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
   + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar)
-  gated by BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette for QA)
-    and balloonMockupOverlay (menu 🐛 button, HaikuMenu key=="debugDialog", opens in live season)
-  draw/touch wired in Main.lua overlay dispatch (mirrors colorInspectorOverlay pattern)
-  BALLOON_MOCKUP_DEV also skips CTBM/GameCenter bootstrap (Main.lua setup) so no GC modal over QA
-  BALLOON_MOCKUP_DEV=false in production (Main.lua:~114)
+
+  Two visual states (active = field focused OR field has text):
+    OFF/placeholder: balloon fill=light gray (214) opaque, outline=(168) opaque;
+      Codea-drawn placeholder = Color.tileText @ 80% alpha, bold italic. suppressText hides
+      the balloon's own text; the transparent field lets the Codea placeholder show through.
+    ON/active: normal seasonal balloon colors; native typed text in Color.panelBG.
+    Deselecting an empty field returns to OFF; with text it stays ON.
+
+  Native UITextField (mockupTextField, transparent) — create/position/show-hide/teardown
+    modeled on the end-screen comment field (ensureEndScreenNativeCommentField):
+    - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip)
+    - ASSIGN Codea color() DIRECTLY to UIColor props (tf.textColor/backgroundColor);
+      objc.UIColor:colorWithRed_green_blue_alpha_ was unreliable for textColor here
+    - no keyboard avoidance needed (balloon sits high; keyboard covers the bottom)
+    - teardownMockupTextField() (global) called from Main.lua on close
+
+  Three bottom buttons (rects stored as globals, handled in Main.lua touched()):
+    "show/hide"              → mockupBalloonShown  (hides balloon + field)
+    "turn on/off text entry" → mockupTextEntryEnabled (tf.userInteractionEnabled)
+    "close debug screen"     → dismiss (teardown + balloonMockupOverlay=false)
+    Tap-anywhere-to-dismiss was REMOVED; only "close debug screen" dismisses.
+
+  Gating: BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette + skips
+    CTBM/GameCenter bootstrap so no GC modal over QA; FALSE in production, Main.lua:~114)
+    and balloonMockupOverlay (menu 🐛 button, HaikuMenu key=="debugDialog", live season).
   (old interactive tuner DebugBalloonPanel.lua was DELETED — removed from Info.plist Buffer Order)
 ```
 

@@ -819,3 +819,36 @@ never had to carry). Small visual tuning nudges (tail width/position/point) were
 
 **Next task:** none pending for balloons. The `Loading_QuozzySeasons` launch PNG still shows
 "Quozzy" (separate art task, per CLAUDE.md).
+
+---
+
+## 19. HANDOFF STATE — 2026-07-14 (Balloon mockup → comment-entry prototype)
+
+**Task completed:** Turned the 🐛 balloon mockup into a single-balloon comment-entry
+prototype with a real native UITextField. See STRUCTURE.md →
+"Dev mockup = comment-entry prototype".
+
+**What it does:**
+- One balloon (opponent slot) with a native `UITextField` inside for real typing.
+- Placeholder "tap to comment on this match". OFF state (empty+unfocused) = light-gray
+  balloon + placeholder in `Color.tileText` @ 80% (bold italic); ON state (focused or
+  has text) = normal seasonal colors + typed text in `Color.panelBG`.
+- Three bottom buttons: show/hide, turn on/off text entry, close debug screen.
+  Tap-anywhere-dismiss removed (close button only).
+
+**Files:** EndScreenFP.lua (drawBalloonMockupOverlay + ensure/update/teardownMockupTextField
++ drawEndScreenSpeechBalloons suppressText/fillOverride/strokeOverride/endScreenOppBalloonRect),
+Main.lua (globals + touch), HaikuMenu.lua (debugDialog reset).
+
+**Gotchas learned (added to STRUCTURE.md):**
+- Assign a Codea `color()` DIRECTLY to UIColor props; `objc.UIColor:colorWithRed_green_blue_alpha_`
+  did not reliably apply `textColor` here.
+- No attributed-placeholder usage exists in the codebase / bridge support unverified — so the
+  placeholder is drawn in Codea behind a transparent field rather than via `attributedPlaceholder`.
+
+**Verified:** off-state visuals + no Lua errors. **NOT yet verified** (simctl can't inject taps):
+tap-to-focus color flip, typed-text color, the text-entry toggle, and close — need an on-device
+tap-test via the 🐛 button. `BALLOON_MOCKUP_DEV=false` (production).
+
+**Delegation:** +1 Haiku investigation (UITextField/placeholder patterns from ScoreSheetsCore.lua
++ KeyboardAvoider.lua + existing comment field). See DELEGATION_LOG.tsv.

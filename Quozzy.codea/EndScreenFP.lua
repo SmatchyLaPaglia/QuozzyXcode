@@ -668,6 +668,7 @@ end
 
 local function drawEndScreenSpeechBalloons(model, layout)
   local ui = model and model.commentUI
+  endScreenOppBalloonRect = nil
   if not (ui and ui.hasAnyComment) then return end
   local targetAlpha = ui.showBalloons and 1 or 0
   endScreenSpeechBalloonAlpha = endScreenSpeechBalloonAlpha + (targetAlpha - endScreenSpeechBalloonAlpha) * math.min(1, DeltaTime * 14)
@@ -692,8 +693,8 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local panelRight      = layout.panelX + layout.panelW * 0.5
   local boardBottom     = layout.boardCY - layout.boardSide * 0.5
   local insetY = 14
-  local bFill           = Color.uiAccent or color(40, 80, 60, 255)
-  local bStroke         = Color.tileText or color(40, 80, 60, 255)
+  local bFill           = ui.fillOverride   or Color.uiAccent or color(40, 80, 60, 255)
+  local bStroke         = ui.strokeOverride or Color.tileText  or color(40, 80, 60, 255)
   local bText           = Color.panelBG or color(245, 242, 232, 255)
 
   -- Opponent (originator) balloon — tail points at opponent avatar
@@ -716,10 +717,11 @@ local function drawEndScreenSpeechBalloons(model, layout)
         textInsetX = 4, textInsetY = insetY,
         alphaMul = balloonAlpha,
         outlineWidth = 7,
-        textColor = bText,
+        textColor = (ui.suppressText and color(0, 0, 0, 0)) or bText,
         tailAnchorOverrideX = avatarLayout.opponentX,
         lines = measured.lines,
       })
+    endScreenOppBalloonRect = oppRect
   end
 
   -- Local (responder) balloon — stacked below opponent, tail points at local avatar
@@ -746,6 +748,71 @@ local function drawEndScreenSpeechBalloons(model, layout)
         lines = measured.lines,
       })
   end
+end
+
+-- Native UITextField that lives inside the mockup balloon for real typing.
+-- The field itself is transparent (Codea draws the balloon + a styled placeholder
+-- behind it); the field renders the typed text natively on top.
+local mockupTextField = nil
+local mockupTextFieldDelegate = nil
+local mockupTextFieldFocused = false
+
+local function ensureMockupTextField()
+  if mockupTextField then return end
+  if not (objc and objc.UITextField) then return end
+  local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
+    or (objc.viewer and objc.viewer.view)
+  if not hostView then return end
+  local tf = objc.UITextField:alloc():init()
+  hostView:addSubview_(tf)
+  tf.backgroundColor = color(0, 0, 0, 0)  -- transparent (bridge assigns Codea color() to UIColor props)
+  tf.font = objc.UIFont:fontWithName_size_("HelveticaNeue", 18)
+  local tc = Color.panelBG or color(245, 242, 232, 255)
+  tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)  -- balloon's seasonal text color
+  pcall(function() tf.textAlignment = objc.enum.NSTextAlignment.center end)
+  local Delegate = objc.delegate("UITextFieldDelegate")
+  function Delegate:textFieldDidBeginEditing_(oTF) mockupTextFieldFocused = true end
+  function Delegate:textFieldDidEndEditing_(oTF) mockupTextFieldFocused = false end
+  function Delegate:textFieldShouldReturn_(oTF) oTF:resignFirstResponder_(); return true end
+  mockupTextFieldDelegate = Delegate()
+  tf.delegate = mockupTextFieldDelegate
+  mockupTextField = tf
+end
+
+local function updateMockupTextField(rect, shown)
+  ensureMockupTextField()
+  local tf = mockupTextField
+  if not tf then return end
+  if shown and rect then
+    tf.hidden = false
+    local enabled = (mockupTextEntryEnabled ~= false)
+    tf.userInteractionEnabled = enabled
+    if not enabled then
+      tf:resignFirstResponder_()
+      mockupTextFieldFocused = false
+    end
+    -- typed text uses the balloon's seasonal text color (Color.panelBG)
+    local tc = Color.panelBG or color(245, 242, 232, 255)
+    tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)
+    tf.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
+  else
+    tf.hidden = true
+    tf:resignFirstResponder_()
+    mockupTextFieldFocused = false
+  end
+end
+
+-- Global: torn down from Main.lua when the mockup overlay is dismissed.
+function teardownMockupTextField()
+  local tf = mockupTextField
+  if tf then
+    tf:resignFirstResponder_()
+    tf:removeFromSuperview_()
+    mockupTextField = nil
+    mockupTextFieldDelegate = nil
+  end
+  mockupTextFieldFocused = false
+  mockupFieldRect = nil
 end
 
 -- Dev-only static mockup of the turn-based comment balloon overlay.
@@ -794,23 +861,79 @@ function drawBalloonMockupOverlay()
     opponentAvatar = genericOpponentAvatar()
   }
 
-  -- Draw balloons via the EXISTING renderer
+  -- Visual state: "active" once the field is focused or has text; otherwise the
+  -- balloon shows a greyed-out placeholder state. (Deselecting an empty field
+  -- returns to placeholder; deselecting with text stays active.)
+  local txt = mockupTextField and tostring(mockupTextField.text or "") or ""
+  local active = mockupTextFieldFocused or (txt ~= "")
+
+  -- Draw the balloon via the EXISTING renderer. In placeholder state the balloon
+  -- goes grayscale + very slightly transparent; when active it uses normal colors.
   local model = {
     commentUI = {
       hasAnyComment = true,
-      showBalloons = true,
-      opponentComment = "Not me this time!!",
-      localComment = "Yikes okay okay I got you"
+      showBalloons = (mockupBalloonShown ~= false),
+      opponentComment = "tap to comment on this match",
+      localComment = "",
+      suppressText = true,   -- balloon draws shape only; field + Codea placeholder provide text
     }
   }
+  if not active then
+    model.commentUI.fillOverride   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
+    model.commentUI.strokeOverride = color(168, 168, 168, 255)  -- outline: a little darker
+  end
   drawEndScreenSpeechBalloons(model, layout)
+
+  -- Native text field inside the balloon (real typing). When in placeholder state,
+  -- Codea draws the placeholder (bold italic, in the balloon's normal fill color)
+  -- behind the transparent field; it vanishes on focus/typing.
+  if mockupBalloonShown and endScreenOppBalloonRect then
+    local br = endScreenOppBalloonRect
+    local fRect = { x = br.x + 10, y = br.y + 6, w = br.w - 20, h = br.h - 12 }
+    updateMockupTextField(fRect, true)
+    mockupFieldRect = { cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h }
+    if not active then
+      local pc = Color.tileText or color(40, 80, 60)   -- on-state outline color
+      fill(pc.r, pc.g, pc.b, 204)                       -- 20% transparent
+      textMode(CENTER); textAlign(CENTER)
+      font("HelveticaNeue-BoldItalic")
+      fontSize(18)
+      text("tap to comment on this match", br.x + br.w * 0.5, br.y + br.h * 0.5)
+    end
+  else
+    updateMockupTextField(nil, false)
+    mockupFieldRect = nil
+  end
+
+  -- Bottom buttons (stacked): show/hide, text-entry toggle, close.
+  local mtBtnW = layout.panelW * 0.66
+  local mtBtnH = 46
+  local mtGap  = 10
+  local mtBtnCX = layout.panelX
+  local closeCY = (layout.panelY - layout.panelH * 0.5) + 18 + mtBtnH * 0.5
+  local entryCY = closeCY + (mtBtnH + mtGap)
+  local showCY  = closeCY + 2 * (mtBtnH + mtGap)
+  local function mockupButton(cy, label, setRect)
+    drawRoundedRect(mtBtnCX, cy, mtBtnW, mtBtnH, 20, Color.uiAccent, Color.uiAccent)
+    pushStyle()
+    fill(255)
+    textMode(CENTER); textAlign(CENTER)
+    font("HelveticaNeue-Bold")
+    fontSize(17)
+    text(label, mtBtnCX, cy + 1)
+    popStyle()
+    setRect({ cx = mtBtnCX, cy = cy, w = mtBtnW, h = mtBtnH })
+  end
+  mockupButton(showCY,  "show/hide",              function(r) mockupShowHideBtnRect = r end)
+  mockupButton(entryCY, "turn on/off text entry", function(r) mockupTextEntryBtnRect = r end)
+  mockupButton(closeCY, "close debug screen",     function(r) mockupCloseBtnRect = r end)
 
   -- Caption
   fill(255)
   textMode(CENTER)
   font("HelveticaNeue")
   fontSize(13)
-  text("balloon mockup (dev) — tap to dismiss", WIDTH * 0.5, HEIGHT - 40)
+  text("balloon mockup (dev)", WIDTH * 0.5, HEIGHT - 40)
 
   popStyle()
 end
