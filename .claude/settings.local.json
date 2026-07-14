@@ -35,7 +35,14 @@
       "Bash(convert /tmp/quozzy-seasonal-test.png -fuzz 5% -fill red -opaque \"#D28C46\" -format \"%c\" histogram:info:)",
       "Bash(convert /tmp/quozzy-seasonal-test.png -resize 200x -colors 16 -format \"%c\" histogram:info:)",
       "Bash(convert /tmp/quozzy-seasonal-test.png -fuzz 10% -fill red -opaque \"#502D14\" -format \"%c\" histogram:info:)",
-      "Bash(git commit -m 'fix seasonRect missing x,y fields causing nil error in drawMenuSeasonPoof *)"
+      "Bash(git commit -m 'fix seasonRect missing x,y fields causing nil error in drawMenuSeasonPoof *)",
+      "Bash(xcodebuild *)",
+      "Bash(claude -p *)",
+      "Bash(cp *)",
+      "Bash(diff *)",
+      "Bash(find *)",
+      "Bash(plutil *)",
+      "Bash(python3 *)"
     ]
   }
 }

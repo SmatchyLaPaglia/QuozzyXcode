@@ -1,0 +1,713 @@
+
+__draw : function
+
+__fixedUpdate : function
+
+__halt__ : function
+
+__hover : function
+
+__keyPressed : function
+
+__keyReleased : function
+
+__scroll : function
+
+__setup : function
+
+__sizeChanged : function
+
+__touched : function
+
+__update : function
+
+_debuggee : table
+
+_G : table
+
+_getAssetKey : function
+
+_initPasteboard : function
+
+_require_mt : table
+
+_VERSION : string
+
+ADD : number
+
+ADDITIVE : number
+
+addUserdataVar : function
+
+airCode : table
+
+alert : function
+
+ALL : number
+
+ANY : number
+
+applyMatrix : function
+
+AR_ESTIMATED_PLANE : number
+
+AR_EXCESSIVE_MOTION : number
+
+AR_EXISTING_PLANE : number
+
+AR_EXISTING_PLANE_CLIPPED : number
+
+AR_FACE : number
+
+AR_FACE_TRACKING : number
+
+AR_FEATURE_POINT : number
+
+AR_IMAGE : number
+
+AR_INSUFFICIENT_FEATURES : number
+
+AR_LIMITED : number
+
+AR_NONE : number
+
+AR_NORMAL : number
+
+AR_NOT_AVAILABLE : number
+
+AR_PLANE : number
+
+AR_POINT : number
+
+AR_WORLD_TRACKING : number
+
+assert : function
+
+asset : userdata
+
+assetList : function
+
+assets : table
+
+BACK : number
+
+background : function
+
+BACKSPACE : string
+
+BEGAN : number
+
+blendEquation : function
+
+blendMode : function
+
+BLOCK_ENTITY : number
+
+BLOCK_ID : number
+
+BLOCK_NAME : number
+
+BLOCK_STATE : number
+
+bounds : table
+
+buffer : function
+
+c : table
+
+camera : function
+
+CAMERA : string
+
+CAMERA_BACK : number
+
+CAMERA_DEPTH : string
+
+CAMERA_FRONT : number
+
+cameraSource : function
+
+CANCELLED : number
+
+CENTER : number
+
+CHAIN : number
+
+CHANGED : number
+
+CIRCLE : number
+
+class : function
+
+CLEAR : number
+
+clearLocalData : function
+
+clearProjectData : function
+
+clip : function
+
+close : function
+
+collectgarbage : function
+
+color : function
+
+COLOR : number
+
+COLOR_MASK_ALPHA : number
+
+COLOR_MASK_BLUE : number
+
+COLOR_MASK_GREEN : number
+
+COLOR_MASK_NONE : number
+
+COLOR_MASK_RED : number
+
+COLOR_MASK_RGB : number
+
+COLOR_MASK_RGBA : number
+
+COMPOUND : number
+
+ContentScaleFactor : number
+
+CORNER : number
+
+CORNERS : number
+
+coroutine : table
+
+craft : table
+
+createProject : function
+
+CurrentOrientation : number
+
+CurrentTouch : userdata
+
+DATA : string
+
+debug : table
+
+DECODE : string
+
+deleteProject : function
+
+DeltaTime : number
+
+deviceMetrics : function
+
+DIRECT : number
+
+DIRECTIONAL : number
+
+DISABLED : number
+
+DISTANCE : number
+
+dofile : function
+
+DOWN : number
+
+draw : function
+
+DST_ALPHA : number
+
+DST_COLOR : number
+
+dumpGlobals : function
+
+DYNAMIC : number
+
+EAST : number
+
+EDGE : number
+
+ElapsedTime : number
+
+ellipse : function
+
+ellipseMode : function
+
+EMPTY : number
+
+ENCODE : string
+
+ENDED : number
+
+error : function
+
+file : table
+
+fill : function
+
+font : function
+
+fontMetrics : function
+
+fontSize : function
+
+FORMAT_MONO16 : number
+
+FORMAT_MONO8 : number
+
+FORMAT_STEREO16 : number
+
+FORMAT_STEREO8 : number
+
+FRONT : number
+
+FULLSCREEN : number
+
+FULLSCREEN_NO_BUTTONS : number
+
+gesture : table
+
+getmetatable : function
+
+Gravity : userdata
+
+hasProject : function
+
+HEIGHT : number
+
+hideKeyboard : function
+
+http : table
+
+image : table
+
+INDIRECT : number
+
+INTERSECT : number
+
+io : table
+
+ipairs : function
+
+isKeyboardShowing : function
+
+isRecording : function
+
+json : table
+
+keyboardBuffer : function
+
+KINEMATIC : number
+
+LANDSCAPE_ANY : number
+
+LANDSCAPE_LEFT : number
+
+LANDSCAPE_RIGHT : number
+
+layout : table
+
+LEFT : number
+
+LEGACY : number
+
+LIGHT : number
+
+line : function
+
+lineCapMode : function
+
+listGlobalData : function
+
+listLocalData : function
+
+listProjectData : function
+
+listProjects : function
+
+listProjectTabs : function
+
+load : function
+
+loadfile : function
+
+localized : function
+
+location : table
+
+math : table
+
+matrix : function
+
+MAX : number
+
+mesh : function
+
+mic : table
+
+MIN : number
+
+modelMatrix : function
+
+MODELS : string
+
+MODERN : number
+
+MOVING : number
+
+mt : table
+
+MULTIPLY : number
+
+MUSIC : string
+
+music : table
+
+next : function
+
+noClip : function
+
+noFill : function
+
+noise : function
+
+NONE : number
+
+NORMAL : number
+
+NORTH : number
+
+noSmooth : function
+
+noStroke : function
+
+noTint : function
+
+objc : table
+
+objcCallMethod : function
+
+objcdelegate : function
+
+ONE : number
+
+ONE_MINUS_DST_ALPHA : number
+
+ONE_MINUS_DST_COLOR : number
+
+ONE_MINUS_SRC_ALPHA : number
+
+ONE_MINUS_SRC_COLOR : number
+
+OPAQUE : number
+
+openURL : function
+
+ortho : function
+
+os : table
+
+osc : table
+
+output : table
+
+OVERLAY : number
+
+package : table
+
+pairs : function
+
+parameter : table
+
+pasteboard : table
+
+pcall : function
+
+perspective : function
+
+physics : table
+
+pick : table
+
+POINT : number
+
+point : function
+
+POINTER : number
+
+pointSize : function
+
+POLYGON : number
+
+popMatrix : function
+
+popStyle : function
+
+PORTRAIT : number
+
+PORTRAIT_ANY : number
+
+PORTRAIT_UPSIDE_DOWN : number
+
+print : function
+
+PRISMATIC : number
+
+PROJECT : number
+
+projectionMatrix : function
+
+pushMatrix : function
+
+pushStyle : function
+
+quat : table
+
+RADIUS : number
+
+rawequal : function
+
+rawget : function
+
+rawlen : function
+
+rawset : function
+
+readGlobalData : function
+
+readImage : function
+
+readLocalData : function
+
+readProjectData : function
+
+readProjectInfo : function
+
+readProjectTab : function
+
+readText : function
+
+rect : function
+
+rectMode : function
+
+REPLACE : number
+
+require : table
+
+resetMatrix : function
+
+resetStyle : function
+
+restart : function
+
+RETURN : string
+
+REVERSE_SUBTRACT : number
+
+REVOLUTE : number
+
+RIGHT : number
+
+ROPE : number
+
+rotate : function
+
+RotationRate : userdata
+
+ROUND : number
+
+rsqrt : function
+
+saveGlobalData : function
+
+saveImage : function
+
+saveLocalData : function
+
+saveProjectData : function
+
+saveProjectInfo : function
+
+saveProjectTab : function
+
+saveText : function
+
+scale : function
+
+select : function
+
+sendMesg : function
+
+setContext : function
+
+setmetatable : function
+
+setup : function
+
+setUserdataVar : function
+
+shader : function
+
+SHADERS : string
+
+showKeyboard : function
+
+smooth : function
+
+SOLID : number
+
+sound : function
+
+SOUND_BLIT : string
+
+SOUND_EXPLODE : string
+
+SOUND_HIT : string
+
+SOUND_JUMP : string
+
+SOUND_NOISE : number
+
+SOUND_PICKUP : string
+
+SOUND_POWERUP : string
+
+SOUND_RANDOM : string
+
+SOUND_SAWTOOTH : number
+
+SOUND_SHOOT : string
+
+SOUND_SINEWAVE : number
+
+SOUND_SQUAREWAVE : number
+
+soundbuffer : function
+
+soundBufferSize : function
+
+SOUNDS : string
+
+SOUTH : number
+
+speech : table
+
+SPOT : number
+
+sprite : function
+
+spriteBatching : function
+
+spriteMode : function
+
+SPRITES : string
+
+spriteSize : function
+
+SQUARE : number
+
+SRC_ALPHA : number
+
+SRC_ALPHA_SATURATE : number
+
+SRC_COLOR : number
+
+STANDARD : number
+
+startRecording : function
+
+STATIC : number
+
+STATIONARY : number
+
+stopRecording : function
+
+string : table
+
+stroke : function
+
+strokeWidth : function
+
+STYLUS : number
+
+SUBTRACT : number
+
+supportedOrientations : function
+
+table : table
+
+TEXT : string
+
+text : function
+
+textAlign : function
+
+textMode : function
+
+textSize : function
+
+textWrapWidth : function
+
+tint : function
+
+tonumber : function
+
+TORCH_LIGHT : number
+
+tostring : function
+
+translate : function
+
+TRANSLUCENT : number
+
+TRANSPARENT : number
+
+triangulate : function
+
+tween : table
+
+type : function
+
+UIDocumentPickerDelegate : table
+
+UIImagePickerControllerDelegate : table
+
+UNION : number
+
+unwrap : function
+
+UP : number
+
+UserAcceleration : userdata
+
+utf8 : table
+
+vec2 : function
+
+vec3 : function
+
+vec4 : function
+
+viewer : table
+
+viewMatrix : function
+
+warn : function
+
+warning : function
+
+WELD : number
+
+WEST : number
+
+WIDTH : number
+
+wrap : function
+
+wrapPointer : function
+
+xpcall : function
+
+ZERO : number
+
+zLevel : function
+

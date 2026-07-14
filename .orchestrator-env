@@ -1,0 +1,4 @@
+SCHEME="Quozzy"
+BUNDLE_ID="com.jessewonderclark.quozzyseasons"
+SIM_UDID="0EF8AE50-8899-40DD-A77E-359C06732886"
+DERIVED_DATA="/tmp/quozzy-build"
