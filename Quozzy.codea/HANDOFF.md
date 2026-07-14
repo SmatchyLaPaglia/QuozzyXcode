@@ -786,3 +786,36 @@ The "re" button and debug 🐛 button both use it.
 3. **Simulator hangs** — after repeated build/install/launch cycles, the CoreSimulator service can deadlock. See §16 recovery procedure.
 
 4. **Game Center auth in simulator** — requires signing into Settings → Game Center. Without auth, the "Something Ker-Flumped" overlay appears when tapping VS or Re buttons.
+
+---
+
+## 18. HANDOFF STATE — 2026-07-14 (Turn-based comment speech balloons)
+
+**Task completed:** Reworked the turn-based end-screen comment balloons to match a
+visual reference, fixed the tail rendering, and added a dev-only mockup for QA.
+See STRUCTURE.md → "Turn-Based Comment Speech Balloons" for the render path.
+
+**Changes:**
+- `drawSpeechBalloon` (EndScreenFP.lua): uniform tail stroke via outward-offset side
+  strips; **sharp fill point** with a **line-cap-rounded outline** (small circle at tip);
+  tail base overlaps into the body so tail+balloon fills merge (no floating seam).
+- `drawEndScreenSpeechBalloons` (EndScreenFP.lua): tails anchored to each speaker's
+  avatar; dark seasonal outline `Color.tileText` (was semitransparent white);
+  both tails `tailBaseWidth=18`; local (responder) tail shifted +18 right to sit at the
+  first balloon's right end.
+- `getEndUpperRightAvatarLayout` (EndScreenFuncs.lua): originator/opponent avatar → LEFT,
+  responder/local → RIGHT (was swapped).
+- `drawBalloonMockupOverlay` (EndScreenFP.lua) + `BALLOON_MOCKUP_DEV`/`balloonMockupOverlay`:
+  dev mockup reusing the real renderer; menu 🐛 button repurposed to open it
+  (HaikuMenu `key=="debugDialog"`, was the theme color inspector). Flag is **false** in prod.
+- Deleted `DebugBalloonPanel.lua` (old interactive tuner) + its Info.plist Buffer Order entry
+  + call sites in EndScreen.lua.
+
+**Current state:** Done, confirmed matching the reference by the user. `BALLOON_MOCKUP_DEV=false`.
+
+**Delegation (this goal, via Haiku `claude -p` — see DELEGATION_LOG.tsv):**
+5 delegations, ~22.7k output tokens, **~$0.32** pushed to Haiku (context the orchestrator
+never had to carry). Small visual tuning nudges (tail width/position/point) were applied inline.
+
+**Next task:** none pending for balloons. The `Loading_QuozzySeasons` launch PNG still shows
+"Quozzy" (separate art task, per CLAUDE.md).

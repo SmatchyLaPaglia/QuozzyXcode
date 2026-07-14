@@ -4,14 +4,18 @@ function getEndUpperRightAvatarLayout(args)
   local dy = args.areaH  * 0.12
   
   local xNudge1, xNudge2 = 5, 10
-  
+
+  -- Originator (first speaker / opponent, top balloon) sits on the LEFT of the
+  -- cluster; responder (second speaker / local, bottom balloon) sits on the
+  -- RIGHT, so the responder balloon's tail is the rightmost and overlaps the
+  -- least of the first balloon's text while staying inside its boundary.
   return {
-    localX = args.rightCX - dx + xNudge1,
-    localY = args.areaCY + dy,
-    opponentX = args.rightCX + dx + xNudge2,
-    opponentY = args.areaCY - dy * 0.45,
-    localSize = cameoSize,
-    opponentSize = cameoSize * 0.92,
+    opponentX = args.rightCX - dx + xNudge1,
+    opponentY = args.areaCY + dy,
+    localX = args.rightCX + dx + xNudge2,
+    localY = args.areaCY - dy * 0.45,
+    opponentSize = cameoSize,
+    localSize = cameoSize * 0.92,
   }
 end
 

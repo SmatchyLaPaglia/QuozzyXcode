@@ -569,7 +569,7 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
 
   -- Tail base: top or bottom edge depending on tailSide
   local onTop = (tailSide == "up" or tailSide == "top")
-  local baseY = onTop and (rect.y + rect.h + 1) or (rect.y - 1)  -- +1 overlaps body to close AA seam
+  local baseY = onTop and (rect.y + rect.h - 2) or (rect.y + 2)  -- overlap into body so tail+balloon fills merge
   local baseX = opts.tailAnchorOverrideX or (rect.x + rect.w * 0.5)
   baseX = math.max(rect.x + cr + tailBaseW * 0.5,
           math.min(rect.x + rect.w - cr - tailBaseW * 0.5, baseX))
@@ -586,36 +586,45 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
     tipY = baseY + dy * s
   end
 
-  -- Border pass: compute geometrically correct expanded tip for constant-width border
+  -- Tail geometry: the FILL comes to a SHARP point (tip); only the OUTLINE is
+  -- rounded around that point, line-cap style (a small border cap circle).
+  local halfB = tailBaseW * 0.5
+  local P1x, P1y = baseX - halfB, baseY   -- left base
+  local P2x, P2y = baseX + halfB, baseY   -- right base
+
+  -- Border pass: dark, uniform-width outline around body AND tail.
   if outlineW > 0 then
-    local halfB = tailBaseW * 0.5
-    local dx_L = tipX - (baseX - halfB); local dy_L = tipY - baseY
-    local dx_R = tipX - (baseX + halfB); local dy_R = tipY - baseY
-    local len_L = math.sqrt(dx_L*dx_L + dy_L*dy_L)
-    local len_R = math.sqrt(dx_R*dx_R + dy_R*dy_R)
-    local outerTipX, outerTipY = tipX, tipY
-    if len_L > 0.001 and len_R > 0.001 then
-      local ux_L, uy_L = dx_L/len_L, dy_L/len_L
-      local ux_R, uy_R = dx_R/len_R, dy_R/len_R
-      local nx_L, ny_L = -uy_L,  ux_L   -- left edge outward normal
-      local nx_R, ny_R =  uy_R, -ux_R   -- right edge outward normal
-      local A_x = tipX + outlineW * nx_L; local A_y = tipY + outlineW * ny_L
-      local B_x = tipX + outlineW * nx_R; local B_y = tipY + outlineW * ny_R
-      local cross = ux_L * uy_R - uy_L * ux_R
-      if math.abs(cross) > 0.001 then
-        local t = ((B_x - A_x) * uy_R - (B_y - A_y) * ux_R) / cross
-        outerTipX = A_x + t * ux_L
-        outerTipY = A_y + t * uy_L
-      end
+    local cenX = (P1x + P2x + tipX) / 3
+    local cenY = (P1y + P2y + tipY) / 3
+    local function outwardNormal(Qx, Qy, Rx, Ry)
+      local dx, dy = Rx - Qx, Ry - Qy
+      local len = math.sqrt(dx*dx + dy*dy)
+      if len < 0.0001 then return 0, 0 end
+      local nx, ny = -dy/len, dx/len
+      local mx, my = (Qx + Rx) * 0.5, (Qy + Ry) * 0.5
+      if (nx*(mx - cenX) + ny*(my - cenY)) < 0 then nx, ny = -nx, -ny end
+      return nx, ny
     end
+    local nLx, nLy = outwardNormal(P1x, P1y, tipX, tipY)  -- left side
+    local nRx, nRy = outwardNormal(P2x, P2y, tipX, tipY)  -- right side
     local bm = mesh()
     bm.vertices = {
-      vec2(baseX - tailBaseW * 0.5 - outlineW, baseY),
-      vec2(baseX + tailBaseW * 0.5 + outlineW, baseY),
-      vec2(outerTipX, outerTipY),
+      vec2(P1x, P1y), vec2(tipX, tipY), vec2(tipX + nLx*outlineW, tipY + nLy*outlineW),
+      vec2(P1x, P1y), vec2(tipX + nLx*outlineW, tipY + nLy*outlineW), vec2(P1x + nLx*outlineW, P1y + nLy*outlineW),
+      vec2(P2x, P2y), vec2(tipX, tipY), vec2(tipX + nRx*outlineW, tipY + nRy*outlineW),
+      vec2(P2x, P2y), vec2(tipX + nRx*outlineW, tipY + nRy*outlineW), vec2(P2x + nRx*outlineW, P2y + nRy*outlineW),
     }
-    bm.colors = { borderFill, borderFill, borderFill }
+    local bcol = {}
+    for i = 1, 12 do bcol[i] = borderFill end
+    bm.colors = bcol
     bm:draw()
+    -- rounded outline tip, line-cap style: a small circle at the sharp fill point
+    pushStyle()
+    noStroke()
+    fill(borderFill)
+    ellipseMode(CENTER)
+    ellipse(tipX, tipY, outlineW * 2, outlineW * 2)
+    popStyle()
     drawRoundedRect(
       rect.x + rect.w * 0.5, rect.y + rect.h * 0.5,
       rect.w + outlineW * 2,  rect.h + outlineW * 2,
@@ -623,12 +632,10 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
     )
   end
 
-  -- Fill pass
+  -- Fill pass: sharp-pointed tail triangle (no rounded fill cap)
   local fm = mesh()
   fm.vertices = {
-    vec2(baseX - tailBaseW * 0.5, baseY),
-    vec2(baseX + tailBaseW * 0.5, baseY),
-    vec2(tipX, tipY),
+    vec2(P1x, P1y), vec2(P2x, P2y), vec2(tipX, tipY),
   }
   fm.colors = { bodyFill, bodyFill, bodyFill }
   fm:draw()
@@ -684,81 +691,128 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local panelLeft       = layout.panelX - layout.panelW * 0.5
   local panelRight      = layout.panelX + layout.panelW * 0.5
   local boardBottom     = layout.boardCY - layout.boardSide * 0.5
-  local _dbg = BALLOON_DEBUG and dbgBalloon
-  if _dbg then
-    if (_dbg.balloonWidth or 0) > 0 then bubbleW = _dbg.balloonWidth end
-    if (_dbg.fontSize or 0) > 0 then
-      balloonFontSize = _dbg.fontSize
-      lineHeight = balloonFontSize * 1.12
-    end
-  end
   local insetY = 14
   local bFill           = Color.uiAccent or color(40, 80, 60, 255)
-  local bStroke         = color(255, 255, 255, 170)
+  local bStroke         = Color.tileText or color(40, 80, 60, 255)
   local bText           = Color.panelBG or color(245, 242, 232, 255)
 
-  -- Opponent (originator) balloon — tail up-right, base offset +47 from center
+  -- Opponent (originator) balloon — tail points at opponent avatar
   local oppRect = nil
   if ui.opponentComment and ui.opponentComment ~= "" then
     local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY)
     local bH = math.max(layout.boardSide * 0.16, measured.height)
     oppRect = {
-      x = (panelLeft + 2) + (_dbg and dbgBalloon.topBalloonX or 0),
-      y = (boardBottom - 4 - bH) + (_dbg and dbgBalloon.topBalloonY or 0),
+      x = panelLeft + 2,
+      y = boardBottom - 4 - bH,
       w = bubbleW, h = bH,
     }
-    local oppBaseX = bLeft + bubbleW * 0.5 + 47
-    local oppRad   = 78 * math.pi / 180
-    local oppAnchorX = (_dbg and (_dbg.originatorTailAnchorX or 0) ~= 0) and _dbg.originatorTailAnchorX
-                       or (oppBaseX + math.cos(oppRad) * 500)
-    local oppAnchorY = (_dbg and (_dbg.originatorTailAnchorY or 0) ~= 0) and _dbg.originatorTailAnchorY
-                       or (oppRect.y + oppRect.h + math.sin(oppRad) * 500)
     drawSpeechBalloon(oppRect, ui.opponentComment,
-      oppAnchorX, oppAnchorY, (_dbg and _dbg.originatorTailDir) or "up",
+      avatarLayout.opponentX, avatarLayout.opponentY, "up",
       bFill, bStroke, {
         fontSizeValue = balloonFontSize, lineHeight = lineHeight,
         cornerRadius  = 16,
-        tailLength    = (_dbg and (_dbg.tailLength  or 0) > 0) and _dbg.tailLength  or 43,
-        tailBaseWidth = (_dbg and dbgBalloon.topTailBase) or 25,
+        tailLength    = 43,
+        tailBaseWidth = 18,
         textInsetX = 4, textInsetY = insetY,
         alphaMul = balloonAlpha,
-        outlineWidth = (_dbg and _dbg.borderThickness) or 7,
+        outlineWidth = 7,
         textColor = bText,
-        tailAnchorOverrideX = oppBaseX,
+        tailAnchorOverrideX = avatarLayout.opponentX,
         lines = measured.lines,
       })
   end
 
-  -- Local (responder) balloon — stacked below opponent, tail up-left, base offset +129 from center
+  -- Local (responder) balloon — stacked below opponent, tail points at local avatar
   if ui.localComment and ui.localComment ~= "" then
     local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY)
     local bH = math.max(layout.boardSide * 0.15, measured.height)
     local localRect = {
-      x = (panelRight - 2 - bubbleW) + (_dbg and dbgBalloon.botBalloonX or 0),
-      y = (oppRect and (oppRect.y - 14 - bH) or (boardBottom - 14 - bH)) + (_dbg and dbgBalloon.botBalloonY or 0),
+      x = panelRight - 2 - bubbleW,
+      y = oppRect and (oppRect.y - 14 - bH) or (boardBottom - 14 - bH),
       w = bubbleW, h = bH,
     }
-    local locBaseX = bLeft + bubbleW * 0.5 + 129
-    local locRad   = 93 * math.pi / 180
-    local locAnchorX = (_dbg and (_dbg.responderTailAnchorX or 0) ~= 0) and _dbg.responderTailAnchorX
-                       or (locBaseX + math.cos(locRad) * 500)
-    local locAnchorY = (_dbg and (_dbg.responderTailAnchorY or 0) ~= 0) and _dbg.responderTailAnchorY
-                       or (localRect.y + localRect.h + math.sin(locRad) * 500)
     drawSpeechBalloon(localRect, ui.localComment,
-      locAnchorX, locAnchorY, (_dbg and _dbg.responderTailDir) or "up",
+      avatarLayout.localX + 18, avatarLayout.localY, "up",
       bFill, bStroke, {
         fontSizeValue = balloonFontSize, lineHeight = lineHeight,
         cornerRadius  = 16,
-        tailLength    = (_dbg and (_dbg.tailLength  or 0) > 0) and _dbg.tailLength  or 40,
-        tailBaseWidth = (_dbg and dbgBalloon.botTailBase) or 29,
+        tailLength    = 40,
+        tailBaseWidth = 18,
         textInsetX = 4, textInsetY = insetY,
         alphaMul = balloonAlpha,
-        outlineWidth = (_dbg and _dbg.borderThickness) or 7,
+        outlineWidth = 7,
         textColor = bText,
-        tailAnchorOverrideX = locBaseX,
+        tailAnchorOverrideX = avatarLayout.localX + 18,
         lines = measured.lines,
       })
   end
+end
+
+-- Dev-only static mockup of the turn-based comment balloon overlay.
+-- Reuses the real drawEndScreenSpeechBalloons renderer + the real end-screen
+-- layout so visual QA doesn't require playing a full match. Gated by
+-- BALLOON_MOCKUP_DEV / balloonMockupOverlay (see Main.lua).
+function drawBalloonMockupOverlay()
+  if not balloonMockupOverlay then return end
+
+  -- QA only: force the teal (Summer) palette so the mockup matches the teal
+  -- reference for hue comparison. Gated by BALLOON_MOCKUP_DEV, so it never
+  -- runs in production (where the 🐛 button opens the mockup in the live season).
+  if BALLOON_MOCKUP_DEV and not _mockupSeasonForced then
+    _mockupSeasonForced = true
+    seasonIndex = 2
+    if applySeasonPalette then applySeasonPalette() end
+  end
+
+  pushStyle()
+
+  -- Dim scrim
+  noStroke()
+  fill(0, 0, 0, 140)
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+
+  -- Ensure layout
+  ensureEndScreenLayout()
+  local layout = endScreenLayout
+
+  -- Draw card backdrop
+  drawRoundedRect(layout.panelX, layout.panelY, layout.panelW, layout.panelH, layout.cornerRadius or 18, Color.panelBG, Color.panelBG)
+
+  -- Compute avatar area
+  local topY = layout.msgCY + layout.msgH * 0.5
+  local bottomY = layout.scoreCY - layout.scoreH * 0.5
+  local areaCY = (topY + bottomY) * 0.5
+  local areaH = math.max(1, topY - bottomY)
+
+  -- Draw avatars
+  drawEndUpperRightAvatarsOnly{
+    rightCX = layout.rightCX,
+    areaCY = areaCY,
+    rightW = layout.rightW,
+    areaH = areaH,
+    opponentAvatar = genericOpponentAvatar()
+  }
+
+  -- Draw balloons via the EXISTING renderer
+  local model = {
+    commentUI = {
+      hasAnyComment = true,
+      showBalloons = true,
+      opponentComment = "Not me this time!!",
+      localComment = "Yikes okay okay I got you"
+    }
+  }
+  drawEndScreenSpeechBalloons(model, layout)
+
+  -- Caption
+  fill(255)
+  textMode(CENTER)
+  font("HelveticaNeue")
+  fontSize(13)
+  text("balloon mockup (dev) — tap to dismiss", WIDTH * 0.5, HEIGHT - 40)
+
+  popStyle()
 end
 
 local function drawEndScreenCommentField(rect, ui)

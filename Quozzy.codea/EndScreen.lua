@@ -398,7 +398,6 @@ function drawEndScreen()
   ensureEndScreenLayout()
   if true then
     drawEndScreenFP()
-    drawDebugBalloonPanel()
     return
   end
   
@@ -650,7 +649,6 @@ end
 
 
 function handleEndScreenTouch(t)
-  if handleDebugBalloonTouch(t) then return true end
   local g,r
 
   if state ~= STATE_END then return false end

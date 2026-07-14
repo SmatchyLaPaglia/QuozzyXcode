@@ -111,6 +111,8 @@ recordsScrollPrevY = 0
 
 showInfoOverlay = false
 colorInspectorOverlay = false
+BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal). 🐛 button opens it regardless.
+balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
 
 STATE_MENU   = "menu"
 STATE_PLAY   = "play"
@@ -959,8 +961,8 @@ function setup()
   
   setupSparklerParameters()
   
-  if SAFE_BOOT then
-    devLog("SAFE_BOOT active: skipping CTBM/GameCenter wiring")
+  if SAFE_BOOT or BALLOON_MOCKUP_DEV then
+    devLog("SAFE_BOOT/BALLOON_MOCKUP_DEV active: skipping CTBM/GameCenter wiring")
     return
   end
   
@@ -1187,6 +1189,7 @@ function draw()
     drawInfoOverlay()
     drawColorInspectorOverlay()
     drawGCSignInOverlay()
+    drawBalloonMockupOverlay()
     drawGCMatchmakerErrorOverlay()
     drawReplayMatchmakingOverlay()
     drawConfetti()        
@@ -1281,6 +1284,14 @@ function touched(t)
   if colorInspectorOverlay then
     if t.state == ENDED or t.state == CANCELLED then
       colorInspectorOverlay = false
+    end
+    return
+  end
+
+  -- Balloon mockup overlay eats all touches; dismiss on release
+  if balloonMockupOverlay then
+    if t.state == ENDED or t.state == CANCELLED then
+      balloonMockupOverlay = false
     end
     return
   end

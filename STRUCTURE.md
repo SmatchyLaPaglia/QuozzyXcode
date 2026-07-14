@@ -276,3 +276,49 @@ showRowDividers (pink section boundary lines) default = false.
 | ring buffer key | Main.lua | `DevLogBuffer` in `saveLocalData`, JSON array of last 200 lines |
 | system log access | CLI | `xcrun simctl spawn $SIM log show --last Ns --predicate 'process == "Quozzy"'` |
 | plist access | CLI | `plutil -p <container>/Library/Preferences/<bundle-id>.plist \| grep DevLogBuffer` |
+
+## Turn-Based Comment Speech Balloons (EndScreenFP.lua)
+
+```
+drawEndScreenSpeechBalloons(model, layout)  ← end-screen comment overlay
+  guard: return unless model.commentUI.hasAnyComment
+  reads model.commentUI = { hasAnyComment, showBalloons, opponentComment, localComment }
+  per-balloon guard: draws opponent balloon only if opponentComment~="" (same for local)
+                     → NO balloon renders for a nil/empty comment (skipped turn)
+  opponent balloon = TOP (originator), local balloon = BOTTOM (responder, stacked below)
+  colors: fill=Color.uiAccent, outline=Color.tileText (dark seasonal ink), text=Color.panelBG
+  tail direction: anchored to avatarLayout from getEndUpperRightAvatarLayout (EndScreenFuncs.lua)
+    opponent tail → avatarLayout.opponentX/Y ; local tail → avatarLayout.localX/Y
+    avatar order (getEndUpperRightAvatarLayout): originator/opponent = LEFT+higher+bigger,
+      responder/local = RIGHT+lower+smaller  (so the responder tail is rightmost)
+    local tail base shifted +18 right → sits at first balloon's right end (least text overlap)
+  both tails: tailBaseWidth=18, outlineWidth=7, cornerRadius=16, tailLength 43(opp)/40(local)
+
+drawSpeechBalloon(rect, text, tailAnchorX, tailAnchorY, tailSide, fill, outline, opts)  ← single balloon
+  FILL: sharp-point tail triangle (P1,P2,tip) + body rounded-rect
+  BORDER: two outward-offset side strips (uniform perpendicular width, any lean)
+          + line-cap circle (radius=outlineW) at the sharp tip  ← rounds ONLY the outline
+          + expanded rounded-rect (cr+outlineW). Border drawn behind fill (rim = stroke).
+  baseY overlaps INTO body (rect.y+rect.h-2 / rect.y+2) so tail+balloon fills merge (no seam)
+  NOTE: fill point stays sharp; only outline is rounded. No fill cap circle (that read as a "ball").
+```
+
+### Dev mockup (visual QA without playing a match)
+
+```
+drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons
+  synthetic model + real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
+  + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar)
+  gated by BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette for QA)
+    and balloonMockupOverlay (menu 🐛 button, HaikuMenu key=="debugDialog", opens in live season)
+  draw/touch wired in Main.lua overlay dispatch (mirrors colorInspectorOverlay pattern)
+  BALLOON_MOCKUP_DEV also skips CTBM/GameCenter bootstrap (Main.lua setup) so no GC modal over QA
+  BALLOON_MOCKUP_DEV=false in production (Main.lua:~114)
+  (old interactive tuner DebugBalloonPanel.lua was DELETED — removed from Info.plist Buffer Order)
+```
+
+| concern | file | function |
+|---|---|---|
+| comment balloons draw | EndScreenFP.lua | drawEndScreenSpeechBalloons(), drawSpeechBalloon() |
+| balloon dev mockup | EndScreenFP.lua | drawBalloonMockupOverlay() (menu 🐛 / BALLOON_MOCKUP_DEV) |
+| end-screen avatar layout | EndScreenFuncs.lua | getEndUpperRightAvatarLayout(), drawEndUpperRightAvatarsOnly() |

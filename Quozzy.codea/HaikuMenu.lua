@@ -1080,8 +1080,8 @@ function handleMenuTouch(t)
     showInfoOverlay = true
 
   elseif key == "debugDialog" then
-    -- Open the theme color inspector overlay
-    colorInspectorOverlay = true
+    -- Open the balloon mockup overlay
+    balloonMockupOverlay = true
   end
 end
 
