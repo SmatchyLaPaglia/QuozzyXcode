@@ -712,13 +712,22 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local localStroke     = ui.localStrokeOverride or ui.strokeOverride or defStroke
   local bText           = Color.panelBG or color(245, 242, 232, 255)
 
+  -- When only ONE balloon is visible, center it horizontally; when both show, keep
+  -- the staggered left/right positions. The tail stays put across the shift because
+  -- its base is anchored to the avatar X (tailAnchorOverrideX), not the body center.
+  local oppShown   = (ui.opponentComment and ui.opponentComment ~= "" and ui.showOpponent ~= false)
+  local localShown = (ui.localComment   and ui.localComment   ~= "" and ui.showLocal   ~= false)
+  local centeredX  = layout.panelX - bubbleW * 0.5
+  local oppRectX   = (oppShown   and not localShown) and centeredX or (panelLeft + 2)
+  local localRectX = (localShown and not oppShown)   and centeredX or (panelRight - 2 - bubbleW)
+
   -- Opponent (originator) balloon — tail points at opponent avatar
   local oppRect = nil
   if ui.opponentComment and ui.opponentComment ~= "" then
     local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY)
     local bH = math.max(layout.boardSide * 0.16, measured.height)
     oppRect = {
-      x = panelLeft + 2,
+      x = oppRectX,
       y = boardBottom - 4 - bH,
       w = bubbleW, h = bH,
     }
@@ -744,7 +753,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
     local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY)
     local bH = math.max(layout.boardSide * 0.15, measured.height)
     local localRect = {
-      x = panelRight - 2 - bubbleW,
+      x = localRectX,
       y = oppRect and (oppRect.y - 14 - bH) or (boardBottom - 14 - bH),
       w = bubbleW, h = bH,
     }
