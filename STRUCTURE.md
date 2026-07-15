@@ -306,41 +306,55 @@ drawSpeechBalloon(rect, text, tailAnchorX, tailAnchorY, tailSide, fill, outline,
 ### drawEndScreenSpeechBalloons — model.commentUI fields
 
 ```
-Optional overrides (used by the mockup; backward-compatible):
-  suppressText    → opponent balloon draws shape only (transparent text color)
-  fillOverride    → replaces Color.uiAccent for the balloon fill
-  strokeOverride  → replaces Color.tileText for the balloon outline
-Side effect: sets global endScreenOppBalloonRect = the opponent balloon's screen rect
-  (or nil when not drawn) so callers can position a native view over it.
+Optional overrides (used by the mockup; backward-compatible — callers that set
+none keep the original single-toggle, single-fade, both-balloons behavior):
+  suppressText        → opponent balloon draws shape only (transparent text color)
+  suppressLocalText   → same for the local/bottom balloon
+  fillOverride        → replaces Color.uiAccent for BOTH balloon fills (legacy shared)
+  strokeOverride      → replaces Color.tileText for BOTH balloon outlines (legacy shared)
+  oppFillOverride / oppStrokeOverride     → per-balloon; win over the shared override
+  localFillOverride / localStrokeOverride → per-balloon; win over the shared override
+  showOpponent / showLocal (default true) → per-balloon visibility, gated by showBalloons.
+    Each fades independently: opp uses endScreenSpeechBalloonAlpha, local uses
+    endScreenLocalBalloonAlpha. Both rects are still COMPUTED even at alpha 0, so
+    hiding one balloon does NOT reposition the other (stacking stays stable).
+Side effects: sets globals endScreenOppBalloonRect / endScreenLocalBalloonRect =
+  each balloon's screen rect (or nil when its comment is empty) so callers can
+  position a native view over it.
 ```
 
 ### Dev mockup = comment-entry prototype (menu 🐛 button)
 
 ```
 drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons.
-  Shows ONE balloon (first speaker / opponent slot) with a native UITextField inside
-  for real typing. Placeholder text: "tap to comment on this match".
+  Shows BOTH balloons (1 = opponent/top, 2 = local/bottom), each with its OWN native
+  UITextField inside for real typing. Placeholder text (both): "tap to comment on this
+  match". Feeds the renderer both comments (non-empty placeholder) so the stacked
+  layout is stable; text is suppressed (suppressText + suppressLocalText) so the
+  fields/Codea placeholders provide the text.
   real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
   + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar)
 
-  Two visual states (active = field focused OR field has text):
-    OFF/placeholder: balloon fill=light gray (214) opaque, outline=(168) opaque;
-      Codea-drawn placeholder = Color.tileText @ 80% alpha, bold italic. suppressText hides
-      the balloon's own text; the transparent field lets the Codea placeholder show through.
+  Two visual states PER BALLOON (active = its own field focused OR has text):
+    OFF/placeholder: that balloon fill=light gray (214) opaque, outline=(168) opaque
+      via per-balloon opp/localFillOverride+StrokeOverride; Codea-drawn placeholder =
+      Color.tileText @ 80% alpha, bold italic behind the transparent field.
     ON/active: normal seasonal balloon colors; native typed text in Color.panelBG.
-    Deselecting an empty field returns to OFF; with text it stays ON.
+    Each balloon flips independently; deselecting an empty field returns it to OFF.
 
-  Native UITextField (mockupTextField, transparent) — create/position/show-hide/teardown
-    modeled on the end-screen comment field (ensureEndScreenNativeCommentField):
+  Native UITextFields (mockupFields[1..2], transparent) — create/position/show-hide/
+    teardown modeled on the end-screen comment field (ensureEndScreenNativeCommentField):
+    - ONE shared UITextFieldDelegate; dispatches focus per field via tf.tag (=1/2)
     - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip)
     - ASSIGN Codea color() DIRECTLY to UIColor props (tf.textColor/backgroundColor);
       objc.UIColor:colorWithRed_green_blue_alpha_ was unreliable for textColor here
-    - no keyboard avoidance needed (balloon sits high; keyboard covers the bottom)
-    - teardownMockupTextField() (global) called from Main.lua on close
+    - no keyboard avoidance needed (balloons sit high; keyboard covers the bottom)
+    - teardownMockupTextField() (global) called from Main.lua on close tears down BOTH
 
-  Three bottom buttons (rects stored as globals, handled in Main.lua touched()):
-    "show/hide"              → mockupBalloonShown  (hides balloon + field)
-    "turn on/off text entry" → mockupTextEntryEnabled (tf.userInteractionEnabled)
+  Four bottom buttons (rects stored as globals, handled in Main.lua touched()):
+    "show/hide balloon 1"    → mockupBalloonShown   (hides balloon 1 + its field)
+    "show/hide balloon 2"    → mockupBalloon2Shown  (hides balloon 2 + its field)
+    "turn on/off text entry" → mockupTextEntryEnabled (both fields' userInteractionEnabled)
     "close debug screen"     → dismiss (teardown + balloonMockupOverlay=false)
     Tap-anywhere-to-dismiss was REMOVED; only "close debug screen" dismisses.
 

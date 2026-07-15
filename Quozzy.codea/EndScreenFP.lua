@@ -6,6 +6,7 @@ endScreenCommentFocused = endScreenCommentFocused or false
 endScreenSpeechBalloonsVisible = endScreenSpeechBalloonsVisible ~= false
 endScreenCommentUIActive = endScreenCommentUIActive or false
 endScreenSpeechBalloonAlpha = endScreenSpeechBalloonAlpha or 1
+endScreenLocalBalloonAlpha = endScreenLocalBalloonAlpha or 1
 endScreenNativeCommentField = endScreenNativeCommentField or nil
 endScreenNativeCommentDelegate = endScreenNativeCommentDelegate or nil
 endScreenNativeCommentHandler = endScreenNativeCommentHandler or nil
@@ -669,11 +670,18 @@ end
 local function drawEndScreenSpeechBalloons(model, layout)
   local ui = model and model.commentUI
   endScreenOppBalloonRect = nil
+  endScreenLocalBalloonRect = nil
   if not (ui and ui.hasAnyComment) then return end
-  local targetAlpha = ui.showBalloons and 1 or 0
-  endScreenSpeechBalloonAlpha = endScreenSpeechBalloonAlpha + (targetAlpha - endScreenSpeechBalloonAlpha) * math.min(1, DeltaTime * 14)
-  local balloonAlpha = endScreenSpeechBalloonAlpha
-  if balloonAlpha <= 0.01 then return end
+  -- Per-balloon visibility: showOpponent/showLocal default to true and are gated
+  -- by the master showBalloons flag, so existing callers (which set neither) keep
+  -- the original single-toggle behavior. The mockup drives each balloon separately.
+  local oppTarget   = (ui.showBalloons and (ui.showOpponent ~= false)) and 1 or 0
+  local localTarget = (ui.showBalloons and (ui.showLocal   ~= false)) and 1 or 0
+  endScreenSpeechBalloonAlpha = endScreenSpeechBalloonAlpha + (oppTarget   - endScreenSpeechBalloonAlpha) * math.min(1, DeltaTime * 14)
+  endScreenLocalBalloonAlpha  = endScreenLocalBalloonAlpha  + (localTarget - endScreenLocalBalloonAlpha)  * math.min(1, DeltaTime * 14)
+  local oppAlpha   = endScreenSpeechBalloonAlpha
+  local localAlpha = endScreenLocalBalloonAlpha
+  if oppAlpha <= 0.01 and localAlpha <= 0.01 then return end
 
   local topY    = layout.msgCY + layout.msgH * 0.5
   local bottomY = layout.scoreCY - layout.scoreH * 0.5
@@ -693,8 +701,15 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local panelRight      = layout.panelX + layout.panelW * 0.5
   local boardBottom     = layout.boardCY - layout.boardSide * 0.5
   local insetY = 14
-  local bFill           = ui.fillOverride   or Color.uiAccent or color(40, 80, 60, 255)
-  local bStroke         = ui.strokeOverride or Color.tileText  or color(40, 80, 60, 255)
+  -- Per-balloon color overrides: <opp/local>FillOverride wins, then the shared
+  -- fillOverride (legacy single override), then the seasonal default. Lets the
+  -- mockup grey each balloon out independently based on its own field state.
+  local defFill         = Color.uiAccent or color(40, 80, 60, 255)
+  local defStroke       = Color.tileText  or color(40, 80, 60, 255)
+  local oppFill         = ui.oppFillOverride     or ui.fillOverride   or defFill
+  local oppStroke       = ui.oppStrokeOverride   or ui.strokeOverride or defStroke
+  local localFill       = ui.localFillOverride   or ui.fillOverride   or defFill
+  local localStroke     = ui.localStrokeOverride or ui.strokeOverride or defStroke
   local bText           = Color.panelBG or color(245, 242, 232, 255)
 
   -- Opponent (originator) balloon — tail points at opponent avatar
@@ -709,13 +724,13 @@ local function drawEndScreenSpeechBalloons(model, layout)
     }
     drawSpeechBalloon(oppRect, ui.opponentComment,
       avatarLayout.opponentX, avatarLayout.opponentY, "up",
-      bFill, bStroke, {
+      oppFill, oppStroke, {
         fontSizeValue = balloonFontSize, lineHeight = lineHeight,
         cornerRadius  = 16,
         tailLength    = 43,
         tailBaseWidth = 18,
         textInsetX = 4, textInsetY = insetY,
-        alphaMul = balloonAlpha,
+        alphaMul = oppAlpha,
         outlineWidth = 7,
         textColor = (ui.suppressText and color(0, 0, 0, 0)) or bText,
         tailAnchorOverrideX = avatarLayout.opponentX,
@@ -735,53 +750,70 @@ local function drawEndScreenSpeechBalloons(model, layout)
     }
     drawSpeechBalloon(localRect, ui.localComment,
       avatarLayout.localX + 18, avatarLayout.localY, "up",
-      bFill, bStroke, {
+      localFill, localStroke, {
         fontSizeValue = balloonFontSize, lineHeight = lineHeight,
         cornerRadius  = 16,
         tailLength    = 40,
         tailBaseWidth = 18,
         textInsetX = 4, textInsetY = insetY,
-        alphaMul = balloonAlpha,
+        alphaMul = localAlpha,
         outlineWidth = 7,
-        textColor = bText,
+        textColor = (ui.suppressLocalText and color(0, 0, 0, 0)) or bText,
         tailAnchorOverrideX = avatarLayout.localX + 18,
         lines = measured.lines,
       })
+    endScreenLocalBalloonRect = localRect
   end
 end
 
--- Native UITextField that lives inside the mockup balloon for real typing.
--- The field itself is transparent (Codea draws the balloon + a styled placeholder
+-- Native UITextFields that live inside the two mockup balloons for real typing.
+-- Each field is transparent (Codea draws the balloon + a styled placeholder
 -- behind it); the field renders the typed text natively on top.
-local mockupTextField = nil
-local mockupTextFieldDelegate = nil
-local mockupTextFieldFocused = false
+-- Slot 1 = balloon 1 (opponent/top), slot 2 = balloon 2 (local/bottom).
+local mockupFields = { {}, {} }        -- [i] = { tf, focused }
+local mockupFieldDelegate = nil        -- one shared delegate; dispatches by tf.tag
 
-local function ensureMockupTextField()
-  if mockupTextField then return end
+local function ensureMockupFieldDelegate()
+  if mockupFieldDelegate then return mockupFieldDelegate end
+  if not (objc and objc.delegate) then return nil end
+  local Delegate = objc.delegate("UITextFieldDelegate")
+  function Delegate:textFieldDidBeginEditing_(oTF)
+    local i = tonumber(oTF.tag) or 0
+    if mockupFields[i] then mockupFields[i].focused = true end
+  end
+  function Delegate:textFieldDidEndEditing_(oTF)
+    local i = tonumber(oTF.tag) or 0
+    if mockupFields[i] then mockupFields[i].focused = false end
+  end
+  function Delegate:textFieldShouldReturn_(oTF) oTF:resignFirstResponder_(); return true end
+  mockupFieldDelegate = Delegate()
+  return mockupFieldDelegate
+end
+
+local function ensureMockupField(i)
+  local F = mockupFields[i]
+  if F.tf then return end
   if not (objc and objc.UITextField) then return end
   local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
     or (objc.viewer and objc.viewer.view)
   if not hostView then return end
   local tf = objc.UITextField:alloc():init()
   hostView:addSubview_(tf)
+  tf.tag = i                              -- delegate dispatches per-field by tag
   tf.backgroundColor = color(0, 0, 0, 0)  -- transparent (bridge assigns Codea color() to UIColor props)
   tf.font = objc.UIFont:fontWithName_size_("HelveticaNeue", 18)
   local tc = Color.panelBG or color(245, 242, 232, 255)
   tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)  -- balloon's seasonal text color
   pcall(function() tf.textAlignment = objc.enum.NSTextAlignment.center end)
-  local Delegate = objc.delegate("UITextFieldDelegate")
-  function Delegate:textFieldDidBeginEditing_(oTF) mockupTextFieldFocused = true end
-  function Delegate:textFieldDidEndEditing_(oTF) mockupTextFieldFocused = false end
-  function Delegate:textFieldShouldReturn_(oTF) oTF:resignFirstResponder_(); return true end
-  mockupTextFieldDelegate = Delegate()
-  tf.delegate = mockupTextFieldDelegate
-  mockupTextField = tf
+  tf.delegate = ensureMockupFieldDelegate()
+  F.tf = tf
+  F.focused = false
 end
 
-local function updateMockupTextField(rect, shown)
-  ensureMockupTextField()
-  local tf = mockupTextField
+local function updateMockupField(i, rect, shown)
+  ensureMockupField(i)
+  local F = mockupFields[i]
+  local tf = F.tf
   if not tf then return end
   if shown and rect then
     tf.hidden = false
@@ -789,7 +821,7 @@ local function updateMockupTextField(rect, shown)
     tf.userInteractionEnabled = enabled
     if not enabled then
       tf:resignFirstResponder_()
-      mockupTextFieldFocused = false
+      F.focused = false
     end
     -- typed text uses the balloon's seasonal text color (Color.panelBG)
     local tc = Color.panelBG or color(245, 242, 232, 255)
@@ -798,21 +830,29 @@ local function updateMockupTextField(rect, shown)
   else
     tf.hidden = true
     tf:resignFirstResponder_()
-    mockupTextFieldFocused = false
+    F.focused = false
   end
+end
+
+local function mockupFieldText(i)
+  local tf = mockupFields[i].tf
+  return tf and tostring(tf.text or "") or ""
 end
 
 -- Global: torn down from Main.lua when the mockup overlay is dismissed.
 function teardownMockupTextField()
-  local tf = mockupTextField
-  if tf then
-    tf:resignFirstResponder_()
-    tf:removeFromSuperview_()
-    mockupTextField = nil
-    mockupTextFieldDelegate = nil
+  for i = 1, #mockupFields do
+    local F = mockupFields[i]
+    if F.tf then
+      F.tf:resignFirstResponder_()
+      F.tf:removeFromSuperview_()
+      F.tf = nil
+    end
+    F.focused = false
   end
-  mockupTextFieldFocused = false
+  mockupFieldDelegate = nil
   mockupFieldRect = nil
+  mockupField2Rect = nil
 end
 
 -- Dev-only static mockup of the turn-based comment balloon overlay.
@@ -861,58 +901,76 @@ function drawBalloonMockupOverlay()
     opponentAvatar = genericOpponentAvatar()
   }
 
-  -- Visual state: "active" once the field is focused or has text; otherwise the
-  -- balloon shows a greyed-out placeholder state. (Deselecting an empty field
-  -- returns to placeholder; deselecting with text stays active.)
-  local txt = mockupTextField and tostring(mockupTextField.text or "") or ""
-  local active = mockupTextFieldFocused or (txt ~= "")
+  -- Visual state per balloon: "active" once its OWN field is focused or has text;
+  -- otherwise that balloon shows a greyed-out placeholder state. (Deselecting an
+  -- empty field returns to placeholder; deselecting with text stays active.)
+  local PLACEHOLDER = "tap to comment on this match"
+  local shown1  = (mockupBalloonShown  ~= false)   -- balloon 1 = opponent/top
+  local shown2  = (mockupBalloon2Shown ~= false)   -- balloon 2 = local/bottom
+  local active1 = mockupFields[1].focused or (mockupFieldText(1) ~= "")
+  local active2 = mockupFields[2].focused or (mockupFieldText(2) ~= "")
 
-  -- Draw the balloon via the EXISTING renderer. In placeholder state the balloon
-  -- goes grayscale + very slightly transparent; when active it uses normal colors.
+  -- Draw both balloons via the EXISTING renderer. Each balloon greys out
+  -- independently in its placeholder state via per-balloon color overrides.
   local model = {
     commentUI = {
       hasAnyComment = true,
-      showBalloons = (mockupBalloonShown ~= false),
-      opponentComment = "tap to comment on this match",
-      localComment = "",
-      suppressText = true,   -- balloon draws shape only; field + Codea placeholder provide text
+      showBalloons  = true,          -- master on; per-balloon toggled below
+      showOpponent  = shown1,
+      showLocal     = shown2,
+      opponentComment = PLACEHOLDER, -- non-empty so both rects stay stacked; text is suppressed
+      localComment    = PLACEHOLDER,
+      suppressText      = true,      -- balloon draws shape only; field + Codea placeholder provide text
+      suppressLocalText = true,
     }
   }
-  if not active then
-    model.commentUI.fillOverride   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
-    model.commentUI.strokeOverride = color(168, 168, 168, 255)  -- outline: a little darker
+  local offFill   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
+  local offStroke = color(168, 168, 168, 255)  -- outline: a little darker
+  if not active1 then
+    model.commentUI.oppFillOverride   = offFill
+    model.commentUI.oppStrokeOverride = offStroke
+  end
+  if not active2 then
+    model.commentUI.localFillOverride   = offFill
+    model.commentUI.localStrokeOverride = offStroke
   end
   drawEndScreenSpeechBalloons(model, layout)
 
-  -- Native text field inside the balloon (real typing). When in placeholder state,
-  -- Codea draws the placeholder (bold italic, in the balloon's normal fill color)
-  -- behind the transparent field; it vanishes on focus/typing.
-  if mockupBalloonShown and endScreenOppBalloonRect then
-    local br = endScreenOppBalloonRect
-    local fRect = { x = br.x + 10, y = br.y + 6, w = br.w - 20, h = br.h - 12 }
-    updateMockupTextField(fRect, true)
-    mockupFieldRect = { cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h }
-    if not active then
-      local pc = Color.tileText or color(40, 80, 60)   -- on-state outline color
-      fill(pc.r, pc.g, pc.b, 204)                       -- 20% transparent
-      textMode(CENTER); textAlign(CENTER)
-      font("HelveticaNeue-BoldItalic")
-      fontSize(18)
-      text("tap to comment on this match", br.x + br.w * 0.5, br.y + br.h * 0.5)
+  -- Native text field inside each balloon (real typing). When in placeholder state,
+  -- Codea draws the placeholder (bold italic) behind the transparent field; it
+  -- vanishes on focus/typing.
+  local function positionMockupField(i, balloonRect, shownFlag, activeFlag, setHitRect)
+    if shownFlag and balloonRect then
+      local br = balloonRect
+      local fRect = { x = br.x + 10, y = br.y + 6, w = br.w - 20, h = br.h - 12 }
+      updateMockupField(i, fRect, true)
+      setHitRect({ cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h })
+      if not activeFlag then
+        local pc = Color.tileText or color(40, 80, 60)
+        fill(pc.r, pc.g, pc.b, 204)                       -- 20% transparent
+        textMode(CENTER); textAlign(CENTER)
+        font("HelveticaNeue-BoldItalic")
+        fontSize(18)
+        text(PLACEHOLDER, br.x + br.w * 0.5, br.y + br.h * 0.5)
+      end
+    else
+      updateMockupField(i, nil, false)
+      setHitRect(nil)
     end
-  else
-    updateMockupTextField(nil, false)
-    mockupFieldRect = nil
   end
+  positionMockupField(1, endScreenOppBalloonRect,   shown1, active1, function(r) mockupFieldRect  = r end)
+  positionMockupField(2, endScreenLocalBalloonRect, shown2, active2, function(r) mockupField2Rect = r end)
 
-  -- Bottom buttons (stacked): show/hide, text-entry toggle, close.
+  -- Bottom buttons (stacked): show/hide balloon 1, show/hide balloon 2,
+  -- text-entry toggle, close.
   local mtBtnW = layout.panelW * 0.66
   local mtBtnH = 46
   local mtGap  = 10
   local mtBtnCX = layout.panelX
   local closeCY = (layout.panelY - layout.panelH * 0.5) + 18 + mtBtnH * 0.5
   local entryCY = closeCY + (mtBtnH + mtGap)
-  local showCY  = closeCY + 2 * (mtBtnH + mtGap)
+  local show2CY = closeCY + 2 * (mtBtnH + mtGap)
+  local show1CY = closeCY + 3 * (mtBtnH + mtGap)
   local function mockupButton(cy, label, setRect)
     drawRoundedRect(mtBtnCX, cy, mtBtnW, mtBtnH, 20, Color.uiAccent, Color.uiAccent)
     pushStyle()
@@ -924,9 +982,10 @@ function drawBalloonMockupOverlay()
     popStyle()
     setRect({ cx = mtBtnCX, cy = cy, w = mtBtnW, h = mtBtnH })
   end
-  mockupButton(showCY,  "show/hide",              function(r) mockupShowHideBtnRect = r end)
-  mockupButton(entryCY, "turn on/off text entry", function(r) mockupTextEntryBtnRect = r end)
-  mockupButton(closeCY, "close debug screen",     function(r) mockupCloseBtnRect = r end)
+  mockupButton(show1CY, "show/hide balloon 1",     function(r) mockupShowHideBtnRect  = r end)
+  mockupButton(show2CY, "show/hide balloon 2",     function(r) mockupShowHide2BtnRect = r end)
+  mockupButton(entryCY, "turn on/off text entry",  function(r) mockupTextEntryBtnRect = r end)
+  mockupButton(closeCY, "close debug screen",      function(r) mockupCloseBtnRect     = r end)
 
   -- Caption
   fill(255)

@@ -113,12 +113,15 @@ showInfoOverlay = false
 colorInspectorOverlay = false
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal). 🐛 button opens it regardless.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
-mockupBalloonShown = true       -- show/hide toggle state for the mockup balloon
-mockupTextEntryEnabled = true   -- whether the mockup text field is tappable/typeable
+mockupBalloonShown = true       -- show/hide toggle state for mockup balloon 1 (opponent/top)
+mockupBalloon2Shown = true      -- show/hide toggle state for mockup balloon 2 (local/bottom)
+mockupTextEntryEnabled = true   -- whether the mockup text fields are tappable/typeable (both)
 mockupShowHideBtnRect = nil     -- hit rects for the mockup's bottom buttons
+mockupShowHide2BtnRect = nil
 mockupTextEntryBtnRect = nil
 mockupCloseBtnRect = nil
-mockupFieldRect = nil           -- hit rect for the mockup's native text field
+mockupFieldRect = nil           -- hit rect for mockup balloon 1's native text field
+mockupField2Rect = nil          -- hit rect for mockup balloon 2's native text field
 
 STATE_MENU   = "menu"
 STATE_PLAY   = "play"
@@ -1294,13 +1297,15 @@ function touched(t)
     return
   end
 
-  -- Balloon mockup overlay eats all Codea touches. Bottom buttons: show/hide,
-  -- text-entry toggle, close. A tap on the field focuses it natively. Taps
-  -- elsewhere do nothing (dismiss only via "close debug screen").
+  -- Balloon mockup overlay eats all Codea touches. Bottom buttons: show/hide
+  -- balloon 1, show/hide balloon 2, text-entry toggle, close. A tap on a field
+  -- focuses it natively. Taps elsewhere do nothing (dismiss only via "close").
   if balloonMockupOverlay then
     if t.state == ENDED or t.state == CANCELLED then
       if mockupShowHideBtnRect and pointInRect(t.x, t.y, mockupShowHideBtnRect.cx, mockupShowHideBtnRect.cy, mockupShowHideBtnRect.w, mockupShowHideBtnRect.h) then
         mockupBalloonShown = not mockupBalloonShown
+      elseif mockupShowHide2BtnRect and pointInRect(t.x, t.y, mockupShowHide2BtnRect.cx, mockupShowHide2BtnRect.cy, mockupShowHide2BtnRect.w, mockupShowHide2BtnRect.h) then
+        mockupBalloon2Shown = not mockupBalloon2Shown
       elseif mockupTextEntryBtnRect and pointInRect(t.x, t.y, mockupTextEntryBtnRect.cx, mockupTextEntryBtnRect.cy, mockupTextEntryBtnRect.w, mockupTextEntryBtnRect.h) then
         mockupTextEntryEnabled = not mockupTextEntryEnabled
       elseif mockupCloseBtnRect and pointInRect(t.x, t.y, mockupCloseBtnRect.cx, mockupCloseBtnRect.cy, mockupCloseBtnRect.w, mockupCloseBtnRect.h) then
