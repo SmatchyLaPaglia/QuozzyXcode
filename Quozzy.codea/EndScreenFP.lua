@@ -380,13 +380,13 @@ local function updateEndScreenNativeCommentField(rect, ui)
   end
 end
 
-local function wrapSpeechBalloonText(textValue, maxWidth, fontSizeValue)
+local function wrapSpeechBalloonText(textValue, maxWidth, fontSizeValue, maxLines)
   local words = {}
   for word in tostring(textValue or ""):gmatch("%S+") do
     words[#words + 1] = word
   end
   if #words == 0 then return {} end
-  
+
   pushStyle()
   font("HelveticaNeue")
   fontSize(fontSizeValue)
@@ -403,12 +403,25 @@ local function wrapSpeechBalloonText(textValue, maxWidth, fontSizeValue)
     end
   end
   lines[#lines + 1] = current
+
+  -- Cap at maxLines; the last kept line gets an ellipsis (trimmed to fit) so
+  -- overflow text is indicated rather than silently dropped.
+  if maxLines and #lines > maxLines then
+    for i = #lines, maxLines + 1, -1 do lines[i] = nil end
+    local last = lines[maxLines] or ""
+    while last ~= "" and textSize(last .. "…") > maxWidth do
+      local trimmed = last:gsub("%s*%S+%s*$", "")
+      if trimmed == last then break end
+      last = trimmed
+    end
+    lines[maxLines] = (last == "") and "…" or (last .. "…")
+  end
   popStyle()
   return lines
 end
 
-local function measureSpeechBalloonText(textValue, maxWidth, fontSizeValue, lineHeight, insetX, insetY)
-  local lines = wrapSpeechBalloonText(textValue, maxWidth, fontSizeValue)
+local function measureSpeechBalloonText(textValue, maxWidth, fontSizeValue, lineHeight, insetX, insetY, maxLines)
+  local lines = wrapSpeechBalloonText(textValue, maxWidth, fontSizeValue, maxLines)
   local contentH = math.max(lineHeight, #lines * lineHeight)
   local totalH = contentH + insetY * 2
   return {
@@ -651,7 +664,7 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
   local textInsetY = opts.textInsetY or 4
   local fontSizeValue = opts.fontSizeValue or math.max(14, rect.h * 0.24)
   local lineH  = opts.lineHeight or (fontSizeValue * 1.08)
-  local lines  = opts.lines or wrapSpeechBalloonText(textValue, rect.w - textInsetX * 2, fontSizeValue)
+  local lines  = opts.lines or wrapSpeechBalloonText(textValue, rect.w - textInsetX * 2, fontSizeValue, opts.maxLines)
   local textCenterY = rect.y + rect.h * 0.5
   local startY = textCenterY + ((#lines - 1) * lineH) * 0.5
   pushStyle()
@@ -701,6 +714,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local panelRight      = layout.panelX + layout.panelW * 0.5
   local boardBottom     = layout.boardCY - layout.boardSide * 0.5
   local insetY = 14
+  local maxBalloonLines = 3   -- balloons wrap up to 3 lines, then ellipsize
   -- Per-balloon color overrides: <opp/local>FillOverride wins, then the shared
   -- fillOverride (legacy single override), then the seasonal default. Lets the
   -- mockup grey each balloon out independently based on its own field state.
@@ -724,7 +738,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
   -- Opponent (originator) balloon — tail points at opponent avatar
   local oppRect = nil
   if ui.opponentComment and ui.opponentComment ~= "" then
-    local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY)
+    local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY, maxBalloonLines)
     local bH = math.max(layout.boardSide * 0.16, measured.height)
     oppRect = {
       x = oppRectX,
@@ -744,13 +758,14 @@ local function drawEndScreenSpeechBalloons(model, layout)
         textColor = (ui.suppressText and color(0, 0, 0, 0)) or bText,
         tailAnchorOverrideX = avatarLayout.opponentX,
         lines = measured.lines,
+        maxLines = maxBalloonLines,
       })
     endScreenOppBalloonRect = oppRect
   end
 
   -- Local (responder) balloon — stacked below opponent, tail points at local avatar
   if ui.localComment and ui.localComment ~= "" then
-    local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY)
+    local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY, maxBalloonLines)
     local bH = math.max(layout.boardSide * 0.15, measured.height)
     local localRect = {
       x = localRectX,
@@ -770,14 +785,15 @@ local function drawEndScreenSpeechBalloons(model, layout)
         textColor = (ui.suppressLocalText and color(0, 0, 0, 0)) or bText,
         tailAnchorOverrideX = avatarLayout.localX + 18,
         lines = measured.lines,
+        maxLines = maxBalloonLines,
       })
     endScreenLocalBalloonRect = localRect
   end
 end
 
 -- Native UITextFields that live inside the two mockup balloons for real typing.
--- Each field is transparent (Codea draws the balloon + a styled placeholder
--- behind it); the field renders the typed text natively on top.
+-- Each field is fully transparent (bg AND text) — it only captures keystrokes; the
+-- balloon renderer draws the wrapped, multi-line text (and the empty-state placeholder).
 -- Slot 1 = balloon 1 (opponent/top), slot 2 = balloon 2 (local/bottom).
 local mockupFields = { {}, {} }        -- [i] = { tf, focused }
 local mockupFieldDelegate = nil        -- one shared delegate; dispatches by tf.tag
@@ -811,8 +827,11 @@ local function ensureMockupField(i)
   tf.tag = i                              -- delegate dispatches per-field by tag
   tf.backgroundColor = color(0, 0, 0, 0)  -- transparent (bridge assigns Codea color() to UIColor props)
   tf.font = objc.UIFont:fontWithName_size_("HelveticaNeue", 18)
+  -- Text drawn TRANSPARENT: the field holds the string but the balloon renders the
+  -- (wrapped, multi-line) text itself. A single UITextField can't wrap, so it acts
+  -- purely as the input catcher.
   local tc = Color.panelBG or color(245, 242, 232, 255)
-  tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)  -- balloon's seasonal text color
+  tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 0)
   pcall(function() tf.textAlignment = objc.enum.NSTextAlignment.center end)
   tf.delegate = ensureMockupFieldDelegate()
   F.tf = tf
@@ -832,9 +851,10 @@ local function updateMockupField(i, rect, shown)
       tf:resignFirstResponder_()
       F.focused = false
     end
-    -- typed text uses the balloon's seasonal text color (Color.panelBG)
+    -- text stays transparent (balloon draws it); tint the caret so typing is visible
     local tc = Color.panelBG or color(245, 242, 232, 255)
-    tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)
+    tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 0)
+    pcall(function() tf.tintColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255) end)
     tf.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
   else
     tf.hidden = true
@@ -916,21 +936,27 @@ function drawBalloonMockupOverlay()
   local PLACEHOLDER = "tap to comment on this match"
   local shown1  = (mockupBalloonShown  ~= false)   -- balloon 1 = opponent/top
   local shown2  = (mockupBalloon2Shown ~= false)   -- balloon 2 = local/bottom
-  local active1 = mockupFields[1].focused or (mockupFieldText(1) ~= "")
-  local active2 = mockupFields[2].focused or (mockupFieldText(2) ~= "")
+  local txt1    = mockupFieldText(1)
+  local txt2    = mockupFieldText(2)
+  local active1 = mockupFields[1].focused or (txt1 ~= "")
+  local active2 = mockupFields[2].focused or (txt2 ~= "")
 
-  -- Draw both balloons via the EXISTING renderer. Each balloon greys out
-  -- independently in its placeholder state via per-balloon color overrides.
+  -- Draw both balloons via the EXISTING renderer, sized to the TYPED text so each
+  -- balloon grows downward (up to 3 lines) as you type; balloon 2 re-stacks below.
+  -- The native fields hold the text but draw it transparently — the balloon renders
+  -- the wrapped text itself (so it can span multiple lines). When a field is empty
+  -- the balloon is sized to the placeholder and its text is suppressed (a Codea
+  -- placeholder is drawn behind the field instead).
   local model = {
     commentUI = {
       hasAnyComment = true,
       showBalloons  = true,          -- master on; per-balloon toggled below
       showOpponent  = shown1,
       showLocal     = shown2,
-      opponentComment = PLACEHOLDER, -- non-empty so both rects stay stacked; text is suppressed
-      localComment    = PLACEHOLDER,
-      suppressText      = true,      -- balloon draws shape only; field + Codea placeholder provide text
-      suppressLocalText = true,
+      opponentComment = (txt1 ~= "" and txt1) or PLACEHOLDER,
+      localComment    = (txt2 ~= "" and txt2) or PLACEHOLDER,
+      suppressText      = (txt1 == ""),  -- suppress only when empty; else balloon draws typed text
+      suppressLocalText = (txt2 == ""),
     }
   }
   local offFill   = color(214, 214, 214, 255)  -- off-state: light gray, opaque

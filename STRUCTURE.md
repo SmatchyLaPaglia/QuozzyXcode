@@ -293,8 +293,17 @@ drawEndScreenSpeechBalloons(model, layout)  ← end-screen comment overlay
       responder/local = RIGHT+lower+smaller  (so the responder tail is rightmost)
     local tail base shifted +18 right → sits at first balloon's right end (least text overlap)
   both tails: tailBaseWidth=18, outlineWidth=7, cornerRadius=16, tailLength 43(opp)/40(local)
+  height: each balloon is sized to its wrapped text (measureSpeechBalloonText), capped at
+    maxBalloonLines=3 (then ellipsized). Opponent is TOP-anchored (y=boardBottom-4-bH) so it
+    GROWS DOWNWARD; local's y=oppRect.y-14-bH sits just below opponent's bottom, so it moves
+    DOWN as opponent grows and itself grows downward. No manual restacking needed.
+  solo centering: when only ONE balloon is visible (comment~="" AND its show flag on), it is
+    horizontally centered (x=panelX-bubbleW/2); both visible → staggered left/right. Tail stays
+    put across the shift (base anchored to avatar X, which is inside the body either way).
 
 drawSpeechBalloon(rect, text, tailAnchorX, tailAnchorY, tailSide, fill, outline, opts)  ← single balloon
+  opts.lines (precomputed, already ≤maxLines) is used for drawing; opts.maxLines only feeds the
+  fallback wrap when opts.lines is absent. wrapSpeechBalloonText(txt,w,fs,maxLines) caps + ellipsizes.
   FILL: sharp-point tail triangle (P1,P2,tip) + body rounded-rect
   BORDER: two outward-offset side strips (uniform perpendicular width, any lean)
           + line-cap circle (radius=outlineW) at the sharp tip  ← rounds ONLY the outline
@@ -328,28 +337,32 @@ Side effects: sets globals endScreenOppBalloonRect / endScreenLocalBalloonRect =
 ```
 drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons.
   Shows BOTH balloons (1 = opponent/top, 2 = local/bottom), each with its OWN native
-  UITextField inside for real typing. Placeholder text (both): "tap to comment on this
-  match". Feeds the renderer both comments (non-empty placeholder) so the stacked
-  layout is stable; text is suppressed (suppressText + suppressLocalText) so the
-  fields/Codea placeholders provide the text.
+  UITextField for real typing. Placeholder text (both): "tap to comment on this match".
+  Feeds the renderer each balloon's TYPED text (or the placeholder string when empty, so
+  the empty rects still stack), so each balloon GROWS DOWNWARD as you type (up to 3 lines,
+  §renderer) and balloon 2 re-stacks below balloon 1 automatically.
   real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
   + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar)
 
   Two visual states PER BALLOON (active = its own field focused OR has text):
     OFF/placeholder: that balloon fill=light gray (214) opaque, outline=(168) opaque
-      via per-balloon opp/localFillOverride+StrokeOverride; Codea-drawn placeholder =
-      Color.tileText @ 80% alpha, bold italic behind the transparent field.
-    ON/active: normal seasonal balloon colors; native typed text in Color.panelBG.
+      via per-balloon opp/localFillOverride+StrokeOverride; balloon text suppressed and a
+      Codea-drawn placeholder (Color.tileText @ 80%, bold italic) shows behind the field.
+    ON/active: normal seasonal colors; the BALLOON draws the wrapped typed text (Color.panelBG).
     Each balloon flips independently; deselecting an empty field returns it to OFF.
 
-  Native UITextFields (mockupFields[1..2], transparent) — create/position/show-hide/
-    teardown modeled on the end-screen comment field (ensureEndScreenNativeCommentField):
+  Native UITextFields (mockupFields[1..2]) are FULLY transparent (bg AND text) — they only
+    capture keystrokes; the balloon renders the wrapped multi-line text (a single UITextField
+    can't wrap). tintColor is set so the caret stays visible while typing.
     - ONE shared UITextFieldDelegate; dispatches focus per field via tf.tag (=1/2)
-    - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip)
+    - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip), re-set
+      each frame from the (growing) balloon rect
     - ASSIGN Codea color() DIRECTLY to UIColor props (tf.textColor/backgroundColor);
       objc.UIColor:colorWithRed_green_blue_alpha_ was unreliable for textColor here
     - no keyboard avoidance needed (balloons sit high; keyboard covers the bottom)
     - teardownMockupTextField() (global) called from Main.lua on close tears down BOTH
+    - caret caveat: the field is single-line so the caret sits vertically centered in the
+      balloon even when the balloon text wraps to 2–3 lines (acceptable mockup artifact)
 
   Four bottom buttons (rects stored as globals, handled in Main.lua touched()):
     "show/hide balloon 1"    → mockupBalloonShown   (hides balloon 1 + its field)
