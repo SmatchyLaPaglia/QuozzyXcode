@@ -363,7 +363,12 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
     - 3-LINE HARD CAP (mockupEnforceLineCap, runs in draw()): each frame it re-measures the
       field text with wrapSpeechBalloonText(text, panelW-42, balloonFontSize); if it would wrap
       to a 4th line, tv.text is reverted to the field's last ≤3-line value (F.lastValid) — so a
-      4th line is blocked — and F.flash is set to 0.22s, which turns the native text RED
+      4th line is blocked. ALSO blocks a near-full 3rd line: when the wrap is exactly 3 lines and
+      the last line's width is within ~5 chars (textSize("nnnnn")) of wrapWidth, it is treated as
+      overflow too. The native UITextView wraps slightly differently than this Lua measure, so a
+      3rd line filled to the edge (e.g. after adding an ellipsis) could sneak to a 4th line in the
+      view while this check still counted 3; the 5-char margin keeps them in sync.
+      On block F.flash is set to 0.22s, which turns the native text RED
       (color 224,48,48) until it decays. (scrollEnabled=true is left on but mostly moot now that
       input is capped.) Return-to-dismiss is also handled here: any "\n" stripped + resignFirstResponder.
     - ObjC-callback safety: the UITextViewDelegate callbacks (textViewDidBegin/EndEditing_) ONLY

@@ -963,7 +963,21 @@ function drawBalloonMockupOverlay()
       tv.text = s
       tv:resignFirstResponder_()
     end
-    if #wrapSpeechBalloonText(s, wrapWidth, balloonFontSize) > MAX_LINES then
+    local lines = wrapSpeechBalloonText(s, wrapWidth, balloonFontSize)
+    local overflow = #lines > MAX_LINES
+    if not overflow and #lines == MAX_LINES then
+      -- Reserve ~5 characters of headroom on the last line. The native UITextView
+      -- measures slightly differently than this Lua wrap, so a 3rd line filled right to
+      -- the edge (e.g. after tacking on an ellipsis) can wrap to a 4th line in the view
+      -- even while this check still counts 3. Blocking a near-full last line early keeps
+      -- the two in sync and avoids that edge case.
+      pushStyle()
+      font("HelveticaNeue"); fontSize(balloonFontSize)
+      local margin = textSize("nnnnn")            -- ~5 characters of slack
+      if textSize(lines[#lines] or "") > wrapWidth - margin then overflow = true end
+      popStyle()
+    end
+    if overflow then
       tv.text = F.lastValid or ""                 -- block: revert to the last ≤3-line text
       F.flash = 0.22                              -- flash red
       return F.lastValid or ""
