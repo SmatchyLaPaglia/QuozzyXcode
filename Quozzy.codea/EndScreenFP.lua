@@ -791,91 +791,98 @@ local function drawEndScreenSpeechBalloons(model, layout)
   end
 end
 
--- Native UITextFields that live inside the two mockup balloons for real typing.
--- Each field is fully transparent (bg AND text) — it only captures keystrokes; the
--- balloon renderer draws the wrapped, multi-line text (and the empty-state placeholder).
+-- Native UITextViews that live inside the two mockup balloons for real typing.
+-- A UITextView (not UITextField) so input wraps to multiple lines with a correctly
+-- positioned caret. The view shows the VISIBLE text; the balloon is drawn shape-only
+-- (suppressText) behind it and is sized to the typed text so it grows to match.
 -- Slot 1 = balloon 1 (opponent/top), slot 2 = balloon 2 (local/bottom).
-local mockupFields = { {}, {} }        -- [i] = { tf, focused }
-local mockupFieldDelegate = nil        -- one shared delegate; dispatches by tf.tag
+local mockupFields = { {}, {} }        -- [i] = { tv, focused }
+local mockupFieldDelegate = nil        -- one shared delegate; dispatches by tv.tag
 
 local function ensureMockupFieldDelegate()
   if mockupFieldDelegate then return mockupFieldDelegate end
   if not (objc and objc.delegate) then return nil end
-  local Delegate = objc.delegate("UITextFieldDelegate")
-  function Delegate:textFieldDidBeginEditing_(oTF)
-    local i = tonumber(oTF.tag) or 0
+  local Delegate = objc.delegate("UITextViewDelegate")
+  function Delegate:textViewDidBeginEditing_(oTV)
+    local i = tonumber(oTV.tag) or 0
     if mockupFields[i] then mockupFields[i].focused = true end
   end
-  function Delegate:textFieldDidEndEditing_(oTF)
-    local i = tonumber(oTF.tag) or 0
+  function Delegate:textViewDidEndEditing_(oTV)
+    local i = tonumber(oTV.tag) or 0
     if mockupFields[i] then mockupFields[i].focused = false end
   end
-  function Delegate:textFieldShouldReturn_(oTF) oTF:resignFirstResponder_(); return true end
+  -- Return dismisses the keyboard: the newline is stripped rather than inserted, so the
+  -- comment stays one paragraph that wraps to the balloon width (matching the renderer).
+  function Delegate:textViewDidChange_(oTV)
+    local s = tostring(oTV.text or "")
+    if s:find("\n") then
+      oTV.text = (s:gsub("\n", ""))
+      oTV:resignFirstResponder_()
+    end
+  end
   mockupFieldDelegate = Delegate()
   return mockupFieldDelegate
 end
 
-local function ensureMockupField(i)
+local function ensureMockupField(i, fontSize)
   local F = mockupFields[i]
-  if F.tf then return end
-  if not (objc and objc.UITextField) then return end
+  if F.tv then return end
+  if not (objc and objc.UITextView) then return end
   local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
     or (objc.viewer and objc.viewer.view)
   if not hostView then return end
-  local tf = objc.UITextField:alloc():init()
-  hostView:addSubview_(tf)
-  tf.tag = i                              -- delegate dispatches per-field by tag
-  tf.backgroundColor = color(0, 0, 0, 0)  -- transparent (bridge assigns Codea color() to UIColor props)
-  tf.font = objc.UIFont:fontWithName_size_("HelveticaNeue", 18)
-  -- Text drawn TRANSPARENT: the field holds the string but the balloon renders the
-  -- (wrapped, multi-line) text itself. A single UITextField can't wrap, so it acts
-  -- purely as the input catcher.
-  local tc = Color.panelBG or color(245, 242, 232, 255)
-  tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 0)
-  pcall(function() tf.textAlignment = objc.enum.NSTextAlignment.center end)
-  tf.delegate = ensureMockupFieldDelegate()
-  F.tf = tf
+  local tv = objc.UITextView:alloc():init()
+  hostView:addSubview_(tv)
+  tv.tag = i                              -- delegate dispatches per-field by tag
+  tv.backgroundColor = color(0, 0, 0, 0)  -- transparent (bridge assigns Codea color() to UIColor props)
+  tv.font = objc.UIFont:fontWithName_size_("HelveticaNeue", fontSize or 18)
+  pcall(function() tv.scrollEnabled = true end)   -- text beyond 3 lines scrolls in-place
+  pcall(function() tv.editable = true end)
+  pcall(function() tv.textAlignment = objc.enum.NSTextAlignment.center end)
+  pcall(function() tv.textContainer.lineFragmentPadding = 0 end)  -- wrap width ≈ frame width
+  tv.delegate = ensureMockupFieldDelegate()
+  F.tv = tv
   F.focused = false
 end
 
-local function updateMockupField(i, rect, shown)
-  ensureMockupField(i)
+local function updateMockupField(i, rect, shown, fontSize)
+  ensureMockupField(i, fontSize)
   local F = mockupFields[i]
-  local tf = F.tf
-  if not tf then return end
+  local tv = F.tv
+  if not tv then return end
   if shown and rect then
-    tf.hidden = false
+    tv.hidden = false
     local enabled = (mockupTextEntryEnabled ~= false)
-    tf.userInteractionEnabled = enabled
+    tv.userInteractionEnabled = enabled
     if not enabled then
-      tf:resignFirstResponder_()
+      tv:resignFirstResponder_()
       F.focused = false
     end
-    -- text stays transparent (balloon draws it); tint the caret so typing is visible
+    -- visible native text in the balloon's seasonal text color
     local tc = Color.panelBG or color(245, 242, 232, 255)
-    tf.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 0)
-    pcall(function() tf.tintColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255) end)
-    tf.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
+    tv.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)
+    pcall(function() tv.tintColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255) end)
+    tv.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
   else
-    tf.hidden = true
-    tf:resignFirstResponder_()
+    tv.hidden = true
+    tv:resignFirstResponder_()
     F.focused = false
   end
 end
 
 local function mockupFieldText(i)
-  local tf = mockupFields[i].tf
-  return tf and tostring(tf.text or "") or ""
+  local tv = mockupFields[i].tv
+  return tv and tostring(tv.text or "") or ""
 end
 
 -- Global: torn down from Main.lua when the mockup overlay is dismissed.
 function teardownMockupTextField()
   for i = 1, #mockupFields do
     local F = mockupFields[i]
-    if F.tf then
-      F.tf:resignFirstResponder_()
-      F.tf:removeFromSuperview_()
-      F.tf = nil
+    if F.tv then
+      F.tv:resignFirstResponder_()
+      F.tv:removeFromSuperview_()
+      F.tv = nil
     end
     F.focused = false
   end
@@ -943,10 +950,9 @@ function drawBalloonMockupOverlay()
 
   -- Draw both balloons via the EXISTING renderer, sized to the TYPED text so each
   -- balloon grows downward (up to 3 lines) as you type; balloon 2 re-stacks below.
-  -- The native fields hold the text but draw it transparently — the balloon renders
-  -- the wrapped text itself (so it can span multiple lines). When a field is empty
-  -- the balloon is sized to the placeholder and its text is suppressed (a Codea
-  -- placeholder is drawn behind the field instead).
+  -- The balloon is drawn SHAPE-ONLY (suppressText); the native UITextView on top shows
+  -- the wrapped multi-line text with a real caret. When a field is empty the balloon is
+  -- sized to the placeholder and a Codea placeholder is drawn behind the (empty) view.
   local model = {
     commentUI = {
       hasAnyComment = true,
@@ -955,8 +961,8 @@ function drawBalloonMockupOverlay()
       showLocal     = shown2,
       opponentComment = (txt1 ~= "" and txt1) or PLACEHOLDER,
       localComment    = (txt2 ~= "" and txt2) or PLACEHOLDER,
-      suppressText      = (txt1 == ""),  -- suppress only when empty; else balloon draws typed text
-      suppressLocalText = (txt2 == ""),
+      suppressText      = true,      -- balloon shape only; UITextView renders the text
+      suppressLocalText = true,
     }
   }
   local offFill   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
@@ -971,14 +977,16 @@ function drawBalloonMockupOverlay()
   end
   drawEndScreenSpeechBalloons(model, layout)
 
-  -- Native text field inside each balloon (real typing). When in placeholder state,
-  -- Codea draws the placeholder (bold italic) behind the transparent field; it
-  -- vanishes on focus/typing.
+  -- Native UITextView inside each balloon (real typing). Its font size matches the
+  -- balloon renderer's (layout.cardHeaderH * 0.44) so native wrapping ≈ the balloon's
+  -- measured wrapping, keeping the shape sized to fit the text. When a field is empty,
+  -- Codea draws the placeholder (bold italic) behind the (empty) view.
+  local balloonFontSize = layout.cardHeaderH * 0.44
   local function positionMockupField(i, balloonRect, shownFlag, activeFlag, setHitRect)
     if shownFlag and balloonRect then
       local br = balloonRect
-      local fRect = { x = br.x + 10, y = br.y + 6, w = br.w - 20, h = br.h - 12 }
-      updateMockupField(i, fRect, true)
+      local fRect = { x = br.x + 6, y = br.y + 6, w = br.w - 12, h = br.h - 12 }
+      updateMockupField(i, fRect, true, balloonFontSize)
       setHitRect({ cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h })
       if not activeFlag then
         local pc = Color.tileText or color(40, 80, 60)

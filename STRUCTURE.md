@@ -346,23 +346,28 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
 
   Two visual states PER BALLOON (active = its own field focused OR has text):
     OFF/placeholder: that balloon fill=light gray (214) opaque, outline=(168) opaque
-      via per-balloon opp/localFillOverride+StrokeOverride; balloon text suppressed and a
-      Codea-drawn placeholder (Color.tileText @ 80%, bold italic) shows behind the field.
-    ON/active: normal seasonal colors; the BALLOON draws the wrapped typed text (Color.panelBG).
+      via per-balloon opp/localFillOverride+StrokeOverride; balloon is shape-only and a
+      Codea-drawn placeholder (Color.tileText @ 80%, bold italic) shows behind the empty view.
+    ON/active: normal seasonal colors; the UITextView shows the typed text (Color.panelBG).
     Each balloon flips independently; deselecting an empty field returns it to OFF.
 
-  Native UITextFields (mockupFields[1..2]) are FULLY transparent (bg AND text) — they only
-    capture keystrokes; the balloon renders the wrapped multi-line text (a single UITextField
-    can't wrap). tintColor is set so the caret stays visible while typing.
-    - ONE shared UITextFieldDelegate; dispatches focus per field via tf.tag (=1/2)
+  Native UITextVIEWs (mockupFields[1..2]) show the VISIBLE multi-line text with a real caret
+    (a UITextField can't wrap). The balloon is drawn SHAPE-ONLY (suppressText/suppressLocalText
+    always true in the mockup) and sized to the typed text, so the shape grows to fit.
+    - scrollEnabled=true → text beyond 3 lines scrolls inside the (3-line-capped) balloon
+    - font = balloonFontSize (layout.cardHeaderH*0.44, matches the renderer) so native
+      wrapping ≈ the balloon's measured wrapping → the shape fits the text; lineFragmentPadding=0
+    - Return dismisses the keyboard: textViewDidChange_ strips any "\n" and resignFirstResponder
+      (so the comment stays one wrapped paragraph, no hard breaks)
+    - ONE shared UITextViewDelegate; dispatches focus per view via tv.tag (=1/2)
     - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip), re-set
       each frame from the (growing) balloon rect
-    - ASSIGN Codea color() DIRECTLY to UIColor props (tf.textColor/backgroundColor);
+    - ASSIGN Codea color() DIRECTLY to UIColor props (tv.textColor/backgroundColor);
       objc.UIColor:colorWithRed_green_blue_alpha_ was unreliable for textColor here
     - no keyboard avoidance needed (balloons sit high; keyboard covers the bottom)
     - teardownMockupTextField() (global) called from Main.lua on close tears down BOTH
-    - caret caveat: the field is single-line so the caret sits vertically centered in the
-      balloon even when the balloon text wraps to 2–3 lines (acceptable mockup artifact)
+    - UITextView top-aligns its text (vs the renderer centering) — negligible while the shape
+      is sized to the text; only shows as a little bottom slack at the balloon min-height
 
   Four bottom buttons (rects stored as globals, handled in Main.lua touched()):
     "show/hide balloon 1"    → mockupBalloonShown   (hides balloon 1 + its field)
