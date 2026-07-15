@@ -803,6 +803,9 @@ local function ensureMockupFieldDelegate()
   if mockupFieldDelegate then return mockupFieldDelegate end
   if not (objc and objc.delegate) then return nil end
   local Delegate = objc.delegate("UITextViewDelegate")
+  -- Callbacks ONLY set Lua flags — never call UIKit/Codea from an objc callback (it can
+  -- crash the draw cycle). Actual text mutation / resignFirstResponder happens in draw()
+  -- (mockupEnforceLineCap), driven by these flags. Params use type-prefixed names (o=object).
   function Delegate:textViewDidBeginEditing_(oTV)
     local i = tonumber(oTV.tag) or 0
     if mockupFields[i] then mockupFields[i].focused = true end
@@ -810,15 +813,6 @@ local function ensureMockupFieldDelegate()
   function Delegate:textViewDidEndEditing_(oTV)
     local i = tonumber(oTV.tag) or 0
     if mockupFields[i] then mockupFields[i].focused = false end
-  end
-  -- Return dismisses the keyboard: the newline is stripped rather than inserted, so the
-  -- comment stays one paragraph that wraps to the balloon width (matching the renderer).
-  function Delegate:textViewDidChange_(oTV)
-    local s = tostring(oTV.text or "")
-    if s:find("\n") then
-      oTV.text = (s:gsub("\n", ""))
-      oTV:resignFirstResponder_()
-    end
   end
   mockupFieldDelegate = Delegate()
   return mockupFieldDelegate
@@ -858,9 +852,14 @@ local function updateMockupField(i, rect, shown, fontSize)
       tv:resignFirstResponder_()
       F.focused = false
     end
-    -- visible native text in the balloon's seasonal text color
+    -- visible native text in the balloon's seasonal text color — or RED while the
+    -- line-cap flash timer is active (set when an over-limit keystroke was blocked).
     local tc = Color.panelBG or color(245, 242, 232, 255)
-    tv.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)
+    if (F.flash or 0) > 0 then
+      tv.textColor = color(224, 48, 48, 255)
+    else
+      tv.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)
+    end
     pcall(function() tv.tintColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255) end)
     tv.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
   else
@@ -943,8 +942,37 @@ function drawBalloonMockupOverlay()
   local PLACEHOLDER = "tap to comment on this match"
   local shown1  = (mockupBalloonShown  ~= false)   -- balloon 1 = opponent/top
   local shown2  = (mockupBalloon2Shown ~= false)   -- balloon 2 = local/bottom
-  local txt1    = mockupFieldText(1)
-  local txt2    = mockupFieldText(2)
+
+  -- Line cap: a balloon holds at most 3 lines. If a keystroke would wrap the text to a
+  -- 4th line, revert it (block the input) and flash that balloon's text red. Measured
+  -- with the SAME width/font the renderer uses so the check matches the balloon's own wrap.
+  -- All UITextView mutation happens HERE in draw() (never in the objc callbacks).
+  local balloonFontSize = layout.cardHeaderH * 0.44
+  local wrapWidth = layout.panelW - 42            -- == bubbleW - 8 in the renderer
+  local MAX_LINES = 3
+  local function mockupEnforceLineCap(i)
+    local F = mockupFields[i]
+    F.flash = math.max(0, (F.flash or 0) - DeltaTime)
+    local tv = F.tv
+    if not tv then return "" end
+    local s = tostring(tv.text or "")
+    -- Return-to-dismiss: strip any newline (keeps the comment one wrapped paragraph) and
+    -- drop the keyboard. Done here in draw(), not in a textViewDidChange callback.
+    if s:find("\n") then
+      s = (s:gsub("\n", ""))
+      tv.text = s
+      tv:resignFirstResponder_()
+    end
+    if #wrapSpeechBalloonText(s, wrapWidth, balloonFontSize) > MAX_LINES then
+      tv.text = F.lastValid or ""                 -- block: revert to the last ≤3-line text
+      F.flash = 0.22                              -- flash red
+      return F.lastValid or ""
+    end
+    F.lastValid = s
+    return s
+  end
+  local txt1    = mockupEnforceLineCap(1)
+  local txt2    = mockupEnforceLineCap(2)
   local active1 = mockupFields[1].focused or (txt1 ~= "")
   local active2 = mockupFields[2].focused or (txt2 ~= "")
 
@@ -977,11 +1005,10 @@ function drawBalloonMockupOverlay()
   end
   drawEndScreenSpeechBalloons(model, layout)
 
-  -- Native UITextView inside each balloon (real typing). Its font size matches the
-  -- balloon renderer's (layout.cardHeaderH * 0.44) so native wrapping ≈ the balloon's
-  -- measured wrapping, keeping the shape sized to fit the text. When a field is empty,
-  -- Codea draws the placeholder (bold italic) behind the (empty) view.
-  local balloonFontSize = layout.cardHeaderH * 0.44
+  -- Native UITextView inside each balloon (real typing). Its font size (balloonFontSize,
+  -- computed above to match the renderer's layout.cardHeaderH * 0.44) makes native wrapping
+  -- ≈ the balloon's measured wrapping, keeping the shape sized to fit the text. When a field
+  -- is empty, Codea draws the placeholder (bold italic) behind the (empty) view.
   local function positionMockupField(i, balloonRect, shownFlag, activeFlag, setHitRect)
     if shownFlag and balloonRect then
       local br = balloonRect

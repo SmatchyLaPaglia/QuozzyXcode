@@ -196,6 +196,10 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 - ObjC method colons → underscores; trailing colon → trailing underscore: `openURL:options:completionHandler:` → `openURL_options_completionHandler_`
 - Callback parameter names MUST have type prefix: b=bool, o=object, s=string, i=int, f=float
   e.g. `function(bSuccess)` not `function(success)` — unprefixed params receive nil
+- NEVER call UIKit/Codea (or anything that touches Codea's draw cycle) from inside an objc
+  callback/delegate — it can crash. Callbacks must ONLY set a Lua flag/var; do the real work in
+  draw() when it detects the flag. (e.g. mockup UITextViewDelegate sets F.focused only; text
+  mutation + resignFirstResponder happen in draw() via mockupEnforceLineCap — EndScreenFP.lua)
 - openURL_options_completionHandler_(url, {}, nil) — empty table {} works as NSDictionary; nil ok for completion handler
 - "app-settings:" opens app's own Settings.bundle page (not Game Center); requires Settings.bundle to show content
 - Re-assigning authenticateHandler does NOT call the handler again — bridge ignores it after initial auth cycle
@@ -354,12 +358,19 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
   Native UITextVIEWs (mockupFields[1..2]) show the VISIBLE multi-line text with a real caret
     (a UITextField can't wrap). The balloon is drawn SHAPE-ONLY (suppressText/suppressLocalText
     always true in the mockup) and sized to the typed text, so the shape grows to fit.
-    - scrollEnabled=true → text beyond 3 lines scrolls inside the (3-line-capped) balloon
     - font = balloonFontSize (layout.cardHeaderH*0.44, matches the renderer) so native
       wrapping ≈ the balloon's measured wrapping → the shape fits the text; lineFragmentPadding=0
-    - Return dismisses the keyboard: textViewDidChange_ strips any "\n" and resignFirstResponder
-      (so the comment stays one wrapped paragraph, no hard breaks)
-    - ONE shared UITextViewDelegate; dispatches focus per view via tv.tag (=1/2)
+    - 3-LINE HARD CAP (mockupEnforceLineCap, runs in draw()): each frame it re-measures the
+      field text with wrapSpeechBalloonText(text, panelW-42, balloonFontSize); if it would wrap
+      to a 4th line, tv.text is reverted to the field's last ≤3-line value (F.lastValid) — so a
+      4th line is blocked — and F.flash is set to 0.22s, which turns the native text RED
+      (color 224,48,48) until it decays. (scrollEnabled=true is left on but mostly moot now that
+      input is capped.) Return-to-dismiss is also handled here: any "\n" stripped + resignFirstResponder.
+    - ObjC-callback safety: the UITextViewDelegate callbacks (textViewDidBegin/EndEditing_) ONLY
+      set the Lua F.focused flag. ALL UITextView mutation (text revert, newline strip,
+      resignFirstResponder) is done in draw() via mockupEnforceLineCap — never from a callback
+      (calling UIKit/Codea from an objc callback can crash the draw cycle). Params are
+      type-prefixed (oTV). ONE shared delegate; dispatches per view via tv.tag (=1/2).
     - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip), re-set
       each frame from the (growing) balloon rect
     - ASSIGN Codea color() DIRECTLY to UIColor props (tv.textColor/backgroundColor);
