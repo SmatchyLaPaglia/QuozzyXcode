@@ -648,61 +648,74 @@ function drawEndScreen()
 end
 
 
+-- Submits any in-progress comment draft (if the local player is currently
+-- composing one) then tears down the end screen and hands off to the
+-- season-transition fade, which flips state to STATE_MENU 0.7s later.
+-- Shared by the close (×) button and the rematch button's confirm callback.
+function disposeEndScreenAndReturnToMenu()
+  if commitEndScreenCommentAndExit and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
+    return commitEndScreenCommentAndExit() and true or false
+  end
+  if finalizeCompletedTurnBasedMatch then
+    finalizeCompletedTurnBasedMatch(nil)
+  end
+  if teardownEndScreenCommentField then teardownEndScreenCommentField() end
+  endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
+  startSeasonTransition()
+  return true
+end
+
+-- Is there anything balloon-worthy to toggle right now? True once a comment
+-- has actually been submitted by either player, OR while the local player is
+-- composing (the composer balloon is visible with a placeholder even before
+-- any text exists).
+local function endScreenHasVisibleBalloons()
+  if shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
+    return true
+  end
+  if currentQMatch and currentQMatch.players then
+    for _, pdata in pairs(currentQMatch.players) do
+      if pdata and type(pdata.comment) == "string" and pdata.comment ~= "" then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local function pointInCornerRect(px, py, r)
+  return r and px >= r.x and px <= r.x + r.w and py >= r.y and py <= r.y + r.h
+end
+
 function handleEndScreenTouch(t)
   local g,r
 
   if state ~= STATE_END then return false end
   ensureEndScreenLayout()
   g = endScreenLayout
-  
+
   if t.state == ENDED and pointInRect(t.x,t.y,g.closeX,g.closeY,g.closeSize,g.closeSize) then
-    if commitEndScreenCommentAndExit and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
-      if commitEndScreenCommentAndExit() then
-        return true
-      end
-    else
-      if finalizeCompletedTurnBasedMatch then
-        finalizeCompletedTurnBasedMatch(nil)
-      end
-      if teardownEndScreenCommentField then teardownEndScreenCommentField() end
-      endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
-      startSeasonTransition()
+    if disposeEndScreenAndReturnToMenu() then
       return true
     end
   end
-  
-  if t.state == BEGAN and g.topToggleRect then
-    local r = g.topToggleRect
-    if t.x >= r.x and t.x <= r.x + r.w and
-       t.y >= r.y and t.y <= r.y + r.h then
-      if currentQMatch and currentQMatch.players then
-        local myId = localPID()
-        local me = currentQMatch.players[myId] or {}
-        local otherComment = ""
-        for pid, pdata in pairs(currentQMatch.players) do
-          if pid ~= myId and pdata and type(pdata.comment) == "string" then
-            otherComment = pdata.comment
-            break
-          end
-        end
-        if (me.comment and me.comment ~= "") or otherComment ~= "" then
-          endScreenSpeechBalloonsVisible = not endScreenSpeechBalloonsVisible
-          return true
-        end
-      end
-    end
-  end
-  
-  if t.state == ENDED and endScreen2PButtonRect and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
-    local r = endScreen2PButtonRect
-    if t.x >= r.x and t.x <= r.x + r.w and
-       t.y >= r.y and t.y <= r.y + r.h then
-      endScreenCommentFocused = true
-      setEndScreenCommentKeyboardVisible(true)
+
+  -- Toggle all balloons show/hide: tapping anywhere above them (the
+  -- avatar/board/message row), OR tapping directly on a balloon that isn't
+  -- currently editable (the opponent's balloon always; the local balloon
+  -- whenever it's not the live composer — a live composer's native
+  -- UITextView intercepts its own taps before they reach here).
+  if t.state == BEGAN and endScreenHasVisibleBalloons() then
+    local composing = shouldShowFinalCommentComposer and shouldShowFinalCommentComposer()
+    local toggled = pointInCornerRect(t.x, t.y, g.topToggleRect)
+      or pointInCornerRect(t.x, t.y, endScreenOppBalloonRect)
+      or ((not composing) and pointInCornerRect(t.x, t.y, endScreenLocalBalloonRect))
+    if toggled then
+      endScreenSpeechBalloonsVisible = not endScreenSpeechBalloonsVisible
       return true
     end
   end
-  
+
   -- card gesture handling: swipe between cards or scroll within a card
   local cr = g.cardListRect
   if cr then

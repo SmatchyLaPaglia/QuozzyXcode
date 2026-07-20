@@ -2,7 +2,7 @@ function getEndUpperRightAvatarLayout(args)
   local cameoSize = math.min(args.rightW, args.areaH) * 0.62
   local dx = args.rightW * 0.14
   local dy = args.areaH  * 0.12
-  
+
   local xNudge1, xNudge2 = 5, 10
 
   -- Originator (first speaker / opponent, top balloon) sits on the LEFT of the
@@ -21,9 +21,9 @@ end
 
 function drawEndUpperRightAvatarsOnly(args)
   local layout = getEndUpperRightAvatarLayout(args)
-  
+
   local oppImg = args.opponentAvatar or otherPlayerAvatar
-  
+
   pushStyle()
   drawAvatarCircle(oppImg, layout.opponentX, layout.opponentY, layout.opponentSize, "O")
   drawAvatarCircle(localPlayerAvatar, layout.localX, layout.localY, layout.localSize, "Y")

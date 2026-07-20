@@ -113,15 +113,9 @@ showInfoOverlay = false
 colorInspectorOverlay = false
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal). 🐛 button opens it regardless.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
-mockupBalloonShown = true       -- show/hide toggle state for mockup balloon 1 (opponent/top)
-mockupBalloon2Shown = true      -- show/hide toggle state for mockup balloon 2 (local/bottom)
-mockupTextEntryEnabled = true   -- whether the mockup text fields are tappable/typeable (both)
-mockupShowHideBtnRect = nil     -- hit rects for the mockup's bottom buttons
-mockupShowHide2BtnRect = nil
-mockupTextEntryBtnRect = nil
-mockupCloseBtnRect = nil
-mockupFieldRect = nil           -- hit rect for mockup balloon 1's native text field
-mockupField2Rect = nil          -- hit rect for mockup balloon 2's native text field
+mockupScenarioIndex = mockupScenarioIndex or 1  -- which of the 7 BALLOON_MOCKUP_STATES is showing
+mockupChipRects = nil           -- hit rects for the 7 scenario chips, set each frame
+mockupCloseBtnRect = nil        -- hit rect for the close button
 
 STATE_MENU   = "menu"
 STATE_PLAY   = "play"
@@ -162,6 +156,7 @@ replayMatchmakingBusyMessage = replayMatchmakingBusyMessage or "matching..."
 appWasActiveLastFrame = appWasActiveLastFrame == nil and true or appWasActiveLastFrame
 finishedMatchAutoCheckInFlight = finishedMatchAutoCheckInFlight or false
 finishedMatchAutoCheckPendingReason = finishedMatchAutoCheckPendingReason or nil
+pendingRematchAfterEndScreenExit = pendingRematchAfterEndScreenExit or false
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
@@ -400,6 +395,34 @@ local function _tryRematchForLastReplay(settings)
     devLog("Play Again: pcall failed in _tryRematchForLastReplay")
     _showGenericMatchmaker()
   end
+end
+
+-- Shared "play this opponent again?" confirmation, used by both the menu's
+-- "re" button and the end-screen rematch button. onConfirmed() is only
+-- called if the user taps "heck yeah"; it does NOT start matchmaking itself
+-- (callers decide when/how, since the end screen must dispose of itself first).
+function confirmRematchAgainstLastOpponent(onConfirmed)
+  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
+    openGCSignInOverlay()
+    return
+  end
+  local settings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
+  if not settings then return end
+  local oppName = settings.opponentName or "that player"
+  local bs = settings.boardSize or boardSize
+  local mwl = settings.minWordLen or MIN_WORD_LEN
+  local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
+  local rec    = opponentRecords and opponentRecords[settings.opponentId]
+  local recWins   = (rec and rec.wins)   or 0
+  local recLosses = (rec and rec.losses) or 0
+  showGenericAlert({
+    message = "Play another " .. bs .. "x" .. bs .. " (minimum length " .. mwl .. ") game against " .. oppName .. "? Your record against them is " .. recWins .. " to " .. recLosses .. ".",
+    avatar  = avatar,
+    buttons = {
+      { text = "heck yeah", callback = onConfirmed, isPrimary = true },
+      { text = "nah",       callback = function() end, isPrimary = false },
+    },
+  })
 end
 
 function startLastMatchReplayFromMenu()
@@ -1201,7 +1224,8 @@ function draw()
     drawBalloonMockupOverlay()
     drawGCMatchmakerErrorOverlay()
     drawReplayMatchmakingOverlay()
-    drawConfetti()        
+    drawConfetti()
+    drawGenericAlert()
     -- Local avatar
     if avatarTest then
       if localPlayerAvatar then
@@ -1247,6 +1271,7 @@ function draw()
   end
   safeDrawCall("drawRecordsOverlay", drawRecordsOverlay)
   safeDrawCall("drawConfetti", drawConfetti)
+  safeDrawCall("drawGenericAlert", drawGenericAlert)
 end
 
 function handlePreviewTouch(t)
@@ -1279,6 +1304,12 @@ function touched(t)
     return
   end
 
+  -- Generic alert overlay eats all touches, from any state
+  if genericAlertActive then
+    handleGenericAlertTouch(t)
+    return
+  end
+
   -- match badge tap gets first dibs on menu screen
   if state == STATE_MENU and handleMatchBadgeTouch(t) then
     return
@@ -1297,17 +1328,21 @@ function touched(t)
     return
   end
 
-  -- Balloon mockup overlay eats all Codea touches. Bottom buttons: show/hide
-  -- balloon 1, show/hide balloon 2, text-entry toggle, close. A tap on a field
-  -- focuses it natively. Taps elsewhere do nothing (dismiss only via "close").
+  -- Balloon mockup overlay eats all Codea touches. A row of 7 numbered chips
+  -- picks one of the real comment-balloon scenarios (BALLOON_MOCKUP_STATES,
+  -- EndScreenFP.lua) — one tap, one complete valid state. A tap on the live
+  -- composer field focuses it natively. Taps elsewhere do nothing (dismiss
+  -- only via "close").
   if balloonMockupOverlay then
     if t.state == ENDED or t.state == CANCELLED then
-      if mockupShowHideBtnRect and pointInRect(t.x, t.y, mockupShowHideBtnRect.cx, mockupShowHideBtnRect.cy, mockupShowHideBtnRect.w, mockupShowHideBtnRect.h) then
-        mockupBalloonShown = not mockupBalloonShown
-      elseif mockupShowHide2BtnRect and pointInRect(t.x, t.y, mockupShowHide2BtnRect.cx, mockupShowHide2BtnRect.cy, mockupShowHide2BtnRect.w, mockupShowHide2BtnRect.h) then
-        mockupBalloon2Shown = not mockupBalloon2Shown
-      elseif mockupTextEntryBtnRect and pointInRect(t.x, t.y, mockupTextEntryBtnRect.cx, mockupTextEntryBtnRect.cy, mockupTextEntryBtnRect.w, mockupTextEntryBtnRect.h) then
-        mockupTextEntryEnabled = not mockupTextEntryEnabled
+      local hitChip = nil
+      if mockupChipRects then
+        for i, r in ipairs(mockupChipRects) do
+          if pointInRect(t.x, t.y, r.cx, r.cy, r.w, r.h) then hitChip = i break end
+        end
+      end
+      if hitChip then
+        mockupScenarioIndex = hitChip
       elseif mockupCloseBtnRect and pointInRect(t.x, t.y, mockupCloseBtnRect.cx, mockupCloseBtnRect.cy, mockupCloseBtnRect.w, mockupCloseBtnRect.h) then
         if teardownMockupTextField then teardownMockupTextField() end
         balloonMockupOverlay = false

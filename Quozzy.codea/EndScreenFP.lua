@@ -2,19 +2,12 @@ endScreenMissedWordsJob = endScreenMissedWordsJob or nil
 endScreenMissedWordsJobMatchId = endScreenMissedWordsJobMatchId or nil
 endScreenCommentDraft = endScreenCommentDraft or ""
 endScreenCommentMatchId = endScreenCommentMatchId or nil
-endScreenCommentFocused = endScreenCommentFocused or false
 endScreenSpeechBalloonsVisible = endScreenSpeechBalloonsVisible ~= false
 endScreenCommentUIActive = endScreenCommentUIActive or false
 endScreenSpeechBalloonAlpha = endScreenSpeechBalloonAlpha or 1
 endScreenLocalBalloonAlpha = endScreenLocalBalloonAlpha or 1
-endScreenNativeCommentField = endScreenNativeCommentField or nil
-endScreenNativeCommentDelegate = endScreenNativeCommentDelegate or nil
-endScreenNativeCommentHandler = endScreenNativeCommentHandler or nil
 endScreenCommentFieldActivated = endScreenCommentFieldActivated or false
 endScreenCommentFieldTornDown = endScreenCommentFieldTornDown or false
-endScreenKeyboardHeight = endScreenKeyboardHeight or 0
-endScreenKBObserver = endScreenKBObserver or nil
-endScreenCommentLastShift = endScreenCommentLastShift or -1
 
 speechBalloonPOCShader = speechBalloonPOCShader or {
 vert = [[
@@ -158,58 +151,37 @@ local function normalizeCommentDraft(text)
   return s
 end
 
-local function setEndScreenCommentKeyboardVisible(visible)
-  if endScreenNativeCommentField then
-    if visible then
-      endScreenNativeCommentField:becomeFirstResponder_()
-    else
-      endScreenNativeCommentField:resignFirstResponder_()
-    end
-    return
-  end
-end
-
 local function syncEndScreenCommentState(model)
   local qid = currentQMatch and currentQMatch.id or nil
   if endScreenCommentMatchId ~= qid then
-    devLog("COMMENT_DBG syncEndScreenCommentState: new match, resetting state. old=", tostring(endScreenCommentMatchId), "new=", tostring(qid), "tornDown was=", tostring(endScreenCommentFieldTornDown))
     endScreenCommentMatchId = qid
     endScreenCommentDraft = ""
     endScreenSpeechBalloonsVisible = true
-    endScreenCommentFocused = false
     endScreenCommentFieldActivated = false
     endScreenCommentFieldTornDown = false
-    endScreenKeyboardHeight = 0
-    endScreenCommentLastShift = -1
   end
 
   local shouldActivate = model and model.commentUI and model.commentUI.canCompose or false
   if shouldActivate and not endScreenCommentFieldActivated then
-    devLog("COMMENT_DBG syncEndScreenCommentState: activating field. tornDown=", tostring(endScreenCommentFieldTornDown))
     endScreenCommentFieldActivated = true
-    -- Do NOT auto-focus here; keyboard appears only when user taps the field
+    -- Do NOT auto-focus here; keyboard appears only when user taps the balloon
   end
   endScreenCommentUIActive = shouldActivate or endScreenCommentFieldActivated
 end
 
+-- Tears down slot 3 of the shared commentFields table (see the field-management
+-- functions below, near drawBalloonMockupOverlay) — the production composer's
+-- own field. Never touches slots 1/2 (the dev mockup's fields).
 function teardownEndScreenCommentField()
-  local tf = endScreenNativeCommentField
-  if tf then
-    tf:resignFirstResponder_()
-    tf:removeFromSuperview_()
-    endScreenNativeCommentField = nil
-    endScreenNativeCommentDelegate = nil
-    endScreenNativeCommentHandler = nil
+  local F = commentFields and commentFields[3]
+  if F and F.tv then
+    F.tv:resignFirstResponder_()
+    F.tv:removeFromSuperview_()
+    F.tv = nil
   end
-  if endScreenKBObserver then
-    local ok, nc = pcall(function() return objc.NSNotificationCenter.defaultCenter end)
-    if ok and nc then nc:removeObserver_(endScreenKBObserver) end
-    endScreenKBObserver = nil
-  end
+  if F then F.focused = false end
   endScreenCommentFieldActivated = false
   endScreenCommentFieldTornDown = true
-  endScreenKeyboardHeight = 0
-  endScreenCommentLastShift = -1
 end
 
 function commitEndScreenCommentAndExit()
@@ -221,7 +193,6 @@ function commitEndScreenCommentAndExit()
   end
   if not submitted then return false end
   endScreenCommentDraft = ""
-  endScreenCommentFocused = false
   teardownEndScreenCommentField()
   startSeasonTransition()
   return true
@@ -229,155 +200,6 @@ end
 
 local function codeaToUIKitRect(x, y, w, h)
   return objc.rect(x, HEIGHT - y - h, w, h)
-end
-
-_dbgEnsureFieldBlockedPrinted = _dbgEnsureFieldBlockedPrinted or false
-local function ensureEndScreenNativeCommentField()
-  if endScreenCommentFieldTornDown then
-    if not _dbgEnsureFieldBlockedPrinted then
-      _dbgEnsureFieldBlockedPrinted = true
-      devLog("COMMENT_DBG ensureField: BLOCKED by endScreenCommentFieldTornDown=true")
-    end
-    return
-  end
-  _dbgEnsureFieldBlockedPrinted = false
-  if endScreenNativeCommentField or not objc or not objc.UITextField then return end
-  devLog("COMMENT_DBG ensureField: CREATING new UITextField")
-  local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
-    or (objc.viewer and objc.viewer.view)
-  if not hostView then return end
-  
-  local tf = objc.UITextField:alloc():init()
-  hostView:addSubview_(tf)
-  if hostView.bringSubviewToFront_ then
-    hostView:bringSubviewToFront_(tf)
-  end
-  tf.borderStyle = objc.enum.UITextBorderStyle.none
-  tf.font = objc.UIFont:fontWithName_size_("HelveticaNeue", 18)
-  tf.returnKeyType = objc.enum.UIReturnKeyType.send or objc.enum.UIReturnKeyType.default
-  tf.clearButtonMode = objc.enum.UITextFieldViewMode.whileEditing
-  tf.autocorrectionType = objc.enum.UITextAutocorrectionType.no
-  tf.autocapitalizationType = objc.enum.UITextAutocapitalizationType.sentences
-  tf.contentVerticalAlignment = objc.enum.UIControlContentVerticalAlignment.center
-  tf.textAlignment = objc.enum.NSTextAlignment.left
-  tf.textColor = color(20, 20, 20, 255)
-  tf.backgroundColor = color(255, 255, 255, 255)
-  tf.tintColor = Color.uiAccent or color(40, 80, 60, 255)
-  tf.layer.cornerRadius = 22
-  tf.layer.masksToBounds = true
-  tf.layer.borderWidth = 1.5
-  tf.layer.borderColor = (Color.uiAccent or color(40, 80, 60, 255)).obj
-  -- Add left padding since borderStyle = none removes default text inset
-  local leftPad = objc.UIView:alloc():initWithFrame_(objc.rect(0, 0, 14, 44))
-  tf.leftView = leftPad
-  tf.leftViewMode = objc.enum.UITextFieldViewMode.always
-  
-  local Delegate = objc.delegate("UITextFieldDelegate")
-  function Delegate:textFieldShouldReturn_(oTF)
-    endScreenCommentDraft = tostring(oTF.text or "")
-    commitEndScreenCommentAndExit()
-    oTF:resignFirstResponder_()
-    return true
-  end
-  function Delegate:textFieldDidBeginEditing_(oTF)
-    endScreenCommentFocused = true
-  end
-  function Delegate:textFieldDidEndEditing_(oTF)
-    endScreenCommentFocused = false
-    endScreenCommentDraft = tostring(oTF.text or "")
-  end
-  endScreenNativeCommentDelegate = Delegate()
-  tf.delegate = endScreenNativeCommentDelegate
-  
-  local ChangeHandler = objc.class("EndScreenCommentChangeHandler")
-  function ChangeHandler:textChanged_(oSender)
-    endScreenCommentDraft = tostring(oSender.text or "")
-  end
-  endScreenNativeCommentHandler = ChangeHandler()
-  tf:addTarget_action_forControlEvents_(
-    endScreenNativeCommentHandler,
-    objc.selector("textChanged:"),
-    objc.enum.UIControlEvents.editingChanged
-  )
-  
-  endScreenNativeCommentField = tf
-
-  -- Register keyboard show/hide notifications to drive frame avoidance
-  if not endScreenKBObserver then
-    local KBObs = objc.class("EndScreenKBNotifObserver")
-    function KBObs:keyboardWillShow_(oN)
-      local h = 0
-      if oN and oN.userInfo then
-        local v = oN.userInfo["UIKeyboardFrameEndUserInfoKey"]
-        if v and v.CGRectValue then
-          local r = v:CGRectValue_()
-          if type(r.size.height) == "number" then h = r.size.height end
-        end
-      end
-      endScreenKeyboardHeight = h
-    end
-    function KBObs:keyboardWillHide_(_)
-      endScreenKeyboardHeight = 0
-    end
-    endScreenKBObserver = KBObs()
-    local nc = objc.NSNotificationCenter.defaultCenter
-    nc:addObserver_selector_name_object_(
-      endScreenKBObserver, objc.selector("keyboardWillShow:"),
-      "UIKeyboardWillShowNotification", nil)
-    nc:addObserver_selector_name_object_(
-      endScreenKBObserver, objc.selector("keyboardWillHide:"),
-      "UIKeyboardWillHideNotification", nil)
-  end
-end
-
-local function updateEndScreenNativeCommentField(rect, ui)
-  ensureEndScreenNativeCommentField()
-  local tf = endScreenNativeCommentField
-  if not tf then return end
-  if not (state == STATE_END and ui and ui.canCompose and rect) then
-    if state == STATE_END and endScreenCommentFieldActivated and not tf.hidden then
-      return  -- latch: keep visible until explicit teardown
-    end
-    tf.hidden = true
-    tf:resignFirstResponder_()
-    return
-  end
-
-  tf.hidden = false
-  tf.placeholder = ui.placeholder or ""
-  if tostring(tf.text or "") ~= tostring(endScreenCommentDraft or "") then
-    tf.text = endScreenCommentDraft or ""
-  end
-  if tf.superview and tf.superview.bringSubviewToFront_ then
-    tf.superview:bringSubviewToFront_(tf)
-  end
-
-  -- Compute base UIKit frame (field at button position, no keyboard)
-  -- HEIGHT is UIKit screen height; Codea y-from-bottom → UIKit y-from-top
-  local baseX = rect.x
-  local baseY = HEIGHT - rect.y - rect.h
-  local fW, fH = rect.w, rect.h
-
-  -- Shift up by however much the keyboard overlaps the field (KeyboardAvoider pattern)
-  local kh = endScreenKeyboardHeight or 0
-  local shiftY = 0
-  if kh > 0 then
-    local fieldBottom = baseY + fH
-    local kbTop = HEIGHT - kh
-    local overlap = fieldBottom - kbTop
-    if overlap > 0 then
-      shiftY = math.ceil(overlap + 12)
-    end
-  end
-
-  -- Animate only when the shift amount changes (keyboard show/hide)
-  if shiftY ~= endScreenCommentLastShift then
-    endScreenCommentLastShift = shiftY
-    local targetY = baseY - shiftY
-    objc.UIView:animateWithDuration_animations_(0.25, function()
-      tf.frame = objc.rect(baseX, targetY, fW, fH)
-    end)
-  end
 end
 
 local function wrapSpeechBalloonText(textValue, maxWidth, fontSizeValue, maxLines)
@@ -577,68 +399,78 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
   local bodyFill   = color(fc.r, fc.g, fc.b, fa)
   local borderFill = color(oc.r, oc.g, oc.b, oa)
   local cr         = opts.cornerRadius  or math.min(rect.w, rect.h) * 0.30
-  local tailBaseW  = opts.tailBaseWidth or (rect.w * 0.13)
-  local tailLen    = opts.tailLength    or (rect.h * 0.36)
   local outlineW   = opts.outlineWidth  or 1.5
+  local hasTail    = not opts.noTail
 
-  -- Tail base: top or bottom edge depending on tailSide
-  local onTop = (tailSide == "up" or tailSide == "top")
-  local baseY = onTop and (rect.y + rect.h - 2) or (rect.y + 2)  -- overlap into body so tail+balloon fills merge
-  local baseX = opts.tailAnchorOverrideX or (rect.x + rect.w * 0.5)
-  baseX = math.max(rect.x + cr + tailBaseW * 0.5,
-          math.min(rect.x + rect.w - cr - tailBaseW * 0.5, baseX))
+  -- Tail geometry (skipped entirely when opts.noTail — a plain rounded-rect
+  -- balloon with no triangle, e.g. the local composer before it's "attached"
+  -- to anyone in particular).
+  local P1x, P1y, P2x, P2y, tipX, tipY
+  if hasTail then
+    local tailBaseW  = opts.tailBaseWidth or (rect.w * 0.13)
+    local tailLen    = opts.tailLength    or (rect.h * 0.36)
 
-  -- Tail tip: step toward anchor from the chosen edge, limited to tailLen
-  local dx = tailAnchorX - baseX
-  local dy = tailAnchorY - baseY
-  local dist = math.sqrt(dx * dx + dy * dy)
-  local tipX = baseX
-  local tipY = onTop and (baseY + tailLen) or (baseY - tailLen)
-  if dist > 0.01 then
-    local s = math.min(dist, tailLen) / dist
-    tipX = baseX + dx * s
-    tipY = baseY + dy * s
+    -- Tail base: top or bottom edge depending on tailSide
+    local onTop = (tailSide == "up" or tailSide == "top")
+    local baseY = onTop and (rect.y + rect.h - 2) or (rect.y + 2)  -- overlap into body so tail+balloon fills merge
+    local baseX = opts.tailAnchorOverrideX or (rect.x + rect.w * 0.5)
+    baseX = math.max(rect.x + cr + tailBaseW * 0.5,
+            math.min(rect.x + rect.w - cr - tailBaseW * 0.5, baseX))
+
+    -- Tail tip: step toward anchor from the chosen edge, limited to tailLen
+    local dx = tailAnchorX - baseX
+    local dy = tailAnchorY - baseY
+    local dist = math.sqrt(dx * dx + dy * dy)
+    tipX = baseX
+    tipY = onTop and (baseY + tailLen) or (baseY - tailLen)
+    if dist > 0.01 then
+      local s = math.min(dist, tailLen) / dist
+      tipX = baseX + dx * s
+      tipY = baseY + dy * s
+    end
+
+    -- Tail geometry: the FILL comes to a SHARP point (tip); only the OUTLINE is
+    -- rounded around that point, line-cap style (a small border cap circle).
+    local halfB = tailBaseW * 0.5
+    P1x, P1y = baseX - halfB, baseY   -- left base
+    P2x, P2y = baseX + halfB, baseY   -- right base
   end
 
-  -- Tail geometry: the FILL comes to a SHARP point (tip); only the OUTLINE is
-  -- rounded around that point, line-cap style (a small border cap circle).
-  local halfB = tailBaseW * 0.5
-  local P1x, P1y = baseX - halfB, baseY   -- left base
-  local P2x, P2y = baseX + halfB, baseY   -- right base
-
-  -- Border pass: dark, uniform-width outline around body AND tail.
+  -- Border pass: dark, uniform-width outline around body AND tail (if any).
   if outlineW > 0 then
-    local cenX = (P1x + P2x + tipX) / 3
-    local cenY = (P1y + P2y + tipY) / 3
-    local function outwardNormal(Qx, Qy, Rx, Ry)
-      local dx, dy = Rx - Qx, Ry - Qy
-      local len = math.sqrt(dx*dx + dy*dy)
-      if len < 0.0001 then return 0, 0 end
-      local nx, ny = -dy/len, dx/len
-      local mx, my = (Qx + Rx) * 0.5, (Qy + Ry) * 0.5
-      if (nx*(mx - cenX) + ny*(my - cenY)) < 0 then nx, ny = -nx, -ny end
-      return nx, ny
+    if hasTail then
+      local cenX = (P1x + P2x + tipX) / 3
+      local cenY = (P1y + P2y + tipY) / 3
+      local function outwardNormal(Qx, Qy, Rx, Ry)
+        local dx, dy = Rx - Qx, Ry - Qy
+        local len = math.sqrt(dx*dx + dy*dy)
+        if len < 0.0001 then return 0, 0 end
+        local nx, ny = -dy/len, dx/len
+        local mx, my = (Qx + Rx) * 0.5, (Qy + Ry) * 0.5
+        if (nx*(mx - cenX) + ny*(my - cenY)) < 0 then nx, ny = -nx, -ny end
+        return nx, ny
+      end
+      local nLx, nLy = outwardNormal(P1x, P1y, tipX, tipY)  -- left side
+      local nRx, nRy = outwardNormal(P2x, P2y, tipX, tipY)  -- right side
+      local bm = mesh()
+      bm.vertices = {
+        vec2(P1x, P1y), vec2(tipX, tipY), vec2(tipX + nLx*outlineW, tipY + nLy*outlineW),
+        vec2(P1x, P1y), vec2(tipX + nLx*outlineW, tipY + nLy*outlineW), vec2(P1x + nLx*outlineW, P1y + nLy*outlineW),
+        vec2(P2x, P2y), vec2(tipX, tipY), vec2(tipX + nRx*outlineW, tipY + nRy*outlineW),
+        vec2(P2x, P2y), vec2(tipX + nRx*outlineW, tipY + nRy*outlineW), vec2(P2x + nRx*outlineW, P2y + nRy*outlineW),
+      }
+      local bcol = {}
+      for i = 1, 12 do bcol[i] = borderFill end
+      bm.colors = bcol
+      bm:draw()
+      -- rounded outline tip, line-cap style: a small circle at the sharp fill point
+      pushStyle()
+      noStroke()
+      fill(borderFill)
+      ellipseMode(CENTER)
+      ellipse(tipX, tipY, outlineW * 2, outlineW * 2)
+      popStyle()
     end
-    local nLx, nLy = outwardNormal(P1x, P1y, tipX, tipY)  -- left side
-    local nRx, nRy = outwardNormal(P2x, P2y, tipX, tipY)  -- right side
-    local bm = mesh()
-    bm.vertices = {
-      vec2(P1x, P1y), vec2(tipX, tipY), vec2(tipX + nLx*outlineW, tipY + nLy*outlineW),
-      vec2(P1x, P1y), vec2(tipX + nLx*outlineW, tipY + nLy*outlineW), vec2(P1x + nLx*outlineW, P1y + nLy*outlineW),
-      vec2(P2x, P2y), vec2(tipX, tipY), vec2(tipX + nRx*outlineW, tipY + nRy*outlineW),
-      vec2(P2x, P2y), vec2(tipX + nRx*outlineW, tipY + nRy*outlineW), vec2(P2x + nRx*outlineW, P2y + nRy*outlineW),
-    }
-    local bcol = {}
-    for i = 1, 12 do bcol[i] = borderFill end
-    bm.colors = bcol
-    bm:draw()
-    -- rounded outline tip, line-cap style: a small circle at the sharp fill point
-    pushStyle()
-    noStroke()
-    fill(borderFill)
-    ellipseMode(CENTER)
-    ellipse(tipX, tipY, outlineW * 2, outlineW * 2)
-    popStyle()
     drawRoundedRect(
       rect.x + rect.w * 0.5, rect.y + rect.h * 0.5,
       rect.w + outlineW * 2,  rect.h + outlineW * 2,
@@ -646,13 +478,15 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
     )
   end
 
-  -- Fill pass: sharp-pointed tail triangle (no rounded fill cap)
-  local fm = mesh()
-  fm.vertices = {
-    vec2(P1x, P1y), vec2(P2x, P2y), vec2(tipX, tipY),
-  }
-  fm.colors = { bodyFill, bodyFill, bodyFill }
-  fm:draw()
+  -- Fill pass: sharp-pointed tail triangle (no rounded fill cap), if any.
+  if hasTail then
+    local fm = mesh()
+    fm.vertices = {
+      vec2(P1x, P1y), vec2(P2x, P2y), vec2(tipX, tipY),
+    }
+    fm.colors = { bodyFill, bodyFill, bodyFill }
+    fm:draw()
+  end
   drawRoundedRect(
     rect.x + rect.w * 0.5, rect.y + rect.h * 0.5,
     rect.w, rect.h,
@@ -729,11 +563,20 @@ local function drawEndScreenSpeechBalloons(model, layout)
   -- When only ONE balloon is visible, center it horizontally; when both show, keep
   -- the staggered left/right positions. The tail stays put across the shift because
   -- its base is anchored to the avatar X (tailAnchorOverrideX), not the body center.
+  -- ui.centerBothBalloons overrides this to center BOTH regardless (mockup scenario 2:
+  -- the opponent's real comment centered like a solo balloon, with the local composer,
+  -- tail-less below, centered the same way — see localTailUsesOpponentSlot below for
+  -- how scenario 1 uses the opponent tail X but keeps the staggered layout).
   local oppShown   = (ui.opponentComment and ui.opponentComment ~= "" and ui.showOpponent ~= false)
   local localShown = (ui.localComment   and ui.localComment   ~= "" and ui.showLocal   ~= false)
   local centeredX  = layout.panelX - bubbleW * 0.5
-  local oppRectX   = (oppShown   and not localShown) and centeredX or (panelLeft + 2)
-  local localRectX = (localShown and not oppShown)   and centeredX or (panelRight - 2 - bubbleW)
+  local oppRectX, localRectX
+  if ui.centerBothBalloons then
+    oppRectX, localRectX = centeredX, centeredX
+  else
+    oppRectX   = (oppShown   and not localShown) and centeredX or (panelLeft + 2)
+    localRectX = (localShown and not oppShown)   and centeredX or (panelRight - 2 - bubbleW)
+  end
 
   -- Opponent (originator) balloon — tail points at opponent avatar
   local oppRect = nil
@@ -741,8 +584,13 @@ local function drawEndScreenSpeechBalloons(model, layout)
     local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY, maxBalloonLines)
     local bH = math.max(layout.boardSide * 0.16, measured.height)
     oppRect = {
-      x = oppRectX,
-      y = boardBottom - 4 - bH,
+      -- ui.oppBodyXNudge (default 0) shifts the BODY only — tailAnchorOverrideX below
+      -- stays avatarLayout.opponentX regardless, so the tail doesn't move with it.
+      x = oppRectX + (ui.oppBodyXNudge or 0),
+      -- Same top-anchor offset (14) as the solo-local fallback below, so the
+      -- topmost balloon sits at a consistent height whether it's alone or
+      -- has a second balloon stacked under it.
+      y = boardBottom - 14 - bH,
       w = bubbleW, h = bH,
     }
     drawSpeechBalloon(oppRect, ui.opponentComment,
@@ -750,7 +598,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
       oppFill, oppStroke, {
         fontSizeValue = balloonFontSize, lineHeight = lineHeight,
         cornerRadius  = 16,
-        tailLength    = 43,
+        tailLength    = 43 * (2 / 3),  -- 2026-07-20: shortened to 2/3 of the original 43
         tailBaseWidth = 18,
         textInsetX = 4, textInsetY = insetY,
         alphaMul = oppAlpha,
@@ -763,27 +611,44 @@ local function drawEndScreenSpeechBalloons(model, layout)
     endScreenOppBalloonRect = oppRect
   end
 
-  -- Local (responder) balloon — stacked below opponent, tail points at local avatar
+  -- Local (responder) balloon — stacked below opponent, tail points at local avatar.
+  -- ui.localTailUsesOpponentSlot (mockup scenario 1 only, "initiator composing" — no
+  -- one has spoken yet so the lone balloon reads as the FIRST word, not a reply) points
+  -- the tail at the opponent avatar's X instead — same X the opponent balloon's tail
+  -- uses (avatarLayout.opponentX, no +18) — while the balloon itself stays in its
+  -- normal bottom/local Y position. Both avatars still draw normally either way.
+  -- ui.localTailXNudge (default 0, mockup scenario 6: -9, half of tailBaseWidth=18)
+  -- shifts just the tail, independent of the body nudges above.
+  local localTailX = (ui.localTailUsesOpponentSlot and avatarLayout.opponentX or (avatarLayout.localX + 18))
+    + (ui.localTailXNudge or 0)
   if ui.localComment and ui.localComment ~= "" then
     local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, insetY, maxBalloonLines)
     local bH = math.max(layout.boardSide * 0.15, measured.height)
+    -- ui.localGapExtra (default 0) adds extra breathing room below the opponent
+    -- balloon, on top of the normal 14 stacking gap — only meaningful when oppRect
+    -- exists (mockup scenario 2: paired with centerBothBalloons/suppressLocalTail
+    -- so the two don't read as a merged block).
+    local localGap = 14 + (ui.localGapExtra or 0)
     local localRect = {
-      x = localRectX,
-      y = oppRect and (oppRect.y - 14 - bH) or (boardBottom - 14 - bH),
+      -- ui.localBodyXNudge (default 0) shifts the BODY only — localTailX above stays
+      -- put, so the tail doesn't move with it.
+      x = localRectX + (ui.localBodyXNudge or 0),
+      y = oppRect and (oppRect.y - localGap - bH) or (boardBottom - 14 - bH),
       w = bubbleW, h = bH,
     }
     drawSpeechBalloon(localRect, ui.localComment,
-      avatarLayout.localX + 18, avatarLayout.localY, "up",
+      localTailX, avatarLayout.localY, "up",
       localFill, localStroke, {
         fontSizeValue = balloonFontSize, lineHeight = lineHeight,
         cornerRadius  = 16,
-        tailLength    = 40,
+        tailLength    = 40 * (2 / 3),  -- 2026-07-20: shortened to 2/3 of the original 40
         tailBaseWidth = 18,
         textInsetX = 4, textInsetY = insetY,
         alphaMul = localAlpha,
         outlineWidth = 7,
         textColor = (ui.suppressLocalText and color(0, 0, 0, 0)) or bText,
-        tailAnchorOverrideX = avatarLayout.localX + 18,
+        tailAnchorOverrideX = localTailX,
+        noTail = ui.suppressLocalTail or false,
         lines = measured.lines,
         maxLines = maxBalloonLines,
       })
@@ -791,35 +656,45 @@ local function drawEndScreenSpeechBalloons(model, layout)
   end
 end
 
--- Native UITextViews that live inside the two mockup balloons for real typing.
--- A UITextView (not UITextField) so input wraps to multiple lines with a correctly
--- positioned caret. The view shows the VISIBLE text; the balloon is drawn shape-only
--- (suppressText) behind it and is sized to the typed text so it grows to match.
--- Slot 1 = balloon 1 (opponent/top), slot 2 = balloon 2 (local/bottom).
-local mockupFields = { {}, {} }        -- [i] = { tv, focused }
-local mockupFieldDelegate = nil        -- one shared delegate; dispatches by tv.tag
+-- Native UITextViews that live inside speech balloons for real typing. A
+-- UITextView (not UITextField) so input wraps to multiple lines with a
+-- correctly positioned caret. The view shows the VISIBLE text; the balloon
+-- is drawn shape-only (suppressText/suppressLocalText) behind it and is
+-- sized to the typed text so it grows to match.
+--
+-- SHARED between the dev balloon mockup (slot 2 — the local/composing
+-- balloon, see drawBalloonMockupOverlay below, gated by balloonMockupOverlay;
+-- slot 1 is unused since the opponent balloon is never live-typed, in the
+-- mockup or in production) and the production end-screen composer (slot 3 —
+-- see positionEndScreenCommentField, gated by
+-- useTurnBased/endScreenCommentFieldTornDown). Both paths call the exact
+-- same ensure/update/line-cap/placeholder code so production visually and
+-- behaviorally matches the approved mockup — no parallel reimplementation.
+commentFields = commentFields or { [1] = {}, [2] = {} }  -- [i] = { tv, focused, flash, lastValid }
+commentFieldDelegate = commentFieldDelegate or nil        -- one shared delegate; dispatches by tv.tag
 
-local function ensureMockupFieldDelegate()
-  if mockupFieldDelegate then return mockupFieldDelegate end
+local function ensureCommentFieldDelegate()
+  if commentFieldDelegate then return commentFieldDelegate end
   if not (objc and objc.delegate) then return nil end
   local Delegate = objc.delegate("UITextViewDelegate")
   -- Callbacks ONLY set Lua flags — never call UIKit/Codea from an objc callback (it can
   -- crash the draw cycle). Actual text mutation / resignFirstResponder happens in draw()
-  -- (mockupEnforceLineCap), driven by these flags. Params use type-prefixed names (o=object).
+  -- (enforceCommentFieldLineCap), driven by these flags. Params use type-prefixed names (o=object).
   function Delegate:textViewDidBeginEditing_(oTV)
     local i = tonumber(oTV.tag) or 0
-    if mockupFields[i] then mockupFields[i].focused = true end
+    if commentFields[i] then commentFields[i].focused = true end
   end
   function Delegate:textViewDidEndEditing_(oTV)
     local i = tonumber(oTV.tag) or 0
-    if mockupFields[i] then mockupFields[i].focused = false end
+    if commentFields[i] then commentFields[i].focused = false end
   end
-  mockupFieldDelegate = Delegate()
-  return mockupFieldDelegate
+  commentFieldDelegate = Delegate()
+  return commentFieldDelegate
 end
 
-local function ensureMockupField(i, fontSize)
-  local F = mockupFields[i]
+local function ensureCommentField(i, fontSize)
+  commentFields[i] = commentFields[i] or {}
+  local F = commentFields[i]
   if F.tv then return end
   if not (objc and objc.UITextView) then return end
   local hostView = (objc.viewer and objc.viewer.view and objc.viewer.view.subviews and objc.viewer.view.subviews[1])
@@ -834,19 +709,19 @@ local function ensureMockupField(i, fontSize)
   pcall(function() tv.editable = true end)
   pcall(function() tv.textAlignment = objc.enum.NSTextAlignment.center end)
   pcall(function() tv.textContainer.lineFragmentPadding = 0 end)  -- wrap width ≈ frame width
-  tv.delegate = ensureMockupFieldDelegate()
+  tv.delegate = ensureCommentFieldDelegate()
   F.tv = tv
   F.focused = false
 end
 
-local function updateMockupField(i, rect, shown, fontSize)
-  ensureMockupField(i, fontSize)
-  local F = mockupFields[i]
+local function updateCommentField(i, rect, shown, fontSize, textEntryEnabled)
+  ensureCommentField(i, fontSize)
+  local F = commentFields[i]
   local tv = F.tv
   if not tv then return end
   if shown and rect then
     tv.hidden = false
-    local enabled = (mockupTextEntryEnabled ~= false)
+    local enabled = (textEntryEnabled ~= false)
     tv.userInteractionEnabled = enabled
     if not enabled then
       tv:resignFirstResponder_()
@@ -869,26 +744,144 @@ local function updateMockupField(i, rect, shown, fontSize)
   end
 end
 
-local function mockupFieldText(i)
-  local tv = mockupFields[i].tv
-  return tv and tostring(tv.text or "") or ""
+-- Line cap: a balloon holds at most 3 lines. If a keystroke would wrap the text to a
+-- 4th line, revert it (block the input) and flash that balloon's text red. Measured
+-- with the SAME width/font the renderer uses so the check matches the balloon's own
+-- wrap. All UITextView mutation happens HERE in draw() (never in the objc callbacks).
+-- Return-to-dismiss: strips any newline (keeps the comment one wrapped paragraph) and
+-- drops the keyboard — it does NOT submit anything; callers decide what "submit" means.
+local function enforceCommentFieldLineCap(i, fontSizeValue, wrapWidth)
+  local F = commentFields[i]
+  if not F then return "" end
+  F.flash = math.max(0, (F.flash or 0) - DeltaTime)
+  local tv = F.tv
+  if not tv then return "" end
+  local s = tostring(tv.text or "")
+  if s:find("\n") then
+    s = (s:gsub("\n", ""))
+    tv.text = s
+    tv:resignFirstResponder_()
+  end
+  local MAX_LINES = 3
+  local lines = wrapSpeechBalloonText(s, wrapWidth, fontSizeValue)
+  local overflow = #lines > MAX_LINES
+  if not overflow and #lines == MAX_LINES then
+    -- Reserve ~5 characters of headroom on the last line. The native UITextView
+    -- measures slightly differently than this Lua wrap, so a 3rd line filled right to
+    -- the edge (e.g. after tacking on an ellipsis) can wrap to a 4th line in the view
+    -- even while this check still counts 3. Blocking a near-full last line early keeps
+    -- the two in sync and avoids that edge case.
+    pushStyle()
+    font("HelveticaNeue"); fontSize(fontSizeValue)
+    local margin = textSize("nnnnn")            -- ~5 characters of slack
+    if textSize(lines[#lines] or "") > wrapWidth - margin then overflow = true end
+    popStyle()
+  end
+  if overflow then
+    tv.text = F.lastValid or ""                 -- block: revert to the last ≤3-line text
+    F.flash = 0.22                              -- flash red
+    return F.lastValid or ""
+  end
+  F.lastValid = s
+  return s
 end
 
--- Global: torn down from Main.lua when the mockup overlay is dismissed.
-function teardownMockupTextField()
-  for i = 1, #mockupFields do
-    local F = mockupFields[i]
-    if F.tv then
-      F.tv:resignFirstResponder_()
-      F.tv:removeFromSuperview_()
-      F.tv = nil
+-- Positions the native comment view inside `balloonRect` and draws the Codea
+-- placeholder (bold italic, tileText@80%, dead-centered in the rect) behind
+-- it whenever the field is inactive (empty + unfocused). Both the mockup and
+-- the production composer call this exact function.
+local function positionCommentField(i, balloonRect, shownFlag, activeFlag, placeholderText, fontSizeValue, textEntryEnabled, setHitRect)
+  if shownFlag and balloonRect then
+    local br = balloonRect
+    local fRect = { x = br.x + 6, y = br.y + 6, w = br.w - 12, h = br.h - 12 }
+    updateCommentField(i, fRect, true, fontSizeValue, textEntryEnabled)
+    if setHitRect then
+      setHitRect({ cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h })
     end
-    F.focused = false
+    if not activeFlag then
+      local pc = Color.tileText or color(40, 80, 60)
+      fill(pc.r, pc.g, pc.b, 204)                       -- 20% transparent
+      textMode(CENTER); textAlign(CENTER)
+      font("HelveticaNeue-BoldItalic")
+      fontSize(18)
+      text(placeholderText or "", br.x + br.w * 0.5, br.y + br.h * 0.5)
+    end
+  else
+    updateCommentField(i, nil, false)
+    if setHitRect then setHitRect(nil) end
   end
-  mockupFieldDelegate = nil
-  mockupFieldRect = nil
-  mockupField2Rect = nil
 end
+
+-- Global: torn down from Main.lua when the mockup overlay is dismissed. Only
+-- ever touches slot 2 (the mockup's local/composing field) — slot 1 is
+-- unused (the opponent balloon is never live-typed, even in the mockup) and
+-- slot 3 (production) has its own lifecycle, torn down by
+-- teardownEndScreenCommentField() above.
+function teardownMockupTextField()
+  local F = commentFields[2]
+  if F and F.tv then
+    F.tv:resignFirstResponder_()
+    F.tv:removeFromSuperview_()
+    F.tv = nil
+  end
+  if F then F.focused = false end
+end
+
+-- Production end-screen composer: lives in the local player's balloon
+-- (commentFields slot 3), using the exact same field-management functions as
+-- the dev mockup above. Split into two calls because they run at different
+-- points in the frame: the line-cap enforcement must run BEFORE
+-- buildEndScreenModel() (so the just-typed text feeds this frame's balloon
+-- sizing, not next frame's), while positioning must run AFTER
+-- drawEndScreenSpeechBalloons() (so it can read the balloon rect that
+-- function just computed).
+function enforceEndScreenCommentDraft(layout)
+  if not (useTurnBased and not endScreenCommentFieldTornDown) then return end
+  endScreenCommentDraft = enforceCommentFieldLineCap(3, layout.cardHeaderH * 0.44, layout.panelW - 42)
+end
+
+function positionEndScreenCommentField(model, layout)
+  if not (useTurnBased and not endScreenCommentFieldTornDown) then
+    updateCommentField(3, nil, false)
+    return
+  end
+  local ui = model.commentUI
+  local balloonFontSize = layout.cardHeaderH * 0.44
+  local shown = ui and ui.canCompose and (ui.showBalloons ~= false)
+  local F = commentFields[3]
+  local active = shown and ((F and F.focused) or (endScreenCommentDraft ~= ""))
+  positionCommentField(3, endScreenLocalBalloonRect, shown, active, ui and ui.placeholder, balloonFontSize, true, nil)
+end
+
+-- The 7 real situations the end-screen comment balloons can be in (see
+-- STRUCTURE.md "Turn-Based Comment Speech Balloons"). Each entry is a
+-- complete, valid snapshot rather than an independent combination of
+-- toggles, so the debug picker can never land on a state the real game
+-- doesn't produce (e.g. two grey placeholder balloons at once). Only the
+-- LOCAL balloon is ever live-typed in production — the opponent balloon is
+-- always either absent or an already-submitted comment in theme colors —
+-- so localComposing is the only flag that turns on the native text field.
+BALLOON_MOCKUP_STATES = BALLOON_MOCKUP_STATES or {
+  { label = "1 · initiator composing",
+    opponentComment = nil, localComposing = true, localTailUsesOpponentSlot = true },
+  { label = "2 · composing, opponent spoke first",
+    opponentComment = "nice board, that Q tile was brutal", localComposing = true,
+    centerBothBalloons = true, suppressLocalTail = true, localGapExtra = 16 / 6,
+    placeholder = "tap to reply" },
+  { label = "3 · composing, opponent silent",
+    opponentComment = nil, localComposing = true },
+  { label = "4 · only opponent ever commented",
+    opponentComment = "gg, that board was rough", localComposing = false, localComment = nil },
+  { label = "5 · only you ever commented",
+    opponentComment = nil, localComposing = false, localComment = "rematch? I want a redo on that Z" },
+  { label = "6 · both commented",
+    opponentComment = "nice board, that Q tile was brutal", localComposing = false,
+    localComment = "rematch? I want a redo on that Z", localGapExtra = 16 / 6,
+    oppBodyXNudge = -8, localBodyXNudge = 8, localTailXNudge = -9 },
+  { label = "7 · no balloons",
+    opponentComment = nil, localComposing = false, localComment = nil },
+}
+mockupScenarioIndex = mockupScenarioIndex or 1
 
 -- Dev-only static mockup of the turn-based comment balloon overlay.
 -- Reuses the real drawEndScreenSpeechBalloons renderer + the real end-screen
@@ -918,160 +911,133 @@ function drawBalloonMockupOverlay()
   ensureEndScreenLayout()
   local layout = endScreenLayout
 
-  -- Draw card backdrop
-  drawRoundedRect(layout.panelX, layout.panelY, layout.panelW, layout.panelH, layout.cornerRadius or 18, Color.panelBG, Color.panelBG)
+  -- Draw card backdrop — SAME function the real end screen uses (sprite-or-fallback),
+  -- so the panel is pixel-identical, not a parallel drawRoundedRect approximation.
+  drawEndScreenPanelBackground(layout)
 
-  -- Compute avatar area
-  local topY = layout.msgCY + layout.msgH * 0.5
-  local bottomY = layout.scoreCY - layout.scoreH * 0.5
-  local areaCY = (topY + bottomY) * 0.5
-  local areaH = math.max(1, topY - bottomY)
+  if mockupScenarioIndex < 1 or mockupScenarioIndex > #BALLOON_MOCKUP_STATES then
+    mockupScenarioIndex = 1
+  end
+  local scn = BALLOON_MOCKUP_STATES[mockupScenarioIndex]
 
-  -- Draw avatars
-  drawEndUpperRightAvatarsOnly{
-    rightCX = layout.rightCX,
-    areaCY = areaCY,
-    rightW = layout.rightW,
-    areaH = areaH,
-    opponentAvatar = genericOpponentAvatar()
-  }
+  -- Draw the board preview + avatars via drawEndTopRowContent — the SAME function
+  -- drawEndScreenWith() calls — so board size/position and avatar layout are
+  -- guaranteed identical to production rather than a hand-rolled reimplementation.
+  -- Avatars are gated on useTurnBased inside that function; force it on for this one
+  -- call since comment balloons are a turn-based-only feature anyway, so this is the
+  -- state the mockup should always represent regardless of what the menu's last game was.
+  -- Both avatars always draw, in every scenario (see localTailUsesOpponentSlot below
+  -- for how scenario 1's tail is distinguished without hiding either avatar).
+  local savedUseTurnBased = useTurnBased
+  useTurnBased = true
+  drawEndTopRowContent(
+    layout.boardCX, layout.boardCY, layout.boardSide,
+    layout.rightCX, layout.rightW,
+    layout.msgCY, layout.msgH,
+    layout.scoreCY, layout.scoreH,
+    { opponentAvatar = genericOpponentAvatar() }
+  )
+  useTurnBased = savedUseTurnBased
 
-  -- Visual state per balloon: "active" once its OWN field is focused or has text;
-  -- otherwise that balloon shows a greyed-out placeholder state. (Deselecting an
-  -- empty field returns to placeholder; deselecting with text stays active.)
-  local PLACEHOLDER = "tap to comment on this match"
-  local shown1  = (mockupBalloonShown  ~= false)   -- balloon 1 = opponent/top
-  local shown2  = (mockupBalloon2Shown ~= false)   -- balloon 2 = local/bottom
-
-  -- Line cap: a balloon holds at most 3 lines. If a keystroke would wrap the text to a
-  -- 4th line, revert it (block the input) and flash that balloon's text red. Measured
-  -- with the SAME width/font the renderer uses so the check matches the balloon's own wrap.
-  -- All UITextView mutation happens HERE in draw() (never in the objc callbacks).
+  local PLACEHOLDER = scn.placeholder or "tap to comment on this match"
   local balloonFontSize = layout.cardHeaderH * 0.44
   local wrapWidth = layout.panelW - 42            -- == bubbleW - 8 in the renderer
-  local MAX_LINES = 3
-  local function mockupEnforceLineCap(i)
-    local F = mockupFields[i]
-    F.flash = math.max(0, (F.flash or 0) - DeltaTime)
-    local tv = F.tv
-    if not tv then return "" end
-    local s = tostring(tv.text or "")
-    -- Return-to-dismiss: strip any newline (keeps the comment one wrapped paragraph) and
-    -- drop the keyboard. Done here in draw(), not in a textViewDidChange callback.
-    if s:find("\n") then
-      s = (s:gsub("\n", ""))
-      tv.text = s
-      tv:resignFirstResponder_()
-    end
-    local lines = wrapSpeechBalloonText(s, wrapWidth, balloonFontSize)
-    local overflow = #lines > MAX_LINES
-    if not overflow and #lines == MAX_LINES then
-      -- Reserve ~5 characters of headroom on the last line. The native UITextView
-      -- measures slightly differently than this Lua wrap, so a 3rd line filled right to
-      -- the edge (e.g. after tacking on an ellipsis) can wrap to a 4th line in the view
-      -- even while this check still counts 3. Blocking a near-full last line early keeps
-      -- the two in sync and avoids that edge case.
-      pushStyle()
-      font("HelveticaNeue"); fontSize(balloonFontSize)
-      local margin = textSize("nnnnn")            -- ~5 characters of slack
-      if textSize(lines[#lines] or "") > wrapWidth - margin then overflow = true end
-      popStyle()
-    end
-    if overflow then
-      tv.text = F.lastValid or ""                 -- block: revert to the last ≤3-line text
-      F.flash = 0.22                              -- flash red
-      return F.lastValid or ""
-    end
-    F.lastValid = s
-    return s
-  end
-  local txt1    = mockupEnforceLineCap(1)
-  local txt2    = mockupEnforceLineCap(2)
-  local active1 = mockupFields[1].focused or (txt1 ~= "")
-  local active2 = mockupFields[2].focused or (txt2 ~= "")
 
-  -- Draw both balloons via the EXISTING renderer, sized to the TYPED text so each
-  -- balloon grows downward (up to 3 lines) as you type; balloon 2 re-stacks below.
-  -- The balloon is drawn SHAPE-ONLY (suppressText); the native UITextView on top shows
-  -- the wrapped multi-line text with a real caret. When a field is empty the balloon is
-  -- sized to the placeholder and a Codea placeholder is drawn behind the (empty) view.
+  -- Line cap enforcement — shared with the production composer, see
+  -- enforceCommentFieldLineCap() above. Only runs (and only shows a native
+  -- field) while this scenario has you composing; otherwise the local
+  -- balloon is plain already-submitted text, same as production.
+  local localDraft, localActive
+  if scn.localComposing then
+    localDraft  = enforceCommentFieldLineCap(2, balloonFontSize, wrapWidth)
+    localActive = commentFields[2].focused or (localDraft ~= "")
+  else
+    updateCommentField(2, nil, false)
+  end
+
+  -- Draw the balloon(s) via the EXISTING renderer. While composing, the local
+  -- balloon is shape-only (suppressLocalText) and sized to the typed text so
+  -- it grows downward as you type; otherwise it's plain themed text, exactly
+  -- like an already-submitted comment renders in production.
   local model = {
     commentUI = {
-      hasAnyComment = true,
-      showBalloons  = true,          -- master on; per-balloon toggled below
-      showOpponent  = shown1,
-      showLocal     = shown2,
-      opponentComment = (txt1 ~= "" and txt1) or PLACEHOLDER,
-      localComment    = (txt2 ~= "" and txt2) or PLACEHOLDER,
-      suppressText      = true,      -- balloon shape only; UITextView renders the text
-      suppressLocalText = true,
+      hasAnyComment   = true,
+      showBalloons    = true,
+      opponentComment = scn.opponentComment,
+      localComment    = scn.localComposing
+        and ((localDraft ~= "" and localDraft) or PLACEHOLDER)
+        or scn.localComment,
+      suppressLocalText = scn.localComposing or false,
+      localTailUsesOpponentSlot = scn.localTailUsesOpponentSlot or false,
+      centerBothBalloons = scn.centerBothBalloons or false,
+      suppressLocalTail  = scn.suppressLocalTail or false,
+      localGapExtra      = scn.localGapExtra or 0,
+      oppBodyXNudge      = scn.oppBodyXNudge or 0,
+      localBodyXNudge    = scn.localBodyXNudge or 0,
+      localTailXNudge    = scn.localTailXNudge or 0,
     }
   }
-  local offFill   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
-  local offStroke = color(168, 168, 168, 255)  -- outline: a little darker
-  if not active1 then
-    model.commentUI.oppFillOverride   = offFill
-    model.commentUI.oppStrokeOverride = offStroke
-  end
-  if not active2 then
-    model.commentUI.localFillOverride   = offFill
-    model.commentUI.localStrokeOverride = offStroke
+  if scn.localComposing and not localActive then
+    model.commentUI.localFillOverride   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
+    model.commentUI.localStrokeOverride = color(168, 168, 168, 255)  -- outline: a little darker
   end
   drawEndScreenSpeechBalloons(model, layout)
 
-  -- Native UITextView inside each balloon (real typing). Its font size (balloonFontSize,
-  -- computed above to match the renderer's layout.cardHeaderH * 0.44) makes native wrapping
-  -- ≈ the balloon's measured wrapping, keeping the shape sized to fit the text. When a field
-  -- is empty, Codea draws the placeholder (bold italic) behind the (empty) view.
-  local function positionMockupField(i, balloonRect, shownFlag, activeFlag, setHitRect)
-    if shownFlag and balloonRect then
-      local br = balloonRect
-      local fRect = { x = br.x + 6, y = br.y + 6, w = br.w - 12, h = br.h - 12 }
-      updateMockupField(i, fRect, true, balloonFontSize)
-      setHitRect({ cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h })
-      if not activeFlag then
-        local pc = Color.tileText or color(40, 80, 60)
-        fill(pc.r, pc.g, pc.b, 204)                       -- 20% transparent
-        textMode(CENTER); textAlign(CENTER)
-        font("HelveticaNeue-BoldItalic")
-        fontSize(18)
-        text(PLACEHOLDER, br.x + br.w * 0.5, br.y + br.h * 0.5)
-      end
-    else
-      updateMockupField(i, nil, false)
-      setHitRect(nil)
-    end
+  -- Positioning + placeholder — shared with the production composer, see
+  -- positionCommentField() above.
+  if scn.localComposing then
+    positionCommentField(2, endScreenLocalBalloonRect, true, localActive, PLACEHOLDER, balloonFontSize, true, nil)
   end
-  positionMockupField(1, endScreenOppBalloonRect,   shown1, active1, function(r) mockupFieldRect  = r end)
-  positionMockupField(2, endScreenLocalBalloonRect, shown2, active2, function(r) mockupField2Rect = r end)
 
-  -- Bottom buttons (stacked): show/hide balloon 1, show/hide balloon 2,
-  -- text-entry toggle, close.
-  local mtBtnW = layout.panelW * 0.66
-  local mtBtnH = 46
-  local mtGap  = 10
-  local mtBtnCX = layout.panelX
-  local closeCY = (layout.panelY - layout.panelH * 0.5) + 18 + mtBtnH * 0.5
-  local entryCY = closeCY + (mtBtnH + mtGap)
-  local show2CY = closeCY + 2 * (mtBtnH + mtGap)
-  local show1CY = closeCY + 3 * (mtBtnH + mtGap)
-  local function mockupButton(cy, label, setRect)
-    drawRoundedRect(mtBtnCX, cy, mtBtnW, mtBtnH, 20, Color.uiAccent, Color.uiAccent)
+  -- Scenario chips (one tap = one complete, valid state) + close, replacing
+  -- the old free-form show/hide + text-entry toggles that could express
+  -- combinations the real game never produces.
+  local rowW    = layout.panelW * 0.66
+  local chipGap = 5
+  local chipW   = (rowW - chipGap * 6) / 7
+  local chipH   = 40
+  local rowCX   = layout.panelX
+  local rowLeft = rowCX - rowW * 0.5
+  local closeBtnH = 44
+  local closeCY = (layout.panelY - layout.panelH * 0.5) + 18 + closeBtnH * 0.5
+  local chipCY  = closeCY + closeBtnH * 0.5 + 12 + chipH * 0.5
+
+  mockupChipRects = {}
+  for i = 1, 7 do
+    local cx = rowLeft + chipW * 0.5 + (i - 1) * (chipW + chipGap)
+    local isActive = (i == mockupScenarioIndex)
+    local chipFill = isActive and (Color.tileText or color(20, 60, 50, 255)) or Color.uiAccent
+    drawRoundedRect(cx, chipCY, chipW, chipH, 10, chipFill, chipFill)
     pushStyle()
     fill(255)
     textMode(CENTER); textAlign(CENTER)
     font("HelveticaNeue-Bold")
-    fontSize(17)
-    text(label, mtBtnCX, cy + 1)
+    fontSize(16)
+    text(tostring(i), cx, chipCY + 1)
     popStyle()
-    setRect({ cx = mtBtnCX, cy = cy, w = mtBtnW, h = mtBtnH })
+    mockupChipRects[i] = { cx = cx, cy = chipCY, w = chipW, h = chipH }
   end
-  mockupButton(show1CY, "show/hide balloon 1",     function(r) mockupShowHideBtnRect  = r end)
-  mockupButton(show2CY, "show/hide balloon 2",     function(r) mockupShowHide2BtnRect = r end)
-  mockupButton(entryCY, "turn on/off text entry",  function(r) mockupTextEntryBtnRect = r end)
-  mockupButton(closeCY, "close debug screen",      function(r) mockupCloseBtnRect     = r end)
 
-  -- Caption
+  drawRoundedRect(rowCX, closeCY, rowW, closeBtnH, 20, Color.uiAccent, Color.uiAccent)
+  pushStyle()
+  fill(255)
+  textMode(CENTER); textAlign(CENTER)
+  font("HelveticaNeue-Bold")
+  fontSize(16)
+  text("close debug screen", rowCX, closeCY + 1)
+  popStyle()
+  mockupCloseBtnRect = { cx = rowCX, cy = closeCY, w = rowW, h = closeBtnH }
+
+  -- Scenario caption, just above the chip row
+  pushStyle()
+  fill(Color.tileText or color(255, 255, 255, 255))
+  textMode(CENTER); textAlign(CENTER)
+  font("HelveticaNeue-Italic")
+  fontSize(14)
+  text(scn.label, rowCX, chipCY + chipH * 0.5 + 18)
+  popStyle()
+
+  -- Screen title
   fill(255)
   textMode(CENTER)
   font("HelveticaNeue")
@@ -1081,11 +1047,20 @@ function drawBalloonMockupOverlay()
   popStyle()
 end
 
-local function drawEndScreenCommentField(rect, ui)
-  if not (rect and ui and ui.canCompose) then return end
-  endScreen2PButtonRect = rect
-  endScreenButtonAction = commitEndScreenCommentAndExit
-  updateEndScreenNativeCommentField(rect, ui)
+-- Confirms + starts a rematch against this match's opponent, exactly like the
+-- menu's "re" button. The actual matchmaking is deferred until the end
+-- screen has fully disposed of itself (see pendingRematchAfterEndScreenExit
+-- in ConfettiEffectsEtc.lua) so it can't race the season-transition fade.
+function offerEndScreenRematch()
+  local q = currentQMatch
+  if not (q and q.players) then return end
+  if persistLastMatchReplaySettingsFromQMatch then
+    persistLastMatchReplaySettingsFromQMatch(q)
+  end
+  confirmRematchAgainstLastOpponent(function()
+    pendingRematchAfterEndScreenExit = true
+    disposeEndScreenAndReturnToMenu()
+  end)
 end
 
 local function clearMissedWordsJob()
@@ -1289,7 +1264,28 @@ function buildEndScreenModel()
   local line2 = (complete and assignedOpponent)
   and string.format("Win/Loss vs This Player: %d / %d", wins, losses)
   or nil
-  
+
+  -- While composing, the balloon shows the live draft (or a placeholder so it
+  -- renders/grows even before any text exists) instead of the (not yet
+  -- submitted) persisted comment. suppressLocalText hides the Codea-drawn
+  -- text since the native UITextView renders it instead; the grey
+  -- fill/stroke overrides mark the balloon as "not active yet" until the
+  -- field is focused or has text, matching the balloon mockup's states.
+  local placeholderText = commentInfo and commentInfo.opponentPlayed
+    and "Add a reply to their comment"
+    or "Add a comment about this match"
+  local composingActive = (commentFields and commentFields[3] and commentFields[3].focused) or (endScreenCommentDraft ~= "")
+  local composingOffFill   = color(214, 214, 214, 255)
+  local composingOffStroke = color(168, 168, 168, 255)
+
+  local rematchInfo = nil
+  if is2P and complete and assignedOpponent then
+    rematchInfo = {
+      canOffer = true,
+      label = "Play " .. (oppDisplayName ~= "" and oppDisplayName or "them") .. " again?",
+    }
+  end
+
   return {
     missedWords = missedWords,
     missedWordsPending = matchComplete and (q ~= nil) and not (q and q.missedWords),
@@ -1339,14 +1335,19 @@ function buildEndScreenModel()
     
     commentUI = {
       canCompose = canComposeComment,
-      placeholder = commentInfo and commentInfo.isResponderTurn
-        and "Add a reply, then press return"
-        or "Add a comment, then press return",
-      localComment = localComment,
+      placeholder = placeholderText,
+      localComment = canComposeComment
+        and ((endScreenCommentDraft ~= "" and endScreenCommentDraft) or placeholderText)
+        or localComment,
       opponentComment = opponentComment,
       showBalloons = endScreenSpeechBalloonsVisible,
-      hasAnyComment = (localComment ~= "" or opponentComment ~= ""),
-    }
+      hasAnyComment = (localComment ~= "" or opponentComment ~= "" or canComposeComment),
+      suppressLocalText   = canComposeComment,
+      localFillOverride   = (canComposeComment and not composingActive) and composingOffFill   or nil,
+      localStrokeOverride = (canComposeComment and not composingActive) and composingOffStroke or nil,
+    },
+
+    rematch = rematchInfo,
   }
 end
 
@@ -1378,6 +1379,9 @@ function drawEndScreenFP()
     clearMissedWordsJob()
   end
   ensureEndScreenLayout()
+  -- Must run BEFORE buildEndScreenModel() so this frame's just-typed text
+  -- feeds this frame's balloon sizing (not next frame's).
+  enforceEndScreenCommentDraft(endScreenLayout)
   local model = buildEndScreenModel()
   syncEndScreenCommentState(model)
   drawEndScreenWith(model, endScreenLayout)
@@ -1433,20 +1437,11 @@ local function drawMissedCardActivityIndicator(rect)
   popStyle()
 end
 
-function drawEndScreenWith(model, layout)
+-- Shared panel backdrop: real sprite (baked per-season, see rebuildOverlayPanelsForSeason)
+-- when available, else a flat rounded rect. Used by both the production end screen and
+-- the balloon mockup so the two never visually drift apart.
+function drawEndScreenPanelBackground(layout)
   local C = Color
-  
-  -- dim overlay
-  if model.dimColor then
-    pushStyle()
-    fill(model.dimColor)
-    noStroke()
-    rectMode(CORNER)
-    rect(0,0,WIDTH,HEIGHT)
-    popStyle()
-  end
-  
-  -- panel
   local panelSprite = overlayPanelEnd
   if panelSprite then
     pushStyle()
@@ -1463,6 +1458,23 @@ function drawEndScreenWith(model, layout)
     bg, bg
     )
   end
+end
+
+function drawEndScreenWith(model, layout)
+  local C = Color
+  
+  -- dim overlay
+  if model.dimColor then
+    pushStyle()
+    fill(model.dimColor)
+    noStroke()
+    rectMode(CORNER)
+    rect(0,0,WIDTH,HEIGHT)
+    popStyle()
+  end
+  
+  -- panel
+  drawEndScreenPanelBackground(layout)
   
   -- top row
   drawEndTopRowContent(
@@ -1586,18 +1598,24 @@ function drawEndScreenWith(model, layout)
   end
   
   ------------------------------------------------------------
-  -- button
+  -- button (rematch — occupies the rect the old comment field used to sit
+  -- in; the composer itself now lives inside the local speech balloon below)
   ------------------------------------------------------------
-  
-  if model.commentUI and model.commentUI.canCompose then
-    drawEndScreenCommentField(layout.playAgainRect, model.commentUI)
+
+  if model.rematch and model.rematch.canOffer then
+    drawEndScreenButton(layout.playAgainRect, model.rematch.label, offerEndScreenRematch)
   else
     endScreen2PButtonRect = nil
     endScreenButtonAction = nil
-    updateEndScreenNativeCommentField(nil, nil)
   end
-  
+
   drawEndScreenSpeechBalloons(model, layout)
+
+  -- Native comment UITextView + placeholder, positioned over the local
+  -- balloon's rect (set as a side effect inside drawEndScreenSpeechBalloons
+  -- above). Same shared field code the dev mockup uses — see
+  -- positionEndScreenCommentField() near drawBalloonMockupOverlay.
+  positionEndScreenCommentField(model, layout)
 
   ------------------------------------------------------------
   -- close button
@@ -1727,7 +1745,8 @@ function keyboard(key)
   end
   
   if key == RETURN or key == "\n" or keyString == "RETURN" then
-    commitEndScreenCommentAndExit()
+    -- Return only ever dismisses text entry — it must never submit the
+    -- comment or close the end screen (that's the ×/rematch buttons' job).
     return
   end
   

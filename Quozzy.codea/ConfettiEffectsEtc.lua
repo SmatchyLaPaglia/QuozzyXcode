@@ -255,6 +255,16 @@ function updateSeasonTransition(dt)
         tr.switched = true
         nextHaiku()
         state = STATE_MENU
+
+        -- Deferred rematch: the end-screen rematch button sets this flag and
+        -- starts this same transition to dispose of itself. Matchmaking must
+        -- not fire until state has actually settled on STATE_MENU, or the
+        -- transition's own completion (right here) would stomp a freshly
+        -- started match's state back to STATE_MENU underneath it.
+        if pendingRematchAfterEndScreenExit then
+            pendingRematchAfterEndScreenExit = false
+            if startLastMatchReplayFromMenu then startLastMatchReplayFromMenu() end
+        end
     end
     
     if tr.totalElapsed >= tr.totalTime then

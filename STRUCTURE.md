@@ -198,8 +198,9 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
   e.g. `function(bSuccess)` not `function(success)` — unprefixed params receive nil
 - NEVER call UIKit/Codea (or anything that touches Codea's draw cycle) from inside an objc
   callback/delegate — it can crash. Callbacks must ONLY set a Lua flag/var; do the real work in
-  draw() when it detects the flag. (e.g. mockup UITextViewDelegate sets F.focused only; text
-  mutation + resignFirstResponder happen in draw() via mockupEnforceLineCap — EndScreenFP.lua)
+  draw() when it detects the flag. (e.g. comment-balloon UITextViewDelegate sets F.focused
+  only; text mutation + resignFirstResponder happen in draw() via enforceCommentFieldLineCap
+  — EndScreenFP.lua, shared by the mockup and the production composer)
 - openURL_options_completionHandler_(url, {}, nil) — empty table {} works as NSDictionary; nil ok for completion handler
 - "app-settings:" opens app's own Settings.bundle page (not Game Center); requires Settings.bundle to show content
 - Re-assigning authenticateHandler does NOT call the handler again — bridge ignores it after initial auth cycle
@@ -296,18 +297,65 @@ drawEndScreenSpeechBalloons(model, layout)  ← end-screen comment overlay
     avatar order (getEndUpperRightAvatarLayout): originator/opponent = LEFT+higher+bigger,
       responder/local = RIGHT+lower+smaller  (so the responder tail is rightmost)
     local tail base shifted +18 right → sits at first balloon's right end (least text overlap)
-  both tails: tailBaseWidth=18, outlineWidth=7, cornerRadius=16, tailLength 43(opp)/40(local)
+    ui.localTailUsesOpponentSlot (2026-07-19, drawEndScreenSpeechBalloons model.commentUI
+      flag, default false — existing callers unaffected): BOTH avatars always draw
+      regardless of this flag (getEndUpperRightAvatarLayout/drawEndUpperRightAvatarsOnly
+      take no visibility args — an earlier version of this fix hid the opponent avatar
+      when true, which was wrong; the avatar circles never change, only the tail does).
+      When true, the LOCAL balloon's tail X uses avatarLayout.opponentX (no +18) — the
+      same X the opponent balloon's tail uses — instead of avatarLayout.localX + 18; Y
+      stays avatarLayout.localY (balloon still sits in the normal bottom slot). This is
+      what makes mockup scenario 1 (initiator composing, nobody has spoken yet, so the
+      lone balloon reads as the FIRST word) visually distinct from scenario 3 (opponent
+      played but stayed silent — a real reply-shaped silence) even though both show one
+      grey placeholder balloon.
+  both tails: tailBaseWidth=18, outlineWidth=7, cornerRadius=16, tailLength 43*(2/3)(opp)/
+    40*(2/3)(local) — shortened to 2/3 of the original 43/40 on 2026-07-20, applies to EVERY
+    balloon (mockup and production alike, not scenario-gated — this one's a real renderer change)
   height: each balloon is sized to its wrapped text (measureSpeechBalloonText), capped at
-    maxBalloonLines=3 (then ellipsized). Opponent is TOP-anchored (y=boardBottom-4-bH) so it
-    GROWS DOWNWARD; local's y=oppRect.y-14-bH sits just below opponent's bottom, so it moves
-    DOWN as opponent grows and itself grows downward. No manual restacking needed.
+    maxBalloonLines=3 (then ellipsized). Opponent is TOP-anchored (y=boardBottom-14-bH — same
+    "14" offset as the solo-local fallback below, 2026-07-19, was "-4" and sat visibly higher
+    than a solo balloon; unified so the topmost balloon lands at the same height whether it's
+    alone or has a second balloon stacked under it) so it GROWS DOWNWARD; local's
+    y=oppRect.y-localGap-bH (localGap = 14 + ui.localGapExtra, default extra 0) sits below
+    opponent's bottom, so it moves DOWN as opponent grows and itself grows downward. No manual
+    restacking needed. ui.localGapExtra (2026-07-19, tuned down twice same day after review:
+    16 → 16/3 → 16/6): mockup scenario 2 sets 16/6 (≈16.7 total, barely more than the default
+    14) so its centered, tail-less composer reads as visually separate from the opponent's real
+    comment above it rather than nearly touching at the default 14. Scenario 6 (both commented,
+    normal staggered/tailed layout, 2026-07-20) sets the SAME 16/6 for visual consistency —
+    only the gap matches between the two scenarios, not centering or tail suppression.
+  ui.oppBodyXNudge / ui.localBodyXNudge (2026-07-20, default 0 each): shifts that balloon's
+    BODY rect.x only, exploratory-only so far (mockup scenario 6: opp -8, local +8 — tuned down
+    from an initial -10/+10 same day, "pull each balloon 2px back from the edge it was
+    overflowing"). Deliberately does NOT touch the tail: opponent's tailAnchorOverrideX stays
+    avatarLayout.opponentX and local's stays localTailX, both computed independently of rect.x,
+    so the tail tip stays exactly where it was — only the body slides under it.
+  ui.localTailXNudge (2026-07-20, default 0): shifts ONLY the local balloon's tail X (added to
+    localTailX above), independent of ui.localBodyXNudge which shifts the body. Mockup scenario
+    6 sets -9 — half of tailBaseWidth (18) — moving the lower balloon's tail left of its normal
+    avatarLayout.localX+18 anchor.
   solo centering: when only ONE balloon is visible (comment~="" AND its show flag on), it is
     horizontally centered (x=panelX-bubbleW/2); both visible → staggered left/right. Tail stays
     put across the shift (base anchored to avatar X, which is inside the body either way).
+    ui.centerBothBalloons (2026-07-19, default false): overrides the above so BOTH balloons use
+      the centered X regardless of how many are shown — a no-op for solo cases (already
+      centered), only changes the "both shown" case. Used by mockup scenario 2 so the
+      opponent's real comment reads as centered/standalone rather than staggered against an
+      empty composer.
+  ui.suppressLocalTail (2026-07-19, drawEndScreenSpeechBalloons model.commentUI flag, default
+    false): local balloon draws as a plain rounded rect with NO tail triangle at all (see
+    drawSpeechBalloon opts.noTail below). Used by mockup scenario 2's composer balloon —
+    paired with centerBothBalloons so it reads as a plain centered input box under the
+    opponent's (real, tailed) comment, rather than a second speech bubble competing for the
+    same avatar-pointing visual language.
 
 drawSpeechBalloon(rect, text, tailAnchorX, tailAnchorY, tailSide, fill, outline, opts)  ← single balloon
   opts.lines (precomputed, already ≤maxLines) is used for drawing; opts.maxLines only feeds the
   fallback wrap when opts.lines is absent. wrapSpeechBalloonText(txt,w,fs,maxLines) caps + ellipsizes.
+  opts.noTail (2026-07-19, default false): skips ALL tail geometry (fill triangle, border tail
+    mesh, tip cap circle) — just the body rounded-rect (fill) + expanded rounded-rect (border)
+    + text. tailAnchorX/Y and tailSide are ignored when set.
   FILL: sharp-point tail triangle (P1,P2,tip) + body rounded-rect
   BORDER: two outward-offset side strips (uniform perpendicular width, any lean)
           + line-cap circle (radius=outlineW) at the sharp tip  ← rounds ONLY the outline
@@ -339,57 +387,91 @@ Side effects: sets globals endScreenOppBalloonRect / endScreenLocalBalloonRect =
 ### Dev mockup = comment-entry prototype (menu 🐛 button)
 
 ```
+Panel + board + avatars (2026-07-19): drawBalloonMockupOverlay() used to hand-roll its
+  own drawRoundedRect panel and an avatar-only draw (no board preview), which drifted
+  visually from the real end screen. Fixed by extracting drawEndScreenPanelBackground(layout)
+  (sprite-or-fallback panel bg, used by both) and having the mockup call the SAME
+  drawEndTopRowContent() the real end screen uses (draws board preview + avatars in one
+  shot) instead of a partial reimplementation. useTurnBased is force-set true for the
+  duration of that one call (then restored) since avatars are gated on it inside
+  drawEndTopRowContent and comments are a turn-based-only feature anyway — this also
+  means the mockup no longer draws the single-player score line (correct: production
+  doesn't either, in the 2P state comments actually appear in). Board preview pulls tiles
+  from currentQMatch.boardTiles, falling back to the live `board` global (still populated
+  at STATE_MENU from the menu's own board preview) — so it renders even with no match loaded.
+  Panel geometry (layout.panelX/Y/W/H) was ALREADY numerically identical between mockup and
+  production (both read the same cached endScreenLayout) — the visual mismatch was the
+  panel's fill style + missing board/avatar chrome, not the size.
+
+7-state scenario picker (2026-07-19, replaced the old 4-button free-toggle design):
+  the old "show/hide balloon 1", "show/hide balloon 2", "turn on/off text entry" buttons
+  were three INDEPENDENT toggles — 8 combinations, several of which the real game never
+  produces (e.g. both balloons simultaneously grey/placeholder — the opponent balloon is
+  NEVER live-typed or grey in production, it's only ever absent or an already-submitted
+  themed comment). Replaced with BALLOON_MOCKUP_STATES, a fixed array of the 7 actual
+  situations the end screen can be in (see "Turn-Based Comment Speech Balloons" above for
+  the states themselves). Each entry is a COMPLETE valid snapshot (opponentComment string
+  or nil, localComposing bool, localComment string or nil, plus optional per-entry overrides:
+  placeholder (composer placeholder text, default "tap to comment on this match" — scenario 2
+  uses "tap to reply"), localTailUsesOpponentSlot, centerBothBalloons, suppressLocalTail,
+  localGapExtra — see drawEndScreenSpeechBalloons above for what each does) — picking one
+  can't land on an impossible combination by construction. mockupScenarioIndex (global, 1-7) selects the
+  active entry; drawn as 7 small numbered chips (mockupChipRects, direct-jump, not
+  prev/next) so QA can A/B any two states in one tap each, plus a caption showing the
+  active entry's label. Only entries with localComposing=true ever create/show the native
+  UITextView (commentFields[2]) — historical entries (4/5/6) just pass canned text through
+  suppressLocalText=false so the renderer draws it exactly like an already-submitted
+  comment in production. commentFields[1] (opponent) is fully unused now — the opponent
+  balloon is always plain model text via drawEndScreenSpeechBalloons, never a live field.
+
 drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons.
-  Shows BOTH balloons (1 = opponent/top, 2 = local/bottom), each with its OWN native
-  UITextField for real typing. Placeholder text (both): "tap to comment on this match".
-  Feeds the renderer each balloon's TYPED text (or the placeholder string when empty, so
-  the empty rects still stack), so each balloon GROWS DOWNWARD as you type (up to 3 lines,
-  §renderer) and balloon 2 re-stacks below balloon 1 automatically.
   real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
-  + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar)
+  + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar), same as
+  production (see panel/board/avatar note above).
 
-  Two visual states PER BALLOON (active = its own field focused OR has text):
-    OFF/placeholder: that balloon fill=light gray (214) opaque, outline=(168) opaque
-      via per-balloon opp/localFillOverride+StrokeOverride; balloon is shape-only and a
-      Codea-drawn placeholder (Color.tileText @ 80%, bold italic) shows behind the empty view.
-    ON/active: normal seasonal colors; the UITextView shows the typed text (Color.panelBG).
-    Each balloon flips independently; deselecting an empty field returns it to OFF.
+  For composing entries the local balloon has two visual states (active = the field is
+  focused OR has text): OFF/placeholder = fill=light gray (214) opaque, outline=(168)
+  opaque via localFillOverride/localStrokeOverride, shape-only with a Codea-drawn
+  placeholder (Color.tileText @ 80%, bold italic) behind the empty view; ON/active =
+  normal seasonal colors, the UITextView shows the typed text (Color.panelBG).
 
-  Native UITextVIEWs (mockupFields[1..2]) show the VISIBLE multi-line text with a real caret
-    (a UITextField can't wrap). The balloon is drawn SHAPE-ONLY (suppressText/suppressLocalText
-    always true in the mockup) and sized to the typed text, so the shape grows to fit.
+  Native UITextView (commentFields[2] — slot 3 is the production composer, see
+    "Production Comment Composer" section below; slot 1 is unused, see above) shows the
+    VISIBLE multi-line text with a real caret (a UITextField can't wrap). The balloon is
+    drawn SHAPE-ONLY (suppressLocalText=true) while composing and sized to the typed
+    text, so the shape grows to fit.
     - font = balloonFontSize (layout.cardHeaderH*0.44, matches the renderer) so native
       wrapping ≈ the balloon's measured wrapping → the shape fits the text; lineFragmentPadding=0
-    - 3-LINE HARD CAP (mockupEnforceLineCap, runs in draw()): each frame it re-measures the
-      field text with wrapSpeechBalloonText(text, panelW-42, balloonFontSize); if it would wrap
-      to a 4th line, tv.text is reverted to the field's last ≤3-line value (F.lastValid) — so a
-      4th line is blocked. ALSO blocks a near-full 3rd line: when the wrap is exactly 3 lines and
-      the last line's width is within ~5 chars (textSize("nnnnn")) of wrapWidth, it is treated as
-      overflow too. The native UITextView wraps slightly differently than this Lua measure, so a
-      3rd line filled to the edge (e.g. after adding an ellipsis) could sneak to a 4th line in the
-      view while this check still counted 3; the 5-char margin keeps them in sync.
+    - 3-LINE HARD CAP (enforceCommentFieldLineCap, runs in draw(), shared with production):
+      each frame it re-measures the field text with wrapSpeechBalloonText(text, panelW-42,
+      balloonFontSize); if it would wrap to a 4th line, tv.text is reverted to the field's
+      last ≤3-line value (F.lastValid) — so a 4th line is blocked. ALSO blocks a near-full
+      3rd line: when the wrap is exactly 3 lines and the last line's width is within ~5
+      chars (textSize("nnnnn")) of wrapWidth, it is treated as overflow too. The native
+      UITextView wraps slightly differently than this Lua measure, so a 3rd line filled to
+      the edge (e.g. after adding an ellipsis) could sneak to a 4th line in the view while
+      this check still counted 3; the 5-char margin keeps them in sync.
       On block F.flash is set to 0.22s, which turns the native text RED
       (color 224,48,48) until it decays. (scrollEnabled=true is left on but mostly moot now that
-      input is capped.) Return-to-dismiss is also handled here: any "\n" stripped + resignFirstResponder.
+      input is capped.) Return-to-dismiss is also handled here: any "\n" stripped + resignFirstResponder
+      (does NOT submit/close anything — see "Production Comment Composer" below).
     - ObjC-callback safety: the UITextViewDelegate callbacks (textViewDidBegin/EndEditing_) ONLY
       set the Lua F.focused flag. ALL UITextView mutation (text revert, newline strip,
-      resignFirstResponder) is done in draw() via mockupEnforceLineCap — never from a callback
-      (calling UIKit/Codea from an objc callback can crash the draw cycle). Params are
-      type-prefixed (oTV). ONE shared delegate; dispatches per view via tv.tag (=1/2).
+      resignFirstResponder) is done in draw() via enforceCommentFieldLineCap — never from a
+      callback (calling UIKit/Codea from an objc callback can crash the draw cycle). Params are
+      type-prefixed (oTV). ONE shared delegate; dispatches per view via tv.tag (=2/3 now).
     - host view = objc.viewer.view.subviews[1]; frame via codeaToUIKitRect (y-flip), re-set
       each frame from the (growing) balloon rect
     - ASSIGN Codea color() DIRECTLY to UIColor props (tv.textColor/backgroundColor);
       objc.UIColor:colorWithRed_green_blue_alpha_ was unreliable for textColor here
     - no keyboard avoidance needed (balloons sit high; keyboard covers the bottom)
-    - teardownMockupTextField() (global) called from Main.lua on close tears down BOTH
+    - teardownMockupTextField() (global) called from Main.lua on close tears down slot 2 only
     - UITextView top-aligns its text (vs the renderer centering) — negligible while the shape
       is sized to the text; only shows as a little bottom slack at the balloon min-height
 
-  Four bottom buttons (rects stored as globals, handled in Main.lua touched()):
-    "show/hide balloon 1"    → mockupBalloonShown   (hides balloon 1 + its field)
-    "show/hide balloon 2"    → mockupBalloon2Shown  (hides balloon 2 + its field)
-    "turn on/off text entry" → mockupTextEntryEnabled (both fields' userInteractionEnabled)
-    "close debug screen"     → dismiss (teardown + balloonMockupOverlay=false)
+  Bottom controls (rects stored as globals, handled in Main.lua touched()):
+    7 chips (mockupChipRects[1..7]) → mockupScenarioIndex = tapped index (direct-jump)
+    "close debug screen" (mockupCloseBtnRect) → dismiss (teardown + balloonMockupOverlay=false)
     Tap-anywhere-to-dismiss was REMOVED; only "close debug screen" dismisses.
 
   Gating: BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette + skips
@@ -403,3 +485,113 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
 | comment balloons draw | EndScreenFP.lua | drawEndScreenSpeechBalloons(), drawSpeechBalloon() |
 | balloon dev mockup | EndScreenFP.lua | drawBalloonMockupOverlay() (menu 🐛 / BALLOON_MOCKUP_DEV) |
 | end-screen avatar layout | EndScreenFuncs.lua | getEndUpperRightAvatarLayout(), drawEndUpperRightAvatarsOnly() |
+
+## Production Comment Composer + End-Screen Rematch Button (2026-07-15)
+
+```
+The OLD single-line UITextField composer (sat over layout.playAgainRect, tap-to-focus
+via Lua rect check, Return-to-submit) was REPLACED by a UITextView embedded directly
+in the local player's speech balloon.
+
+IMPORTANT (2026-07-15 correction): the first pass at this reimplemented the mockup's
+field logic in parallel (its own ensure/update functions) instead of reusing it, and
+the reimplementation silently dropped the placeholder-draw call and diverged in other
+small ways — invisible "tap to comment" text, misaligned content. Fixed by GENERALIZING
+the mockup's own functions in place and having BOTH the mockup and production call the
+identical code — not two versions of the same logic. If this composer needs further
+changes, edit the SHARED functions below; do not add a third parallel implementation.
+
+commentFields (global table, [i] = {tv, focused, flash, lastValid}) [EndScreenFP.lua,
+  right before drawBalloonMockupOverlay — must be after wrapSpeechBalloonText, which
+  enforceCommentFieldLineCap calls]
+  Slots 1/2 = dev mockup (opponent/local). Slot 3 = production end-screen local composer.
+  Declared as a plain global (no `local`) specifically so teardownEndScreenCommentField()
+  — defined earlier in the file, called cross-tab from EndScreen.lua — can reach it
+  despite textual ordering (Codea cross-tab global pattern: locals are chunk-scoped,
+  globals resolve at runtime regardless of definition order).
+
+  Shared functions (all take a slot index `i`, so one code path serves every caller):
+    ensureCommentFieldDelegate() / ensureCommentField(i, fontSize) — creates the UITextView
+    updateCommentField(i, rect, shown, fontSize, textEntryEnabled) — shows/hides/positions
+    enforceCommentFieldLineCap(i, fontSizeValue, wrapWidth) — 3-line hard cap + red flash
+      (RETURN KEY: strips itself + resigns first responder ONLY — does NOT submit or close
+      the end screen; changed 2026-07-15, previously Return == commit-and-exit)
+    positionCommentField(i, balloonRect, shownFlag, activeFlag, placeholderText,
+      fontSizeValue, textEntryEnabled, setHitRect) — positions the field AND draws the
+      Codea placeholder (bold italic, tileText@80%, dead-centered) behind it when inactive
+    teardownMockupTextField() — tears down ONLY slots 1/2 (loop is `for i=1,2`, not
+      `#commentFields`, so it never touches slot 3)
+    teardownEndScreenCommentField() — tears down ONLY slot 3
+
+  Production entry points (called from drawEndScreenFP/drawEndScreenWith):
+    enforceEndScreenCommentDraft(layout) — must run BEFORE buildEndScreenModel() so this
+      frame's typed text feeds this frame's balloon sizing, not next frame's (the mockup
+      avoids this ordering issue by doing enforce→build-model→draw inline in one function;
+      production splits across drawEndScreenFP/drawEndScreenWith so needs the explicit split)
+    positionEndScreenCommentField(model, layout) — called after drawEndScreenSpeechBalloons
+      (needs endScreenLocalBalloonRect, which that call sets as a side effect)
+    Both gated on `useTurnBased and not endScreenCommentFieldTornDown` — single-player end
+    screens never touch slot 3 at all (no wasted UITextView creation).
+
+buildEndScreenModel() commentUI, while composing (canComposeComment==true):
+  localComment  = live draft (endScreenCommentDraft) or placeholder text (so the balloon
+                  renders/grows even before any text exists)
+  suppressLocalText = true (native UITextView draws the real text on top)
+  localFillOverride/localStrokeOverride = grey "off" colors until focused or has text
+                  (composingActive = commentFields[3].focused or draft~="")
+  Once submitted, canComposeComment goes false and the SAME balloon flips back to normal
+  rendering of the real persisted pLocal.comment — no separate code path.
+
+  Also fixed here: commentInfo.isResponderTurn (referenced by the old placeholder-text
+  ternary) never actually existed on currentFinalCommentPhase()'s return table — it returns
+  `opponentPlayed`. Placeholder logic now reads commentInfo.opponentPlayed correctly.
+
+BALLOON VISIBILITY TOGGLE (endScreenSpeechBalloonsVisible, EndScreen.lua): tapping
+  g.topToggleRect (the avatar/board/message row, above where balloons render) OR tapping
+  directly on a non-editable balloon toggles all balloons show/hide. "Non-editable" =
+  the opponent balloon always, or the local balloon whenever it ISN'T the live composer
+  (a live composer's native UITextView intercepts its own taps via normal UIKit hit-testing
+  before they ever reach Codea's touched(), so no explicit exclusion code is needed beyond
+  checking shouldShowFinalCommentComposer()). Gated on endScreenHasVisibleBalloons() (true
+  once composing OR once either player has a persisted comment) so tapping does nothing
+  when there's nothing to toggle.
+
+REMATCH BUTTON (occupies layout.playAgainRect, now freed since the composer moved into
+the balloon): shown when is2P && complete && assignedOpponent (model.rematch.canOffer).
+  offerEndScreenRematch() [EndScreenFP.lua] → force-persists replay settings from
+  currentQMatch (so getLastMatchReplaySettings() can't be stale/from a different match)
+  → confirmRematchAgainstLastOpponent(onConfirmed) [Main.lua, shared with the menu's "re"
+  button — same message/avatar/record wording] → on "heck yeah": sets
+  pendingRematchAfterEndScreenExit=true, then disposeEndScreenAndReturnToMenu()
+  [EndScreen.lua — extracted from the old × handler, shared by both].
+
+  RACE AVOIDED: startLastMatchReplayFromMenu() (the async GC matchmaking call) is NOT
+  fired immediately on confirm. updateSeasonTransition() [ConfettiEffectsEtc.lua]
+  unconditionally sets state=STATE_MENU ~0.7s after startSeasonTransition() — if
+  matchmaking's enterQMatch() callback landed AFTER that but a naive implementation had
+  already forced state=STATE_READY/PLAY, the transition's own completion would stomp it
+  back to STATE_MENU underneath the freshly-started match. Fix: pendingRematchAfterEndScreenExit
+  is only consumed (calling startLastMatchReplayFromMenu()) INSIDE updateSeasonTransition()
+  right after it sets state=STATE_MENU — guaranteeing matchmaking never starts until the
+  transition has fully settled. Same guard-flag pattern as the STATE_END transition trap.
+
+GENERIC ALERT IS NOW STATE-INDEPENDENT (was menu-only): showGenericAlert()/drawGenericAlert()
+used to only be drawn/hit-tested from inside drawMenu()/handleMenuTouch() (STATE_MENU only)
+— calling it from STATE_END silently did nothing. Fixed by moving drawGenericAlert() to
+Main.lua draw() (called from both the STATE_MENU branch and the shared tail for other
+states) and extracting the touch-eating block into handleGenericAlertTouch() [HaikuMenu.lua],
+now called from Main.lua touched() BEFORE state routing (same tier as colorInspectorOverlay/
+showInfoOverlay). Required because the rematch confirmation dialog needs to work from the
+end screen, not just the menu.
+```
+
+| concern | file | function |
+|---|---|---|
+| comment field mechanics (shared: mockup slots 1/2 + production slot 3) | EndScreenFP.lua | ensureCommentField(), updateCommentField(), enforceCommentFieldLineCap(), positionCommentField() |
+| production composer entry points | EndScreenFP.lua | enforceEndScreenCommentDraft(), positionEndScreenCommentField() |
+| end-screen rematch button | EndScreenFP.lua | offerEndScreenRematch() |
+| rematch confirm dialog (shared) | Main.lua | confirmRematchAgainstLastOpponent() |
+| end-screen disposal (shared by × and rematch) | EndScreen.lua | disposeEndScreenAndReturnToMenu() |
+| deferred rematch trigger | ConfettiEffectsEtc.lua | updateSeasonTransition() — pendingRematchAfterEndScreenExit |
+| generic alert touch (state-independent) | HaikuMenu.lua | handleGenericAlertTouch() |
+| balloon visibility toggle (tap above/on balloon) | EndScreen.lua | endScreenHasVisibleBalloons(), handleEndScreenTouch() |

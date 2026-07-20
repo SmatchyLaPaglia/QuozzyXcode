@@ -880,9 +880,6 @@ function drawMenu()
 
   popStyle()
 
-  -- Generic alert overlay (drawn on top of everything)
-  drawGenericAlert()
-
   -- Draw row dividers (pink lines at section boundaries)
   if showRowDividers then
     pushStyle()
@@ -909,56 +906,59 @@ genericAlertConfig = genericAlertConfig or nil
 genericAlertRects = genericAlertRects or nil
 
 ------------------------------------------------------------
+-- GENERIC ALERT TOUCH HANDLING (state-independent — called from Main.lua
+-- touched() before state routing, so it works from any screen, not just menu)
+------------------------------------------------------------
+
+function handleGenericAlertTouch(t)
+  if t.state == BEGAN then
+    -- Check which alert button was hit
+    if genericAlertRects then
+      for btnKey, rr in pairs(genericAlertRects) do
+        if type(rr) == "table" and rr.cx and pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h) then
+          pressedButton = btnKey
+          pressedInside = true
+          return
+        end
+      end
+    end
+    pressedButton = nil
+    pressedInside = false
+    return
+  elseif t.state == MOVING then
+    if pressedButton and genericAlertRects and genericAlertRects[pressedButton] then
+      local rr = genericAlertRects[pressedButton]
+      pressedInside = pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h)
+    end
+    return
+  elseif t.state == ENDED then
+    if pressedButton and pressedInside and genericAlertConfig and genericAlertConfig.buttons then
+      -- Extract button index from key ("btn1" -> 1)
+      local btnIdx = tonumber(string.match(pressedButton, "^btn(%d+)$"))
+      if btnIdx then
+        local btn = genericAlertConfig.buttons[btnIdx]
+        if btn and btn.callback then
+          dismissGenericAlert()
+          pressedButton = nil
+          pressedInside = false
+          btn.callback()
+          return
+        end
+      end
+    end
+    -- Tap outside buttons also dismisses
+    dismissGenericAlert()
+    pressedButton = nil
+    pressedInside = false
+    return
+  end
+end
+
+------------------------------------------------------------
 -- NEW TOUCH HANDLER — 6-SECTION HIT TESTING
 ------------------------------------------------------------
 
 function handleMenuTouch(t)
-  -- Generic alert overlay eats all touches
-  if genericAlertActive then
-    if t.state == BEGAN then
-      -- Check which alert button was hit
-      if genericAlertRects then
-        for btnKey, rr in pairs(genericAlertRects) do
-          if type(rr) == "table" and rr.cx and pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h) then
-            pressedButton = btnKey
-            pressedInside = true
-            return
-          end
-        end
-      end
-      pressedButton = nil
-      pressedInside = false
-      return
-    elseif t.state == MOVING then
-      if pressedButton and genericAlertRects and genericAlertRects[pressedButton] then
-        local rr = genericAlertRects[pressedButton]
-        pressedInside = pointInRect(t.x, t.y, rr.cx, rr.cy, rr.w, rr.h)
-      end
-      return
-    elseif t.state == ENDED then
-      if pressedButton and pressedInside and genericAlertConfig and genericAlertConfig.buttons then
-        -- Extract button index from key ("btn1" -> 1)
-        local btnIdx = tonumber(string.match(pressedButton, "^btn(%d+)$"))
-        if btnIdx then
-          local btn = genericAlertConfig.buttons[btnIdx]
-          if btn and btn.callback then
-            dismissGenericAlert()
-            pressedButton = nil
-            pressedInside = false
-            btn.callback()
-            return
-          end
-        end
-      end
-      -- Tap outside buttons also dismisses
-      dismissGenericAlert()
-      pressedButton = nil
-      pressedInside = false
-      return
-    end
-    return
-  end
-
   if t.state == ENDED then
     devLog("DBG_MENU handleMenuTouch ENDED: pressedButton=", tostring(pressedButton))
   end
@@ -1051,27 +1051,9 @@ function handleMenuTouch(t)
 
   elseif key == "playAgain" then
     devLog("DBG_MENU playAgain tapped")
-    if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
-      openGCSignInOverlay()
-    else
-      local settings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
-      if not settings then return end
-      local oppName = settings.opponentName or "that player"
-      local bs = settings.boardSize or boardSize
-      local mwl = settings.minWordLen or MIN_WORD_LEN
-      local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
-      local rec    = opponentRecords and opponentRecords[settings.opponentId]
-      local recWins   = (rec and rec.wins)   or 0
-      local recLosses = (rec and rec.losses) or 0
-      showGenericAlert({
-        message = "Play another " .. bs .. "x" .. bs .. " (minimum length " .. mwl .. ") game against " .. oppName .. "? Your record against them is " .. recWins .. " to " .. recLosses .. ".",
-        avatar  = avatar,
-        buttons = {
-          { text = "heck yeah", callback = function() if startLastMatchReplayFromMenu then startLastMatchReplayFromMenu() end end, isPrimary = true },
-          { text = "nah",       callback = function() end, isPrimary = false },
-        },
-      })
-    end
+    confirmRematchAgainstLastOpponent(function()
+      if startLastMatchReplayFromMenu then startLastMatchReplayFromMenu() end
+    end)
 
   elseif key == "records" then
     openRecordsOverlay()
@@ -1080,11 +1062,9 @@ function handleMenuTouch(t)
     showInfoOverlay = true
 
   elseif key == "debugDialog" then
-    -- Open the balloon mockup overlay (both balloons shown, text entry on)
+    -- Open the balloon mockup overlay, always starting on scenario 1
     balloonMockupOverlay = true
-    mockupBalloonShown = true
-    mockupBalloon2Shown = true
-    mockupTextEntryEnabled = true
+    mockupScenarioIndex = 1
   end
 end
 
