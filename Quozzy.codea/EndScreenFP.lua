@@ -867,13 +867,26 @@ BALLOON_MOCKUP_STATES = BALLOON_MOCKUP_STATES or {
   { label = "2 · composing, opponent spoke first",
     opponentComment = "nice board, that Q tile was brutal", localComposing = true,
     centerBothBalloons = true, suppressLocalTail = true, localGapExtra = 16 / 6,
-    placeholder = "tap to reply" },
+    placeholder = "tap to reply",
+    -- Once real text is typed (not just focus), the composer "becomes" a real
+    -- reply: tail back, both balloons shift to scenario 6's staggered positions.
+    -- Clearing the text back to empty reverts to this entry's own base values above.
+    activeOverrides = {
+      suppressLocalTail  = false,
+      centerBothBalloons = false,
+      oppBodyXNudge      = -8,
+      localBodyXNudge    = 8,
+      localTailXNudge    = -9,
+    } },
   { label = "3 · composing, opponent silent",
-    opponentComment = nil, localComposing = true },
+    -- Same tail X as scenario 5 (avatarLayout.localX + 18 - 9).
+    opponentComment = nil, localComposing = true, localTailXNudge = -9 },
   { label = "4 · only opponent ever commented",
     opponentComment = "gg, that board was rough", localComposing = false, localComment = nil },
   { label = "5 · only you ever commented",
-    opponentComment = nil, localComposing = false, localComment = "rematch? I want a redo on that Z" },
+    opponentComment = nil, localComposing = false, localComment = "rematch? I want a redo on that Z",
+    -- Same tail X as scenario 6's lower balloon (avatarLayout.localX + 18 - 9).
+    localTailXNudge = -9 },
   { label = "6 · both commented",
     opponentComment = "nice board, that Q tile was brutal", localComposing = false,
     localComment = "rematch? I want a redo on that Z", localGapExtra = 16 / 6,
@@ -955,6 +968,23 @@ function drawBalloonMockupOverlay()
     updateCommentField(2, nil, false)
   end
 
+  -- scn.activeOverrides (mockup scenario 2 only): once real text has been
+  -- entered (not just focus — an empty-but-focused field doesn't count), the
+  -- lower balloon gets its tail back and both balloons shift to scenario 6's
+  -- positions, so you can see the composer "become" a real reply in place.
+  -- Clearing the text back to empty reverts to the scenario's own base values.
+  local hasComment = scn.localComposing and (localDraft ~= "")
+  local eff = {
+    suppressLocalTail  = scn.suppressLocalTail,
+    centerBothBalloons = scn.centerBothBalloons,
+    oppBodyXNudge      = scn.oppBodyXNudge,
+    localBodyXNudge    = scn.localBodyXNudge,
+    localTailXNudge     = scn.localTailXNudge,
+  }
+  if hasComment and scn.activeOverrides then
+    for k, v in pairs(scn.activeOverrides) do eff[k] = v end
+  end
+
   -- Draw the balloon(s) via the EXISTING renderer. While composing, the local
   -- balloon is shape-only (suppressLocalText) and sized to the typed text so
   -- it grows downward as you type; otherwise it's plain themed text, exactly
@@ -969,12 +999,12 @@ function drawBalloonMockupOverlay()
         or scn.localComment,
       suppressLocalText = scn.localComposing or false,
       localTailUsesOpponentSlot = scn.localTailUsesOpponentSlot or false,
-      centerBothBalloons = scn.centerBothBalloons or false,
-      suppressLocalTail  = scn.suppressLocalTail or false,
+      centerBothBalloons = eff.centerBothBalloons or false,
+      suppressLocalTail  = eff.suppressLocalTail or false,
       localGapExtra      = scn.localGapExtra or 0,
-      oppBodyXNudge      = scn.oppBodyXNudge or 0,
-      localBodyXNudge    = scn.localBodyXNudge or 0,
-      localTailXNudge    = scn.localTailXNudge or 0,
+      oppBodyXNudge      = eff.oppBodyXNudge or 0,
+      localBodyXNudge    = eff.localBodyXNudge or 0,
+      localTailXNudge    = eff.localTailXNudge or 0,
     }
   }
   if scn.localComposing and not localActive then

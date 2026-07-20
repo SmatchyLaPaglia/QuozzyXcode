@@ -1331,8 +1331,10 @@ function touched(t)
   -- Balloon mockup overlay eats all Codea touches. A row of 7 numbered chips
   -- picks one of the real comment-balloon scenarios (BALLOON_MOCKUP_STATES,
   -- EndScreenFP.lua) — one tap, one complete valid state. A tap on the live
-  -- composer field focuses it natively. Taps elsewhere do nothing (dismiss
-  -- only via "close").
+  -- composer field focuses it natively (handled by UIKit hit-testing before
+  -- it ever reaches here). Any OTHER tap, while the field is focused, is
+  -- treated the same as hitting Return: unfocus without submitting anything
+  -- (dismiss the overlay itself only via "close").
   if balloonMockupOverlay then
     if t.state == ENDED or t.state == CANCELLED then
       local hitChip = nil
@@ -1346,6 +1348,8 @@ function touched(t)
       elseif mockupCloseBtnRect and pointInRect(t.x, t.y, mockupCloseBtnRect.cx, mockupCloseBtnRect.cy, mockupCloseBtnRect.w, mockupCloseBtnRect.h) then
         if teardownMockupTextField then teardownMockupTextField() end
         balloonMockupOverlay = false
+      elseif commentFields[2] and commentFields[2].focused and commentFields[2].tv then
+        commentFields[2].tv:resignFirstResponder_()
       end
     end
     return

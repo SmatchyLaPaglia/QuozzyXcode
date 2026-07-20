@@ -334,7 +334,10 @@ drawEndScreenSpeechBalloons(model, layout)  ← end-screen comment overlay
   ui.localTailXNudge (2026-07-20, default 0): shifts ONLY the local balloon's tail X (added to
     localTailX above), independent of ui.localBodyXNudge which shifts the body. Mockup scenario
     6 sets -9 — half of tailBaseWidth (18) — moving the lower balloon's tail left of its normal
-    avatarLayout.localX+18 anchor.
+    avatarLayout.localX+18 anchor. Scenario 5 (solo local balloon, real text, otherwise
+    centered/untouched) also sets -9 so its tail lands at the exact same X as scenario 6's
+    lower balloon — same base formula + same nudge, so it's identical by construction, not a
+    visual approximation.
   solo centering: when only ONE balloon is visible (comment~="" AND its show flag on), it is
     horizontally centered (x=panelX-bubbleW/2); both visible → staggered left/right. Tail stays
     put across the shift (base anchored to avatar X, which is inside the body either way).
@@ -424,6 +427,19 @@ Panel + board + avatars (2026-07-19): drawBalloonMockupOverlay() used to hand-ro
   comment in production. commentFields[1] (opponent) is fully unused now — the opponent
   balloon is always plain model text via drawEndScreenSpeechBalloons, never a live field.
 
+  scn.activeOverrides (2026-07-20, scenario 2 only): once real text has been typed into the
+    composer (localDraft ~= "", not just focus), scenario 2's layout fields (suppressLocalTail,
+    centerBothBalloons, oppBodyXNudge, localBodyXNudge, localTailXNudge) are swapped for the
+    override table's values — currently set to exactly scenario 6's values, so the composer
+    visibly "becomes" a real reply (tail back, both balloons shift to the staggered
+    positions) the moment you type something. This is purely a function of the CURRENT
+    frame's text content (drawBalloonMockupOverlay computes `eff` fresh every frame from
+    scn's base fields, then overlays activeOverrides only if hasComment) — there's no
+    separate "was previously typed" state to track, so clearing the field back to empty
+    reverts automatically on the very next frame, the same code path as never having typed
+    anything. Implemented via a local `eff` table (the merged/effective values) that the
+    model construction reads instead of scn directly for those 5 fields.
+
 drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBalloons.
   real endScreenLayout (ensureEndScreenLayout is screen-size-only, safe on menu)
   + placeholder avatars (drawEndUpperRightAvatarsOnly, genericOpponentAvatar), same as
@@ -472,7 +488,15 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
   Bottom controls (rects stored as globals, handled in Main.lua touched()):
     7 chips (mockupChipRects[1..7]) → mockupScenarioIndex = tapped index (direct-jump)
     "close debug screen" (mockupCloseBtnRect) → dismiss (teardown + balloonMockupOverlay=false)
-    Tap-anywhere-to-dismiss was REMOVED; only "close debug screen" dismisses.
+    Tap-anywhere-to-dismiss was REMOVED; only "close debug screen" dismisses the OVERLAY.
+    Tap-outside-to-unfocus (2026-07-20): any tap that isn't a chip or the close button, while
+      commentFields[2].focused is true, calls tv:resignFirstResponder_() directly — same
+      effect as hitting Return in enforceCommentFieldLineCap (unfocus only, doesn't submit or
+      close anything). Safe to call directly here since touched() is a normal Codea callback,
+      not an objc delegate callback (the "never call UIKit from an objc callback" rule doesn't
+      apply). The native UITextView already eats its own taps via UIKit hit-testing before
+      touched() ever sees them, so reaching this branch already means the tap landed outside
+      the field's frame (br inset by 6px, so a tap in that 6px margin also unfocuses).
 
   Gating: BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette + skips
     CTBM/GameCenter bootstrap so no GC modal over QA; FALSE in production, Main.lua:~114)
