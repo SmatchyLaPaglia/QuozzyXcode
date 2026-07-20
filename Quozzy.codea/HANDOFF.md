@@ -852,3 +852,66 @@ tap-test via the 🐛 button. `BALLOON_MOCKUP_DEV=false` (production).
 
 **Delegation:** +1 Haiku investigation (UITextField/placeholder patterns from ScoreSheetsCore.lua
 + KeyboardAvoider.lua + existing comment field). See DELEGATION_LOG.tsv.
+
+---
+
+## 20. HANDOFF STATE — 2026-07-20 (Balloon debug mockup: 7-state scenario picker)
+
+**Task completed:** Replaced the 🐛 balloon mockup's 4-button free-toggle design (show/hide
+balloon 1, show/hide balloon 2, text-entry on/off — 8 combinations, several impossible in the
+real game) with a 7-chip scenario picker driven by `BALLOON_MOCKUP_STATES`, a fixed array of
+the 7 actual end-screen comment situations. See STRUCTURE.md → "Turn-Based Comment Speech
+Balloons" → "7-state scenario picker" for the full state table and rationale, and the
+`### drawEndScreenSpeechBalloons — model.commentUI fields` reference block for every flag this
+work added to the shared renderer.
+
+**What changed, roughly in order:**
+1. Fixed mockup/production visual parity: the mockup now calls the SAME
+   `drawEndScreenPanelBackground()` / `drawEndTopRowContent()` production uses (board preview +
+   avatars), instead of a hand-rolled partial reimplementation that had drifted (no board
+   preview at all, flat-color panel instead of the seasonal sprite).
+2. Replaced the toggle buttons with `BALLOON_MOCKUP_STATES` (7 entries) + a chip row
+   (`mockupChipRects`, direct-jump, not prev/next) + a caption showing the active label.
+   `mockupScenarioIndex` (global) selects the entry. Only the local balloon is ever a live
+   `UITextView` now (slot 1 / opponent field removed entirely — the opponent balloon is never
+   live-typed in production either).
+3. Added renderer capabilities exercised by individual scenarios: `noTail` (drawSpeechBalloon),
+   `localTailUsesOpponentSlot`, `centerBothBalloons`, `suppressLocalTail`, `localGapExtra`,
+   `oppBodyXNudge`/`localBodyXNudge`, `localTailXNudge` (drawEndScreenSpeechBalloons). Unified
+   the opponent balloon's top-anchor offset with the solo-local fallback (was -4, now -14) and
+   shortened both tails to 2/3 of their original length (43/40 → 43*2/3 / 40*2/3) — these two
+   are real renderer changes, not mockup-gated.
+4. Scenario 2 ("composing, opponent spoke first") now dynamically "becomes a reply" once real
+   text is typed: `scn.activeOverrides` swaps in scenario 6's layout values (tail back, both
+   balloons shift to the staggered position) purely as a function of the current frame's text
+   content — clearing the field reverts automatically, no separate state tracked.
+5. Aligned tail X across scenarios sharing the same avatar anchor: 3, 5, and 6's lower balloon
+   all use `avatarLayout.localX+18-9` now, instead of three near-but-not-quite-matching values.
+6. Tapping outside the live composer field (while focused) now unfocuses it
+   (`resignFirstResponder_()`), the same effect as hitting Return.
+7. Considered but deliberately did NOT reimplement: tapping the avatars to hide/show balloons.
+   That's production-only (`handleEndScreenTouch` in EndScreen.lua, STATE_END-gated) and was
+   never wired into the mockup's separate touched() branch, before or after this rework — see
+   STRUCTURE.md's "BALLOON VISIBILITY TOGGLE" note for the reasoning.
+
+**Files:** EndScreenFP.lua (bulk of the work), EndScreen.lua, EndScreenFuncs.lua, Main.lua
+(globals + touch handling), HaikuMenu.lua (🐛 button reset). STRUCTURE.md updated throughout,
+inline, as each change landed — treat it as current, not this summary.
+
+**Verified:** every one of the 7 scenarios, the dynamic scenario-2 transition (forced via a
+temporary source-level test hook, not a real tap — see below), and all tail/position tuning,
+via the rebuild → `simctl install` → `terminate` → `launch` → `screenshot` cycle, reading back
+each PNG. **NOT verified with a real tap:** the chip row and tap-outside-to-unfocus — this
+environment has no touch-injection tool (no `idb`, and `osascript`/System Events UI automation
+is blocked — "not allowed assistive access"). Where a specific frame state needed testing
+(e.g. "what does it look like once text has been typed"), it was reached by temporarily editing
+`mockupScenarioIndex`/adding a throwaway hook that force-set `commentFields[2].tv.text`
+directly, screenshotting, then reverting the hook — never left in the shipped code. If you have
+a way to drive real taps (Xcode UI test target, a physical device, or a future `idb` install),
+worth a real pass over the chip row and the unfocus behavior specifically.
+
+**Commits this session:** `62aa5be` (7-state picker + parity fix, bundled with pre-existing
+uncommitted rematch-button/generic-alert work that predated this session), `35b0434` (scenario
+2 dynamics, tail alignment, tap-to-unfocus).
+
+**Next task:** none pending for balloons.

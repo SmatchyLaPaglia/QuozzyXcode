@@ -382,6 +382,21 @@ none keep the original single-toggle, single-fade, both-balloons behavior):
     Each fades independently: opp uses endScreenSpeechBalloonAlpha, local uses
     endScreenLocalBalloonAlpha. Both rects are still COMPUTED even at alpha 0, so
     hiding one balloon does NOT reposition the other (stacking stays stable).
+  localTailUsesOpponentSlot (default false) → local balloon's tail X uses avatarLayout.opponentX
+    instead of avatarLayout.localX+18. See "tail direction" above.
+  centerBothBalloons (default false) → both balloons use the centered X regardless of how many
+    show, instead of staggering when both are visible. See "solo centering" above.
+  suppressLocalTail (default false) → local balloon draws with NO tail at all (drawSpeechBalloon
+    opts.noTail). See "both tails" above.
+  localGapExtra (default 0) → extra px added to the 14px stacking gap below the opponent
+    balloon. See "height" above.
+  oppBodyXNudge / localBodyXNudge (default 0 each) → shifts that balloon's BODY rect.x only,
+    tail unaffected (tail anchors are computed independently of rect.x). See "solo centering" above.
+  localTailXNudge (default 0) → shifts ONLY the local balloon's tail X, independent of
+    localBodyXNudge. See "tail direction" above.
+  All of the above default to their no-op value, so existing/production callers that set none
+  of them are unaffected — every one is currently exercised only by BALLOON_MOCKUP_STATES
+  entries (EndScreenFP.lua), not by production's buildEndScreenModel().
 Side effects: sets globals endScreenOppBalloonRect / endScreenLocalBalloonRect =
   each balloon's screen rect (or nil when its comment is empty) so callers can
   position a native view over it.
@@ -579,6 +594,14 @@ BALLOON VISIBILITY TOGGLE (endScreenSpeechBalloonsVisible, EndScreen.lua): tappi
   checking shouldShowFinalCommentComposer()). Gated on endScreenHasVisibleBalloons() (true
   once composing OR once either player has a persisted comment) so tapping does nothing
   when there's nothing to toggle.
+  DELIBERATELY NOT reproduced in the debug mockup (2026-07-20 decision): this handler
+  (handleEndScreenTouch) lives entirely inside the STATE_END-gated production touch path;
+  drawBalloonMockupOverlay's touched() branch is a separate early-return block that has
+  never called into it, before or after the 7-state picker rework. It gets real coverage
+  from any actual 2P match reaching the end screen with comments, so there's no gap to
+  backfill — and doing so in the mockup would mean either a second parallel implementation
+  (the exact anti-pattern the 2026-07-15 composer fix above was written to avoid) or wiring
+  the mockup into currentQMatch/STATE_END machinery it deliberately doesn't carry.
 
 REMATCH BUTTON (occupies layout.playAgainRect, now freed since the composer moved into
 the balloon): shown when is2P && complete && assignedOpponent (model.rematch.canOffer).
