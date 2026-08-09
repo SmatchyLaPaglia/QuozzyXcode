@@ -116,10 +116,24 @@ function defineAvatars()
   end  
 end
 
+-- Keyed by size+color so a season change (which repaints Color.uiAccent) still gets a
+-- correctly-colored image, without re-rendering one every call. MUST be cached: this is
+-- called from drawAvatarCircle's nil-avatar fallback, which runs every frame for every
+-- avatar circle that hasn't loaded a real image yet (end-screen avatars, records-overlay
+-- opponent thumbnails, ...). Uncached, that's a brand new GPU texture every frame, forever
+-- — confirmed via Xcode's memory graph to be the cause of the app slowing down and
+-- eventually getting OOM-killed the longer an unloaded avatar stayed on screen (2026-08-09).
+unknownAvatarImageCache = unknownAvatarImageCache or {}
+
 function unknownPlayerAvatar(size, bgColor)
   size = math.max(16, math.floor(size or 128))
   bgColor = bgColor or color(120, 90, 60, 255)
-  
+
+  local key = size .. "|" .. math.floor(bgColor.r) .. "," .. math.floor(bgColor.g) .. ","
+    .. math.floor(bgColor.b) .. "," .. math.floor(bgColor.a or 255)
+  local cached = unknownAvatarImageCache[key]
+  if cached then return cached end
+
   local img = image(size, size)
   local cx, cy = size * 0.5, size * 0.5
   
@@ -152,7 +166,8 @@ function unknownPlayerAvatar(size, bgColor)
   
   popStyle()
   setContext()
-  
+
+  unknownAvatarImageCache[key] = img
   return img
 end
 

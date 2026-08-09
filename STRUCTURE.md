@@ -155,6 +155,18 @@ popMatrix() with the tile drawn at LOCAL (0,0) inside that block — drawRounded
 take absolute coords normally, so this is a separate code path from the angle==0 case
 (STATE_PLAY, or any tile that happens to roll a zero angle) which still draws directly at
 (x+jx, y+jy) with no matrix push, cheaper for the common case.
+
+Snap-in on tap (2026-08-09): the jitter formula was factored out into
+computeReadyTileJitter(r,c,w) so it can be reused OUTSIDE drawBoard() too.
+captureBoardSnapAnim() (called from Main.lua touched(), the READY-tap-to-start handler,
+BEFORE state flips to STATE_PLAY) snapshots every tile's CURRENT jx/jy/angle into
+boardSnapAnim.tiles. drawBoard()'s STATE_PLAY branch then eases that snapshot back to
+(0,0,0) over boardSnapAnim.duration (0.16s, quadratic ease-out) instead of the tiles
+just popping straight to their resting position — so gameplay starts with the dice
+visibly settling FROM wherever they were rattling, not a hard cut. boardSnapAnim.active
+self-clears at the top of drawBoard() once elapsed >= duration; nothing else needs to
+poll or reset it. Same "draw-time offset only" property as the jitter itself — tileRects
+(hit-testing) never see this, only the visual draw position/rotation.
 ```
 
 ## Info / About Overlay (OverlayPanels.lua, 2026-08-09)
@@ -451,6 +463,37 @@ computeGridLayout() returns tileSize, startX, startY, boardGap, bgSize (4th/5th 
 | ring buffer key | Main.lua | `DevLogBuffer` in `saveLocalData`, JSON array of last 200 lines |
 | system log access | CLI | `xcrun simctl spawn $SIM log show --last Ns --predicate 'process == "Quozzy"'` |
 | plist access | CLI | `plutil -p <container>/Library/Preferences/<bundle-id>.plist \| grep DevLogBuffer` |
+
+## Memory Leak: uncached placeholder-avatar textures (Avatars.lua, 2026-08-09)
+
+```
+Symptom reported: the app progressively slowed down the longer it stayed open, and
+eventually got OOM-killed by Xcode/iOS. Root cause: unknownPlayerAvatar(size, bgColor)
+(the "?" placeholder rendered for an avatar that hasn't loaded) called image(size,size)
+— a new GPU texture — on EVERY call, with no caching. drawAvatarCircle()'s nil-avatar
+fallback calls it, and several call sites invoke drawAvatarCircle() with a possibly-nil
+avatar EVERY FRAME with no gate: drawEndUpperRightAvatarsOnly() (end-screen avatars, runs
+every frame STATE_END is up) and RecordsUI.lua's per-opponent avatar draw (every frame
+the records overlay is open) were the two live per-frame call sites found. Any avatar
+that hadn't finished loading (or never resolves — network hiccup, GC not authenticated,
+etc.) meant a brand new never-freed texture every single frame for as long as that screen
+stayed open — confirmed as the leak by adding a cache and brute-force-calling
+unknownPlayerAvatar 1000 times in a QA test: 1000 calls → 2 GPU allocations after the fix
+(one per distinct size), vs. 1000 before.
+
+Fix: unknownAvatarImageCache (global table) keyed by "size|r,g,b,a" (the color IS part of
+the key because Color.uiAccent repaints on every season change — same size across two
+different seasons must still get two different cached images, not a stale color). Checked
+at the top of unknownPlayerAvatar(), populated right before return. Small, bounded cache
+(at most a handful of distinct size/season combinations ever get used) — nothing like the
+unbounded per-frame growth it replaced.
+
+If memory pressure resurfaces, the next places to check are the OTHER un-gated image()/
+mesh() call sites (grep for `image(` across the repo) for the same missing-cache pattern,
+and recordsThumbCache (RecordsUI.lua) — that one IS cached, but grows one entry per
+distinct match thumbnail ever viewed with no eviction, which is a slower, different-shaped
+problem (bounded by match history size, not frame count) worth revisiting if it matters.
+```
 
 ## Turn-Based Comment Speech Balloons (EndScreenFP.lua)
 

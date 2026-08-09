@@ -386,9 +386,45 @@ function tileInCurrentPath(r, c)
     return false
 end
 
+-- READY-only jitter: each tile wobbles (position) and tilts (rotation) around its own
+-- resting spot on an independent phase (seeded from r,c so neighbors don't sync up, and
+-- the tilt uses different frequency/phase multipliers than the position wobble so the two
+-- don't visually lock into a single simple back-and-forth) — reads as a handful of dice
+-- rattling in place. Shared by drawBoard()'s live READY render AND captureBoardSnapAnim()
+-- (below), which snapshots each tile's jitter at the instant of tap so the STATE_PLAY
+-- snap-in animation starts from wherever the tile actually was, not from zero.
+function computeReadyTileJitter(r, c, w)
+    local amp = w * 0.045
+    local jx = math.sin(ElapsedTime * 9.5 + r * 1.7 + c * 2.3) * amp
+    local jy = math.cos(ElapsedTime * 8.3 + r * 2.1 + c * 1.3) * amp
+    local angle = math.sin(ElapsedTime * 11.3 + r * 2.9 + c * 1.1) * 7
+    return jx, jy, angle
+end
+
+-- Called once, right as STATE_READY -> STATE_PLAY (Main.lua touched()), so the tiles snap
+-- into place from wherever they were rattling instead of just popping there. Purely a
+-- draw-time offset like the jitter itself — tileRects (hit-testing) are untouched.
+boardSnapAnim = boardSnapAnim or nil  -- { active, startTime, duration, tiles = {[r]={[c]={jx,jy,angle}}} }
+function captureBoardSnapAnim()
+    local tileSize = computeGridLayout()
+    local tiles = {}
+    for r = 1, boardSize do
+        tiles[r] = {}
+        for c = 1, boardSize do
+            local jx, jy, angle = computeReadyTileJitter(r, c, tileSize)
+            tiles[r][c] = { jx = jx, jy = jy, angle = angle }
+        end
+    end
+    boardSnapAnim = { active = true, startTime = ElapsedTime, duration = 0.16, tiles = tiles }
+end
+
 function drawBoard()
     local tileSize, startX, startY, boardGap, bgSize = computeGridLayout()
     buildTileRects()
+
+    if boardSnapAnim and boardSnapAnim.active and (ElapsedTime - boardSnapAnim.startTime) >= boardSnapAnim.duration then
+        boardSnapAnim.active = false
+    end
 
     pushStyle()
     rectMode(CENTER)
@@ -421,17 +457,17 @@ function drawBoard()
 
             local inPath = tileInCurrentPath(r, c)
 
-            -- READY-only jitter: each tile wobbles (position) and tilts (rotation) around
-            -- its own resting spot on an independent phase (seeded from r,c so neighbors
-            -- don't sync up, and the tilt uses different frequency/phase multipliers than
-            -- the position wobble so the two don't visually lock into a single simple
-            -- back-and-forth) — reads as a handful of dice rattling in place.
             local jx, jy, angle = 0, 0, 0
             if state == STATE_READY then
-                local amp = w * 0.045
-                jx = math.sin(ElapsedTime * 9.5 + r * 1.7 + c * 2.3) * amp
-                jy = math.cos(ElapsedTime * 8.3 + r * 2.1 + c * 1.3) * amp
-                angle = math.sin(ElapsedTime * 11.3 + r * 2.9 + c * 1.1) * 7
+                jx, jy, angle = computeReadyTileJitter(r, c, w)
+            elseif state == STATE_PLAY and boardSnapAnim and boardSnapAnim.active then
+                -- Snap-in: ease the captured jitter back down to (0,0,0) instead of a hard pop.
+                local snap = boardSnapAnim.tiles[r] and boardSnapAnim.tiles[r][c]
+                if snap then
+                    local remain = 1 - (ElapsedTime - boardSnapAnim.startTime) / boardSnapAnim.duration
+                    local ease = remain * remain  -- quadratic ease-out: fast start, gentle settle
+                    jx, jy, angle = snap.jx * ease, snap.jy * ease, snap.angle * ease
+                end
             end
 
             local fillCol   = inPath and Color.uiAccent2 or Color.tileFill

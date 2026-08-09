@@ -1403,6 +1403,7 @@ function touched(t)
       return 
     end
     if t.state == BEGAN then
+      captureBoardSnapAnim()
       state = STATE_PLAY
     end
     return
