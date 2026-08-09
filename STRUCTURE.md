@@ -273,6 +273,33 @@ showRowDividers (pink section boundary lines) default = false.
 - checks: px in [cx-w/2, cx+w/2] and py in [cy-h/2, cy+h/2]
 - ALWAYS store hit rects as {cx, cy, w, h} — passing corner coords silently halves the hit area
 
+## Gameplay Board Layout (computeGridLayout, Board.lua)
+
+```
+computeGridLayout() returns tileSize, startX, startY, boardGap, bgSize (4th/5th values
+  added 2026-08-08). Each tile is drawn at 95% of its cell (drawBoard: w*0.95,h*0.95 —
+  halved from 90% same day, "halve the dice-to-dice gap too"), so the OUTERMOST tiles sit
+  0.025*tileSize inside their cell edge before any panel padding — ignoring this factor
+  entirely was a first-pass bug caught only by screenshotting + pixel-measuring the actual
+  render (the two gaps LOOKED plausible from the formula alone but measured 25px outer vs
+  34px inner on device at the original 90%/0.1 setting). Fix: visibleGridWidth =
+  boardSize*tileSize - 0.05*tileSize (span from leftmost tile's visible left edge to
+  rightmost tile's visible right edge — what the eye reads as "the letters"). boardGap =
+  (WIDTH - visibleGridWidth) / 4, bgSize = visibleGridWidth + 2*boardGap.
+  drawBoard()/drawReadyMessage() set bgW=bgH=bgSize verbatim (no re-derivation) — this makes
+  screen↔panel and panel↔letters both equal boardGap, algebraically, for every boardSize,
+  regardless of whether width or height constrained tileSize.
+  Width budget for tileSize itself uses a separate constant boardEdgeGap=4 (computeGridLayout
+  local, NOT the global sideMargin=40 used elsewhere for HUD margins; halved from 8 same day
+  as the 95% tile scale — keep both in sync, they were a single "halve every board gap"
+  request) — this is the MINIMUM gap target, used only to size the grid as large as possible;
+  boardGap (actual, returned) can come out larger than 4 if height (not width) ends up the
+  binding constraint. Verified on-device (6x6): outer/inner both 15px (was 29px pre-halving),
+  dice-to-dice gap ~10px (was ~18-20px).
+  drawReadyMessage() must read bgSize from computeGridLayout(), not recompute it — must stay
+  numerically identical to drawBoard()'s panel size or the "tap to start" panel misplaces.
+```
+
 ## Diagnostic Logging
 
 | concern | file | detail |
@@ -516,6 +543,10 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
   Gating: BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette + skips
     CTBM/GameCenter bootstrap so no GC modal over QA; FALSE in production, Main.lua:~114)
     and balloonMockupOverlay (menu 🐛 button, HaikuMenu key=="debugDialog", live season).
+  SHOW_DEBUG_BUTTON (Main.lua:~115, FALSE in production): gates the 🐛 button itself — when
+    false, HaikuMenu.lua never draws it and never sets menuHitRects.debugDialog, so it can't
+    be tapped even by coordinate. Added 2026-08-08 for shipping: the button previously drew
+    unconditionally on the live main menu with no flag at all. Flip to true locally for QA.
   (old interactive tuner DebugBalloonPanel.lua was DELETED — removed from Info.plist Buffer Order)
 ```
 

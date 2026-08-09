@@ -797,24 +797,29 @@ function drawMenu()
   local rightBtnCx = midX + hGap * 0.5
   local btn5Cy     = midY(5)
 
-  -- Debug button (far left) — triggers play-again confirmation dialog for inspection
-  local debugBtnD = btnD * 0.7
-  local debugBtnCx = HPAD + debugBtnD * 0.6
-  local debugBtnCy = btn5Cy
-  local debugFill = (pressedButton == "debugDialog") and Color.uiAccent2 or Color.uiAccent
-  ellipseMode(CENTER)
-  fill(debugFill)
-  noStroke()
-  ellipse(debugBtnCx, btn5Cy, debugBtnD, debugBtnD)
-  -- Bug emoji as icon
-  fill(255, 255, 255, 255)
-  font("Georgia-Bold")
-  fontSize(debugBtnD * 0.55)
-  textMode(CENTER)
-  textAlign(CENTER)
-  text("🐛", debugBtnCx, btn5Cy)
+  -- Debug button (far left) — opens the balloon mockup overlay. Dev-only: gated by
+  -- SHOW_DEBUG_BUTTON (Main.lua) so it never draws, and never registers a hit rect, in
+  -- shipped builds.
+  menuHitRects.debugDialog = nil
+  if SHOW_DEBUG_BUTTON then
+    local debugBtnD = btnD * 0.7
+    local debugBtnCx = HPAD + debugBtnD * 0.6
+    local debugBtnCy = btn5Cy
+    local debugFill = (pressedButton == "debugDialog") and Color.uiAccent2 or Color.uiAccent
+    ellipseMode(CENTER)
+    fill(debugFill)
+    noStroke()
+    ellipse(debugBtnCx, btn5Cy, debugBtnD, debugBtnD)
+    -- Bug emoji as icon
+    fill(255, 255, 255, 255)
+    font("Georgia-Bold")
+    fontSize(debugBtnD * 0.55)
+    textMode(CENTER)
+    textAlign(CENTER)
+    text("🐛", debugBtnCx, btn5Cy)
 
-  menuHitRects.debugDialog = { cx = debugBtnCx, cy = btn5Cy, w = debugBtnD, h = debugBtnD }
+    menuHitRects.debugDialog = { cx = debugBtnCx, cy = btn5Cy, w = debugBtnD, h = debugBtnD }
+  end
 
   -- Left button (records) — circular
   local recordsFill = (pressedButton == "records") and Color.uiAccent2 or Color.uiAccent

@@ -111,7 +111,8 @@ recordsScrollPrevY = 0
 
 showInfoOverlay = false
 colorInspectorOverlay = false
-BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal). 🐛 button opens it regardless.
+BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal).
+SHOW_DEBUG_BUTTON = false  -- dev-only: true shows the 🐛 button on the main menu (opens the balloon mockup). FALSE for shipped builds.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
 mockupScenarioIndex = mockupScenarioIndex or 1  -- which of the 7 BALLOON_MOCKUP_STATES is showing
 mockupChipRects = nil           -- hit rects for the 7 scenario chips, set each frame

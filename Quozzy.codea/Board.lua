@@ -228,17 +228,21 @@ end
 --####################################################################
 
 function computeGridLayout()
-    usableWidth  = WIDTH  - 2 * sideMargin
+    -- boardEdgeGap is BOTH the target screen↔board-area gap AND the board-area↔tile gap
+    -- (drawBoard/drawReadyMessage split boardGap, below, evenly between them so the two
+    -- always match, per side, for every boardSize — see 4th return value). Halved 2026-08-08
+    -- (was 8) to enlarge the dice further; keep in sync with the 0.05 inset fraction below
+    -- and the w*0.95/h*0.95 tile draw scale in drawBoard() — all three were halved together.
+    local boardEdgeGap = 4
+    usableWidth  = WIDTH  - 4 * boardEdgeGap
     local usableHeight = HEIGHT - topMargin - bottomMargin
     local tileSize = math.min(usableWidth / boardSize, usableHeight / boardSize)
 
     if boardSize > 4 then
         -- Push tiles toward 4×4 size by shrinking side gap to the minimum.
-        -- bgW = boardSize * tileSize + 28, so gap = (WIDTH - bgW) / 2.
-        -- Require gap ≥ 8px → tileSize ≤ (WIDTH - 28 - 16) / boardSize.
         local startY = bottomMargin * 1.45
         local minTopSpace = topMargin + 100  -- HUD + info rows + minimal word-list room
-        local maxFromWidth  = (WIDTH  - 44) / boardSize
+        local maxFromWidth  = (WIDTH  - 4 * boardEdgeGap) / boardSize
         local maxFromHeight = (HEIGHT - startY - minTopSpace) / boardSize
         local expanded = math.min(maxFromWidth, maxFromHeight)
         if expanded > tileSize then tileSize = expanded end
@@ -250,7 +254,20 @@ function computeGridLayout()
     local startX = WIDTH/2  - gridWidth/2
     local startY = bottomMargin * 1.45
 
-    return tileSize, startX, startY
+    -- Each tile is drawn at 95% of its cell (drawBoard: w*0.95,h*0.95 — halved from 90%
+    -- 2026-08-08 to close up the dice-to-dice gap too), so the OUTERMOST tiles already sit
+    -- 0.025*tileSize inside their cell edge before any panel padding is added.
+    -- visibleGridWidth is the true span from the leftmost tile's visible left edge to the
+    -- rightmost tile's visible right edge, i.e. what the eye actually reads as "the letters".
+    -- Splitting (WIDTH - visibleGridWidth) into 4 equal shares makes screen↔panel and
+    -- panel↔letters come out equal for every boardSize — bgSize (panel width/height; square)
+    -- is derived from the same numbers so drawBoard()/drawReadyMessage() don't have to
+    -- re-derive (and risk drifting from) this.
+    local visibleGridWidth = gridWidth - 0.05 * tileSize
+    local boardGap = (WIDTH - visibleGridWidth) / 4
+    local bgSize = visibleGridWidth + 2 * boardGap
+
+    return tileSize, startX, startY, boardGap, bgSize
 end
 
 function drawRoundedRect(x, y, w, h, r, fillCol, strokeCol)
@@ -323,18 +340,18 @@ function tileInCurrentPath(r, c)
 end
 
 function drawBoard()
-    local tileSize, startX, startY = computeGridLayout()
+    local tileSize, startX, startY, boardGap, bgSize = computeGridLayout()
     buildTileRects()
-    
+
     pushStyle()
     rectMode(CENTER)
     textAlign(CENTER)
     textMode(CENTER)
     fontSize(tileSize * 0.45)
-    
+
     -- rounded grid background with higher contrast
-    local bgW = boardSize * tileSize + 28
-    local bgH = boardSize * tileSize + 28
+    local bgW = bgSize
+    local bgH = bgSize
     local bgX = WIDTH/2
     local bgY = startY + (boardSize * tileSize)/2
     
@@ -361,7 +378,7 @@ function drawBoard()
             local fillCol   = inPath and Color.uiAccent2 or Color.tileFill
             local strokeCol = inPath and Color.selectLineAlsoWeirdlyTileHighlight or Color.tileStroke
             
-            drawRoundedRect(x, y, w * 0.9, h * 0.9, w * 0.25, fillCol, strokeCol)
+            drawRoundedRect(x, y, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
             
             local label
             if state == STATE_READY then
@@ -389,13 +406,13 @@ function drawReadyMessage()
     textMode(CENTER)
     textAlign(CENTER)
     
-    local tileSize, startX, startY = computeGridLayout()
-    
+    local tileSize, startX, startY, boardGap, bgSize = computeGridLayout()
+
     -- Grid dims exactly like before
     local gridW = boardSize * tileSize
     local gridH = boardSize * tileSize
-    local bgW  = gridW + 28
-    local bgH  = gridH + 28
+    local bgW  = bgSize
+    local bgH  = bgSize
     local bgX  = WIDTH/2
     local bgY  = startY + gridH/2
     
