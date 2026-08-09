@@ -1252,6 +1252,10 @@ function draw()
     end
   end
   
+  if state == STATE_READY then
+    safeDrawCall("updateReadyRattle", updateReadyRattle)
+  end
+
   if state == STATE_READY or state == STATE_PLAY then
     safeDrawCall("drawBoard", drawBoard)
     safeDrawCall("drawSelectionPath", drawSelectionPath)

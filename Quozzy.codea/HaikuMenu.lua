@@ -870,9 +870,14 @@ function drawMenu()
 
   pushStyle()
 
+  -- Sized to fill the row (was capped at 14pt, leaving most of h6 as dead space, mostly
+  -- ABOVE the text since the two lines centered on cy6 sit close to the bottom safe area).
+  -- Anchored from the row's TOP edge instead of centered, so growing the font eats the
+  -- padding that used to sit above it rather than pushing further into the bottom margin.
   local h6     = HEIGHT * disclaimerRow
-  local ftSize = math.max(8, math.min(h6 * 0.13, 14))
+  local ftSize = math.max(12, math.min(h6 * 0.30, 22))
   local cy6    = midY(6)
+  local rowTop = cy6 + h6 * 0.5
 
   font("Georgia-Italic")
   fontSize(ftSize)
@@ -880,8 +885,13 @@ function drawMenu()
   textMode(CENTER)
   textAlign(CENTER)
 
-  text("Seasons have no effect on gameplay", WIDTH * 0.5, cy6 + ftSize * 0.35)
-  text("they're just pretty pretty",         WIDTH * 0.5, cy6 - ftSize * 0.45)
+  local lineGap = ftSize * 0.15
+  local topPad  = ftSize * 0.25
+  local y1 = rowTop - topPad - ftSize * 0.5
+  local y2 = y1 - ftSize - lineGap
+
+  text("Seasons have no effect on gameplay", WIDTH * 0.5, y1)
+  text("they're just pretty pretty",         WIDTH * 0.5, y2)
 
   popStyle()
 
