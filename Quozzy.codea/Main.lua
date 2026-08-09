@@ -1320,8 +1320,7 @@ function touched(t)
     return
   end
   
-  if showInfoOverlay and (t.state == ENDED or t.state == CANCELLED) then
-    showInfoOverlay = false
+  if showInfoOverlay and handleInfoOverlayTouch(t) then
     return
   end
 

@@ -56,68 +56,261 @@ function rebuildOverlayPanelsForSeason()
     readyTapPanel = buildOverlaySprite(panelW, panelH, bgCol, cornerR)
 end
 
+------------------------------------------------------------
+-- INFO / ABOUT OVERLAY
+------------------------------------------------------------
+-- Content blocks for the About panel. type:
+--   "h1"     section header
+--   "p"      plain paragraph
+--   "bullet" bold lead-in line (its own line) + an indented body paragraph below it
+-- Wrapped into flat display lines by buildAboutLines() (below), cached per panel width.
+ABOUT_CONTENT = {
+  { type = "h1", text = "What Is This?" },
+  { type = "p",  text = "It's a word-hunt game. You know the deal." },
+
+  { type = "h1", text = "But Why?" },
+  { type = "p",  text = "Who needs another one of these, right? Well this version has a couple agendas:" },
+  { type = "bullet", lead = "No Engagement Strategies:", text =
+    "one goal is to be uncluttered. To not do all those flashy promotions like \"here's 20 free ZagBux for logging in during the third lunar cycle\226\128\148be sure to log in for the Vernal Equinox too!\" It's just, like, this app, you know?" },
+  { type = "bullet", lead = "Emphasizing Rivalries:", text =
+    "Another goal is to put front and center your most frequent opponent, and to show, right there on the home screen, how many games you've won against each other. How else can you have grudge matches? And isn't that what makes life worth living?" },
+  { type = "bullet", lead = "Abundant Irrelevant Theming:", text =
+    "Why all the seasonal stuff and changing colors? It's just frippery, for sure. But it makes the experience a little different than other word-hunt games. Plus it's kind of soothing to watch the transitions, mannn." },
+  { type = "bullet", lead = "Haiku for the Heck of It:", text =
+    "There's a hidden seasonally-themed Classical Japanese haiku on every menu screen, for no real reason than it's kind of cool to have a little haiku break in your day. Which is a little soothing too." },
+
+  { type = "h1", text = "Where'd You Get The Haiku?" },
+  { type = "p",  text = "The haiku come from \"Japanese Haiku\" (1955), a publicly-available translation of Classical Japanese haiku by Peter Beilenson. Thanks Peter!" },
+
+  { type = "h1", text = "About AI" },
+  { type = "p",  text = "I designed this. I did the things that make it odd. The haiku. The speech balloons. The wacky tilty-tappy menu. Thems warn't anyone but me." },
+  { type = "p",  text = "Yes, AI brought my messy sketches to life. Yes, everything that makes it work is AI. But everything that makes it weird is me." },
+  { type = "p",  text = "I hope you like it." },
+}
+
+infoScrollY       = infoScrollY       or 0
+infoScrollTouchId = infoScrollTouchId or nil
+infoScrollPrevY   = infoScrollPrevY   or 0
+infoOverlayGeom   = infoOverlayGeom   or nil
+aboutLinesCache   = aboutLinesCache   or nil  -- { wrapWidth = , lines = } — rebuilt only when panel width changes
+
+function openInfoOverlay()
+  showInfoOverlay   = true
+  infoScrollY       = 0
+  infoScrollTouchId = nil
+end
+
+function closeInfoOverlay()
+  showInfoOverlay   = false
+  infoScrollTouchId = nil
+end
+
+-- Greedy word-wrap using the CURRENTLY SET font/fontSize (caller must set them first).
+local function wrapTextLines(str, maxWidth)
+  local words = {}
+  for word in tostring(str or ""):gmatch("%S+") do
+    words[#words + 1] = word
+  end
+  if #words == 0 then return { "" } end
+
+  local lines = {}
+  local current = words[1]
+  for i = 2, #words do
+    local candidate = current .. " " .. words[i]
+    if textSize(candidate) <= maxWidth then
+      current = candidate
+    else
+      lines[#lines + 1] = current
+      current = words[i]
+    end
+  end
+  lines[#lines + 1] = current
+  return lines
+end
+
+-- Flattens ABOUT_CONTENT into display lines: {text, font, size, indent, gapBefore, alpha}.
+-- gapBefore is extra vertical space above that line (paragraph/section spacing); only the
+-- first wrapped line of a block carries it, so mid-paragraph wrap lines sit tight together.
+function buildAboutLines(wrapWidth)
+  if aboutLinesCache and aboutLinesCache.wrapWidth == wrapWidth then
+    return aboutLinesCache.lines
+  end
+
+  local out = {}
+  pushStyle()
+  textMode(CORNER)
+
+  for bi, block in ipairs(ABOUT_CONTENT) do
+    if block.type == "h1" then
+      font("Georgia-Bold"); fontSize(26)
+      local lines = wrapTextLines(block.text, wrapWidth)
+      for li, l in ipairs(lines) do
+        out[#out + 1] = { text = l, font = "Georgia-Bold", size = 26, indent = 0,
+          gapBefore = (li == 1) and (bi > 1 and 26 or 0) or 0, alpha = 255 }
+      end
+
+    elseif block.type == "p" then
+      font("Georgia"); fontSize(18)
+      local lines = wrapTextLines(block.text, wrapWidth)
+      for li, l in ipairs(lines) do
+        out[#out + 1] = { text = l, font = "Georgia", size = 18, indent = 0,
+          gapBefore = (li == 1) and 10 or 0, alpha = 235 }
+      end
+
+    elseif block.type == "bullet" then
+      font("Georgia-Bold"); fontSize(18)
+      local leadLines = wrapTextLines("\226\128\162 " .. (block.lead or ""), wrapWidth)
+      for li, l in ipairs(leadLines) do
+        out[#out + 1] = { text = l, font = "Georgia-Bold", size = 18, indent = 0,
+          gapBefore = (li == 1) and 16 or 0, alpha = 255 }
+      end
+
+      font("Georgia"); fontSize(18)
+      local bodyLines = wrapTextLines(block.text, wrapWidth - 22)
+      for li, l in ipairs(bodyLines) do
+        out[#out + 1] = { text = l, font = "Georgia", size = 18, indent = 22,
+          gapBefore = (li == 1) and 4 or 0, alpha = 235 }
+      end
+    end
+  end
+
+  popStyle()
+  aboutLinesCache = { wrapWidth = wrapWidth, lines = out }
+  return out
+end
+
 function drawInfoOverlay()
   if not showInfoOverlay then return end
-  local HAIKU_ATTRIBUTION_TEXT =
-  "haiku from translation by Peter Beilenson, \"Japanese Haiku\" (1955)"
-  ------------------------------------------------------------
-  -- Dim background (same as records overlay)
-  ------------------------------------------------------------
-  
+
   pushStyle()
   fill(Color.panelDim)
   noStroke()
   rectMode(CORNER)
   rect(0, 0, WIDTH, HEIGHT)
   popStyle()
-  
-  ------------------------------------------------------------
-  -- Measure wrapped text to size panel
-  ------------------------------------------------------------
-  
-  pushStyle()
-  fontSize(22)
-  textMode(CORNER)
-  
-  local textW = WIDTH - 100
-  textWrapWidth(textW)
-  
-  local w, h = textSize(HAIKU_ATTRIBUTION_TEXT)
-  
-  local margin = 40
-  local panelW = w + margin * 2
-  local panelH = h + margin * 2
-  
-  local panelX = WIDTH / 2
-  local panelY = HEIGHT / 2
-  
-  ------------------------------------------------------------
-  -- Panel (simple rounded rect fallback)
-  ------------------------------------------------------------
-  
+
+  local panelW = WIDTH - 32
+  local panelH = HEIGHT - 110
+  local panelX = WIDTH * 0.5
+  local panelY = HEIGHT * 0.5
+
   pushStyle()
   rectMode(CENTER)
   noStroke()
-  
-  local r = 22  -- corner radius; tweak if desired
-  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b) or color(40, 40, 40)
-  
-  drawRoundedRect(panelX, panelY, panelW, panelH, r, solid, solid)
-  
+  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
   popStyle()
-  
-  ------------------------------------------------------------
-  -- Text
-  ------------------------------------------------------------
-  
-  fill(Color.tileText or color(255))
-  
-  local textX = panelX - panelW/2 + margin
-  local textY = panelY + panelH/2 - margin - h
-  
-  text(HAIKU_ATTRIBUTION_TEXT, textX, textY)
-  
+
+  local innerPadding = 24
+  local innerLeft   = panelX - panelW/2 + innerPadding
+  local innerRight  = panelX + panelW/2 - innerPadding
+  local innerTop    = panelY + panelH/2 - innerPadding
+  local innerBottom = panelY - panelH/2 + innerPadding
+  local innerWidth  = innerRight - innerLeft
+
+  pushStyle()
+  local tileText = Color.tileText or color(255)
+
+  -- Title (fixed, does not scroll)
+  fill(tileText)
+  font("Georgia-Bold")
+  fontSize(28)
+  textMode(CORNER)
+  textAlign(CENTER)
+  text("About", panelX, innerTop - 30)
+
+  -- Close button (fixed, bottom of panel)
+  local btnW, btnH = 200, 48
+  local btnX = panelX
+  local btnY = innerBottom + btnH/2
+  drawButton(btnX, btnY, btnW, btnH, "Close", false)
+
+  -- Scrollable body, between the title and the close button
+  local bodyTop    = innerTop - 58
+  local bodyBottom = btnY + btnH/2 + 16
+  local bodyHeight = bodyTop - bodyBottom
+  local bodyLeft   = innerLeft
+
+  local lines = buildAboutLines(innerWidth)
+
+  local totalH = 20  -- trailing padding so the last line doesn't feel clipped
+  for _, ln in ipairs(lines) do
+    totalH = totalH + ln.gapBefore + math.floor(ln.size * 1.3)
+  end
+  local maxScroll = math.max(0, totalH - bodyHeight)
+  if infoScrollY < 0 then infoScrollY = 0 end
+  if infoScrollY > maxScroll then infoScrollY = maxScroll end
+
+  clip(bodyLeft, bodyBottom, innerWidth, bodyHeight)
+  textMode(CORNER)
+  textAlign(LEFT)
+
+  -- infoScrollY grows as the user scrolls FORWARD through the content (drags up), which
+  -- must bring later lines UP toward bodyTop — i.e. ADD infoScrollY here, not subtract.
+  -- (Verified by walking through the totalH/bodyHeight numbers by hand: with a minus sign,
+  -- any infoScrollY > 0 pushes every single line below bodyBottom and the panel renders
+  -- blank — caught via a forced infoScrollY=900 test + devLog before shipping this.)
+  local cursorY = bodyTop + infoScrollY
+  for _, ln in ipairs(lines) do
+    cursorY = cursorY - ln.gapBefore
+    local lineH = math.floor(ln.size * 1.3)
+    local drawY = cursorY - lineH
+    if drawY < bodyTop + lineH and drawY > bodyBottom - lineH then
+      font(ln.font)
+      fontSize(ln.size)
+      fill(tileText.r, tileText.g, tileText.b, ln.alpha)
+      text(ln.text, bodyLeft + ln.indent, drawY)
+    end
+    cursorY = drawY
+  end
+  clip()
+
   popStyle()
+
+  infoOverlayGeom = {
+    bodyLeft = bodyLeft, bodyBottom = bodyBottom, bodyWidth = innerWidth, bodyHeight = bodyHeight,
+    btnX = btnX, btnY = btnY, btnW = btnW, btnH = btnH,
+  }
+end
+
+function handleInfoOverlayTouch(t)
+  if not showInfoOverlay then return false end
+
+  local g = infoOverlayGeom
+  if not g then
+    if t.state == ENDED then closeInfoOverlay() end
+    return true
+  end
+
+  if t.state == BEGAN then
+    if pointInRect(t.x, t.y, g.btnX, g.btnY, g.btnW, g.btnH) then
+      closeInfoOverlay()
+      return true
+    end
+    if t.x >= g.bodyLeft and t.x <= g.bodyLeft + g.bodyWidth and
+       t.y >= g.bodyBottom and t.y <= g.bodyBottom + g.bodyHeight then
+      infoScrollTouchId = t.id
+      infoScrollPrevY   = t.y
+      return true
+    end
+    return true
+  elseif t.state == MOVING then
+    if infoScrollTouchId and t.id == infoScrollTouchId then
+      local dy = t.y - infoScrollPrevY
+      infoScrollPrevY = t.y
+      -- Drag up (finger moves toward larger y, dy > 0) reveals later content, matching
+      -- cursorY's "+infoScrollY" above — so this ADDS dy, the mirror image of that formula.
+      infoScrollY = infoScrollY + dy
+    end
+    return true
+  elseif t.state == ENDED or t.state == CANCELLED then
+    if infoScrollTouchId and t.id == infoScrollTouchId then
+      infoScrollTouchId = nil
+    end
+    return true
+  end
+
+  return true
 end
 
 ------------------------------------------------------------

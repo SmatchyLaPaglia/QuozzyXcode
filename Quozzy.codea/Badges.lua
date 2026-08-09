@@ -372,6 +372,7 @@ end
 function drawMatchBadge()
   if state ~= STATE_MENU then return end
   if colorInspectorOverlay then return end  -- don't overlap the color inspector
+  if showInfoOverlay then return end  -- don't overlap the (now full-screen) about panel
   if not matchBadge.active then return end
   if matchBadge.phase ~= "visible" then return end
   

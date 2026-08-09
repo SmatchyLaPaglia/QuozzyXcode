@@ -1074,7 +1074,7 @@ function handleMenuTouch(t)
     openRecordsOverlay()
 
   elseif key == "info" then
-    showInfoOverlay = true
+    openInfoOverlay()
 
   elseif key == "debugDialog" then
     -- Open the balloon mockup overlay, always starting on scenario 1

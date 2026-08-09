@@ -417,29 +417,37 @@ function drawBoard()
         for c = 1, boardSize do
             local tr = tileRects[r][c]
             local x, y, w, h = tr.x, tr.y, tr.w, tr.h
-            
+
             local inPath = tileInCurrentPath(r, c)
-            
-            local inPath = tileInCurrentPath(r, c)
-            
+
+            -- READY-only jitter: each tile wobbles around its own resting spot on an
+            -- independent phase (seeded from r,c so neighbors don't sync up), reading as a
+            -- handful of dice rattling rather than sliding or a synchronized shake.
+            local jx, jy = 0, 0
+            if state == STATE_READY then
+                local amp = w * 0.045
+                jx = math.sin(ElapsedTime * 9.5 + r * 1.7 + c * 2.3) * amp
+                jy = math.cos(ElapsedTime * 8.3 + r * 2.1 + c * 1.3) * amp
+            end
+
             local fillCol   = inPath and Color.uiAccent2 or Color.tileFill
             local strokeCol = inPath and Color.selectLineAlsoWeirdlyTileHighlight or Color.tileStroke
-            
-            drawRoundedRect(x, y, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
-            
+
+            drawRoundedRect(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
+
             local label
             if state == STATE_READY then
                 label = (readyRattleLetters and readyRattleLetters[r] and readyRattleLetters[r][c]) or "?"
             else
                 label = board[r][c]
             end
-            
+
             if inPath then
                 fill(Color.tileLetterHighlight)
             else
                 fill(Color.tileLetter or color(255, 255, 255, 255))
             end
-            text(label, x, y)
+            text(label, x + jx, y + jy)
         end
     end
     

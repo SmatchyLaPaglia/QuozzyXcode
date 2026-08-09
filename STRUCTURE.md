@@ -140,6 +140,52 @@ which just pulls a random face off a random die from DICE_4x4/5x5/6x6 — there 
 code path connecting what's showing at the moment of tap to the tiles STATE_PLAY reveals.
 drawBoard()'s STATE_READY branch reads readyRattleLetters instead of board; the
 STATE_PLAY branch (and everywhere else) is untouched, still reads board[r][c] directly.
+
+Positional jitter (2026-08-09, drawBoard()'s tile-drawing loop): each STATE_READY tile also
+wobbles a few % of tileSize around its resting spot — jx/jy computed per-tile from
+sin/cos(ElapsedTime * freq + r*k1 + c*k2), phase seeded from (r,c) so neighbors don't move
+in sync. Added to BOTH the tile's drawRoundedRect call and its text() call so the letter
+stays glued to the tile. Purely cosmetic, drawn on top of the (also cosmetic) letter-flip —
+neither touches tileRects (hit-testing/tap targets are unaffected).
+```
+
+## Info / About Overlay (OverlayPanels.lua, 2026-08-09)
+
+```
+Rewrote drawInfoOverlay() from a tiny centered popup (just the haiku attribution — now
+redundant with HaikuMenu's own attribution line beneath the haiku) into a near-fullscreen
+(WIDTH-32 x HEIGHT-110), scrollable About panel. Manual scroll (infoScrollY/
+infoScrollTouchId/infoScrollPrevY + infoOverlayGeom), same hand-rolled pattern as
+RecordsUI.lua's recordsScrollY (not the ScrollList class, which assumes uniform row
+height — wrong fit for headers/paragraphs/bullets of different sizes).
+
+ABOUT_CONTENT: array of {type="h1"|"p"|"bullet", text=, lead=} blocks — the actual copy.
+buildAboutLines(wrapWidth) flattens it into display lines (word-wrapped via local
+wrapTextLines()), cached in aboutLinesCache keyed by wrapWidth so it isn't rebuilt every
+frame. Bullets render as a bold lead-in line ("• Lead:") followed by an indented normal
+paragraph — Codea's text() can't mix bold/regular within one string, so inline markdown
+bold is split into two lines instead of attempted as rich text.
+
+SCROLL MATH GOTCHA (caught only by forcing infoScrollY=900 + a devLog dump before
+shipping, NOT by the unscrolled screenshot which looked fine): cursorY must be
+`bodyTop + infoScrollY`, not `bodyTop - infoScrollY`. With minus, any infoScrollY > 0
+pushes every line below bodyBottom and the panel renders completely blank (the walk
+never recovers since it only ever subtracts line heights going forward). The drag
+handler mirrors this: dragging up (dy = t.y - prevY > 0) must ADD to infoScrollY, not
+subtract. If touching this again, sanity-check with a forced non-zero infoScrollY +
+devLog(totalH, bodyHeight, maxScroll) — the bug is invisible at infoScrollY=0.
+
+openInfoOverlay()/closeInfoOverlay() reset scroll state; HaikuMenu's key=="info" calls
+openInfoOverlay() (not showInfoOverlay=true directly, so scroll always starts at 0).
+handleInfoOverlayTouch() wired into Main.lua touched() same tier as handleRecordsTouch().
+
+drawMatchBadge() (Badges.lua) gated on `if showInfoOverlay then return end`, matching its
+existing colorInspectorOverlay guard — needed once the panel went near-fullscreen (the old
+tiny popup never overlapped the badge's screen position, so this was never an issue before).
+NOTE: an iOS/GameKit system banner ("Welcome back <player>", the native Game Center
+auth toast) can ALSO render on top of everything, including this panel, on a fresh
+launch/re-auth — that one is OS chrome, not app-drawn, and not fixable from Lua; it clears
+on its own after a few seconds and isn't a bug.
 ```
 
 ## ObjC UITextField Lifecycle (end screen comment field)
