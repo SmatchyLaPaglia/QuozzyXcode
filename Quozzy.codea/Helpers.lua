@@ -123,16 +123,16 @@ function drawBoardPreview(cx, cy, side, tiles, n)
     rectMode(CENTER)
     textAlign(CENTER)
     textMode(CENTER)
-    
+
     -- background exactly the size of the preview area
 --[[
     local bgW = gridSide
     local bgH = gridSide
     local bgR = tileSize * 0.28
-    
+
     local bgFill   = Color.gridBg
     local bgStroke = Color.gridBg
-    
+
     drawRoundedRect(
     0, 0,
     bgW, bgH,
@@ -141,7 +141,8 @@ function drawBoardPreview(cx, cy, side, tiles, n)
     bgStroke
     )
 ]]
-    
+
+    font(GLOBAL_UI_FONT_DICE)  -- pinned: dice letters are exempt from GLOBAL_UI_FONT, see Main.lua
     fontSize(tileSize * 0.55)
 
     -- local grid extents, centered at (0,0)

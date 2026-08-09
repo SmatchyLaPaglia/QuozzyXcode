@@ -160,7 +160,9 @@ function drawMenuSeasonPoof(r)
   -- (ambient motion around the word is now provided by SeasonFlecks;
   --  the old static drawSeasonScatter dots are no longer drawn)
 
-  -- Generic attribution, beneath the haiku (appears partway through the poof)
+  -- Generic attribution, beneath the haiku — fades in on the SAME curve as the haiku
+  -- itself (TextGoPoof_haikuAlpha), so the two appear together instead of attribution
+  -- trailing in on its own separate timer.
   if TextGoPoof_attributionReady() then
     local attrText = "— Japanese Haiku, 17th-19th c."
     local attrSize = math.max(11, math.floor(math.min(fit.haiku * 0.78, attrZoneH * 0.55)))
@@ -176,7 +178,8 @@ function drawMenuSeasonPoof(r)
     local attrCy = haikuBottom - gap - ah * 0.5
     local minCy  = r.y + ah * 0.5 + 2            -- keep inside the band
     if attrCy < minCy then attrCy = minCy end
-    fill(Color.tileStroke)
+    local ts = Color.tileStroke
+    fill(ts.r, ts.g, ts.b, TextGoPoof_haikuAlpha())
     text(attrText, r.cx, attrCy)
     popStyle()
   end

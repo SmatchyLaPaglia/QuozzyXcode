@@ -111,6 +111,21 @@ recordsScrollPrevY = 0
 
 showInfoOverlay = false
 colorInspectorOverlay = false
+
+-- Deliberate ambient default font for the whole app (2026-08-09): originally the font
+-- used only on the not-yet-typed-in speech-balloon placeholder (EndScreenFP.lua's
+-- positionCommentField), which used to LEAK into everything drawn afterward each frame
+-- because that one call site never wrapped its font() in pushStyle()/popStyle(). Now set
+-- deliberately here, once per frame (see draw()), so anything that doesn't explicitly
+-- pin its own font() picks this up automatically — same effect the leak had, just
+-- intentional and consistent from frame 1 instead of only after the composer first ran.
+-- Explicit exceptions (each already pins its own font, so they're unaffected by this):
+-- HaikuMenu.lua (main screen), OverlayPanels.lua's drawInfoOverlay (info panel),
+-- EndScreenFP.lua's drawSpeechBalloon (balloon text once typed), and dice/tile letters
+-- (Board.lua drawBoard, Helpers.lua drawBoardPreview, RecordsUI.lua
+-- drawBoardThumbnailFromTiles — each pinned to GLOBAL_UI_FONT_DICE below).
+GLOBAL_UI_FONT      = "HelveticaNeue-BoldItalic"
+GLOBAL_UI_FONT_DICE = "Helvetica"  -- what dice/tile letters rendered as before this change (no font() was ever set for them)
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal).
 SHOW_DEBUG_BUTTON = false  -- dev-only: true shows the 🐛 button on the main menu (opens the balloon mockup). FALSE for shipped builds.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
@@ -1059,6 +1074,7 @@ function setup()
     -- Delayed call: generic alert needs HaikuMenu globals loaded
     autoShowDebugAlertPending = true
   end
+
 end
 
 function setupSparklerParameters()
@@ -1147,6 +1163,7 @@ function draw()
   end
 
   background(Color.bg)
+  font(GLOBAL_UI_FONT)  -- ambient default for the frame; see GLOBAL_UI_FONT comment above
   local appStateActive = true
   local okAppState = pcall(function()
     local app = objc and objc.UIApplication and (objc.UIApplication.sharedApplication or (objc.UIApplication.sharedApplication and objc.UIApplication:sharedApplication()))

@@ -260,12 +260,21 @@ function TextGoPoof_flecksFade()
   return math.max(0, 1 - (P.alphaB / 255))
 end
 
--- Whether the haiku attribution should be shown yet. True once the haiku has
--- settled (state B), OR partway through the poof (~half its full duration) so
--- the attribution appears sooner without shortening the poof drift itself.
-POOF_ATTRIB_DELAY = POOF_ATTRIB_DELAY or 1.1   -- seconds into the sweep
+-- Whether the haiku attribution should be shown yet. True the instant the season
+-- name starts dissolving (state ANIM or B) — same moment the haiku itself starts
+-- fading in, so the two appear together instead of attribution trailing behind on
+-- its own timer (2026-08-09: removed a ~1.1s extra delay that used to hold it back
+-- even after the haiku had already fully faded in).
 function TextGoPoof_attributionReady()
-  if P.state == "B" then return true end
-  if P.state == "ANIM" then return (P.animT or 0) >= POOF_ATTRIB_DELAY end
-  return false
+  return P.state ~= "A"
+end
+
+-- Haiku's own fade-in alpha (0-255): 0 in state A, ramping in state ANIM, 255 in
+-- state B. Exposed so the attribution line can fade in on the EXACT same curve
+-- (see drawMenuSeasonPoof, HaikuMenu.lua) rather than just popping in at full
+-- opacity the instant TextGoPoof_attributionReady() flips true.
+function TextGoPoof_haikuAlpha()
+  if P.state == "B" then return 255 end
+  if P.state == "ANIM" then return P.alphaB or 0 end
+  return 0
 end

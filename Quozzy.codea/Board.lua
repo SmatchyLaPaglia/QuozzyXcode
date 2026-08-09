@@ -394,6 +394,7 @@ function drawBoard()
     rectMode(CENTER)
     textAlign(CENTER)
     textMode(CENTER)
+    font(GLOBAL_UI_FONT_DICE)  -- pinned: dice letters are exempt from GLOBAL_UI_FONT, see Main.lua
     fontSize(tileSize * 0.45)
 
     -- rounded grid background with higher contrast
@@ -420,20 +421,21 @@ function drawBoard()
 
             local inPath = tileInCurrentPath(r, c)
 
-            -- READY-only jitter: each tile wobbles around its own resting spot on an
-            -- independent phase (seeded from r,c so neighbors don't sync up), reading as a
-            -- handful of dice rattling rather than sliding or a synchronized shake.
-            local jx, jy = 0, 0
+            -- READY-only jitter: each tile wobbles (position) and tilts (rotation) around
+            -- its own resting spot on an independent phase (seeded from r,c so neighbors
+            -- don't sync up, and the tilt uses different frequency/phase multipliers than
+            -- the position wobble so the two don't visually lock into a single simple
+            -- back-and-forth) — reads as a handful of dice rattling in place.
+            local jx, jy, angle = 0, 0, 0
             if state == STATE_READY then
                 local amp = w * 0.045
                 jx = math.sin(ElapsedTime * 9.5 + r * 1.7 + c * 2.3) * amp
                 jy = math.cos(ElapsedTime * 8.3 + r * 2.1 + c * 1.3) * amp
+                angle = math.sin(ElapsedTime * 11.3 + r * 2.9 + c * 1.1) * 7
             end
 
             local fillCol   = inPath and Color.uiAccent2 or Color.tileFill
             local strokeCol = inPath and Color.selectLineAlsoWeirdlyTileHighlight or Color.tileStroke
-
-            drawRoundedRect(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
 
             local label
             if state == STATE_READY then
@@ -442,12 +444,26 @@ function drawBoard()
                 label = board[r][c]
             end
 
+            local letterFill
             if inPath then
-                fill(Color.tileLetterHighlight)
+                letterFill = Color.tileLetterHighlight
             else
-                fill(Color.tileLetter or color(255, 255, 255, 255))
+                letterFill = Color.tileLetter or color(255, 255, 255, 255)
             end
-            text(label, x + jx, y + jy)
+
+            if angle ~= 0 then
+                pushMatrix()
+                translate(x + jx, y + jy)
+                rotate(angle)
+                drawRoundedRect(0, 0, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
+                fill(letterFill)
+                text(label, 0, 0)
+                popMatrix()
+            else
+                drawRoundedRect(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
+                fill(letterFill)
+                text(label, x + jx, y + jy)
+            end
         end
     end
     

@@ -799,12 +799,20 @@ local function positionCommentField(i, balloonRect, shownFlag, activeFlag, place
       setHitRect({ cx = fRect.x + fRect.w * 0.5, cy = fRect.y + fRect.h * 0.5, w = fRect.w, h = fRect.h })
     end
     if not activeFlag then
+      -- pushStyle/popStyle here (previously missing — the bug that used to leak this
+      -- font into whatever drew next this frame) now just belongs to good hygiene:
+      -- GLOBAL_UI_FONT (Main.lua) makes HelveticaNeue-BoldItalic the deliberate ambient
+      -- default everywhere that doesn't explicitly pin its own font, so this call no
+      -- longer needs to "leak" to have its old effect — but it shouldn't clobber
+      -- whatever runs right after it either.
+      pushStyle()
       local pc = Color.tileText or color(40, 80, 60)
       fill(pc.r, pc.g, pc.b, 204)                       -- 20% transparent
       textMode(CENTER); textAlign(CENTER)
       font("HelveticaNeue-BoldItalic")
       fontSize(18)
       text(placeholderText or "", br.x + br.w * 0.5, br.y + br.h * 0.5)
+      popStyle()
     end
   else
     updateCommentField(i, nil, false)
@@ -952,7 +960,7 @@ function drawBalloonMockupOverlay()
   )
   useTurnBased = savedUseTurnBased
 
-  local PLACEHOLDER = scn.placeholder or "tap to comment on this match"
+  local PLACEHOLDER = scn.placeholder or "tap here to comment"
   local balloonFontSize = layout.cardHeaderH * 0.44
   local wrapWidth = layout.panelW - 42            -- == bubbleW - 8 in the renderer
 
@@ -1301,9 +1309,14 @@ function buildEndScreenModel()
   -- text since the native UITextView renders it instead; the grey
   -- fill/stroke overrides mark the balloon as "not active yet" until the
   -- field is focused or has text, matching the balloon mockup's states.
-  local placeholderText = commentInfo and commentInfo.opponentPlayed
+  -- "Add a reply..." only makes sense when there's an actual opponent comment to reply
+  -- to. commentInfo.opponentPlayed alone isn't enough — the opponent may have played
+  -- their turn and left no comment, in which case this composer is the first word in
+  -- the thread just as much as the initiator's is, so it gets the same generic prompt.
+  local hasOpponentComment = commentInfo and commentInfo.opponentPlayed and opponentComment ~= ""
+  local placeholderText = hasOpponentComment
     and "Add a reply to their comment"
-    or "Add a comment about this match"
+    or "tap here to comment"
   local composingActive = (commentFields and commentFields[3] and commentFields[3].focused) or (endScreenCommentDraft ~= "")
   local composingOffFill   = color(214, 214, 214, 255)
   local composingOffStroke = color(168, 168, 168, 255)

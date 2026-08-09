@@ -147,6 +147,14 @@ sin/cos(ElapsedTime * freq + r*k1 + c*k2), phase seeded from (r,c) so neighbors 
 in sync. Added to BOTH the tile's drawRoundedRect call and its text() call so the letter
 stays glued to the tile. Purely cosmetic, drawn on top of the (also cosmetic) letter-flip —
 neither touches tileRects (hit-testing/tap targets are unaffected).
+
+Rotation tilt (2026-08-09, same loop): each tile also rotates ±7° on its own sin() phase
+(different freq/phase multipliers than the position wobble, so they don't lock into one
+simple back-and-forth). Rotation requires pushMatrix()/translate(x+jx,y+jy)/rotate(angle)/
+popMatrix() with the tile drawn at LOCAL (0,0) inside that block — drawRoundedRect/text
+take absolute coords normally, so this is a separate code path from the angle==0 case
+(STATE_PLAY, or any tile that happens to roll a zero angle) which still draws directly at
+(x+jx, y+jy) with no matrix push, cheaper for the common case.
 ```
 
 ## Info / About Overlay (OverlayPanels.lua, 2026-08-09)
@@ -315,6 +323,15 @@ TextGoPoof.lua poof (swipe → haiku) reworked to DIRECTIONAL DRIFT:
   drawPoofingText ANIM: vx += P.direction*0.04 (drag 0.98), vy += sine float,
     color = P.specsA.color (season accent), full opacity to 40% of life then fade.
   No gravity/ground-bounce anymore. Word is NOT redrawn during ANIM (no word-fade).
+
+Attribution sync (2026-08-09): TextGoPoof_attributionReady() used to gate on a separate
+~1.1s timer (POOF_ATTRIB_DELAY) independent of the haiku's own fade — haiku would finish
+fading in (~0.7s, P.alphaB ramps +6/frame to 255) and then attribution would pop in
+~0.4s later, a visible stagger. Now TextGoPoof_attributionReady() is just `P.state ~= "A"`
+(ready the instant the season name starts dissolving) AND HaikuMenu.lua's
+drawMenuSeasonPoof() applies TextGoPoof_haikuAlpha() (new getter, mirrors P.alphaB) as
+the attribution's own fill alpha — so it fades in on the EXACT same curve as the haiku,
+not just an earlier pop-in threshold.
 ```
 
 ## Menu Title/Season Band (HaikuMenu.lua)
@@ -337,6 +354,40 @@ showRowDividers (pink section boundary lines) default = false.
 - Helpers.lua:24 — expects CENTER coordinates: pointInRect(px, py, cx, cy, w, h)
 - checks: px in [cx-w/2, cx+w/2] and py in [cy-h/2, cy+h/2]
 - ALWAYS store hit rects as {cx, cy, w, h} — passing corner coords silently halves the hit area
+
+## Global Default Font (Main.lua, 2026-08-09)
+
+```
+GLOBAL_UI_FONT ("HelveticaNeue-BoldItalic") is set once per frame at the very top of
+draw() (right after background(Color.bg), before any state routing) — the deliberate
+ambient default for the whole app. Anything that draws text() WITHOUT its own font()
+call inherits this automatically (Codea's font() state is global/persistent, not scoped
+to a function unless wrapped in pushStyle()/popStyle()).
+
+Origin: this exact font used to be ONLY on the not-yet-typed speech-balloon placeholder
+(EndScreenFP.lua positionCommentField()) — and it LEAKED into everything drawn after it
+each frame because that call site never wrapped font() in pushStyle()/popStyle(). The
+leak was fixed (positionCommentField now pushStyle()-wraps its placeholder draw) and the
+font was simultaneously promoted to a deliberate, permanent default instead — same visual
+effect, but consistent from frame 1 rather than only after a composer first ran.
+
+EXCEPTIONS (each pins its own font() explicitly, so GLOBAL_UI_FONT never reaches them):
+  - HaikuMenu.lua (the whole main menu) — every text() call already had its own font()
+    (Georgia/Georgia-Bold/Georgia-Italic/HelveticaNeue-Bold) before this change.
+  - OverlayPanels.lua drawInfoOverlay() (About panel) — same, already fully explicit.
+  - EndScreenFP.lua drawSpeechBalloon() — the ACTUAL balloon text once typed/submitted;
+    already pushStyle()-wrapped with its own font("HelveticaNeue"), independent of this.
+  - Dice/tile letters — GLOBAL_UI_FONT_DICE ("Helvetica", i.e. what they rendered as
+    before this change existed — none of these ever had an explicit font() call, so
+    "Helvetica" is Codea's own engine default, now pinned explicitly instead of left
+    implicit): Board.lua drawBoard(), Helpers.lua drawBoardPreview() (end-screen board
+    thumbnail), RecordsUI.lua drawBoardThumbnailFromTiles() (records-overlay match
+    thumbnails).
+Everything ELSE (HUD, word list, ready-screen "tap to start" message, records overlay
+non-thumbnail text, alerts, GC overlays, etc.) inherits GLOBAL_UI_FONT — this was a
+deliberate, broad decision, not an oversight; verify with a fresh screenshot (not just
+code read) before assuming any specific screen kept its old look.
+```
 
 ## Gameplay Board Layout (computeGridLayout, Board.lua)
 
@@ -522,8 +573,8 @@ Panel + board + avatars (2026-07-19): drawBalloonMockupOverlay() used to hand-ro
   situations the end screen can be in (see "Turn-Based Comment Speech Balloons" above for
   the states themselves). Each entry is a COMPLETE valid snapshot (opponentComment string
   or nil, localComposing bool, localComment string or nil, plus optional per-entry overrides:
-  placeholder (composer placeholder text, default "tap to comment on this match" — scenario 2
-  uses "tap to reply"), localTailUsesOpponentSlot, centerBothBalloons, suppressLocalTail,
+  placeholder (composer placeholder text, default "tap here to comment" (2026-08-09; was
+  "tap to comment on this match") — scenario 2 uses "tap to reply"), localTailUsesOpponentSlot, centerBothBalloons, suppressLocalTail,
   localGapExtra — see drawEndScreenSpeechBalloons above for what each does) — picking one
   can't land on an impossible combination by construction. mockupScenarioIndex (global, 1-7) selects the
   active entry; drawn as 7 small numbered chips (mockupChipRects, direct-jump, not
@@ -680,6 +731,13 @@ buildEndScreenModel() commentUI, while composing (canComposeComment==true):
   Also fixed here: commentInfo.isResponderTurn (referenced by the old placeholder-text
   ternary) never actually existed on currentFinalCommentPhase()'s return table — it returns
   `opponentPlayed`. Placeholder logic now reads commentInfo.opponentPlayed correctly.
+
+  placeholderText derivation (2026-08-09 fix): commentInfo.opponentPlayed alone is NOT
+  enough to justify "Add a reply to their comment" — the opponent may have played their
+  turn and left NO comment, in which case there's nothing to reply to. Now gated on
+  `commentInfo.opponentPlayed and opponentComment ~= ""` (hasOpponentComment); anything
+  else (including the initiator's very first comment, and a responder whose opponent
+  stayed silent) gets the generic "tap here to comment" instead.
 
 BALLOON VISIBILITY TOGGLE (endScreenSpeechBalloonsVisible, EndScreen.lua): tapping
   g.topToggleRect (the avatar/board/message row, above where balloons render) OR tapping

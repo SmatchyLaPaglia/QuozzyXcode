@@ -73,8 +73,9 @@ function drawBoardThumbnailFromTiles(tiles, n, cx, cy, side)
     rectMode(CENTER)
     textAlign(CENTER)
     textMode(CENTER)
+    font(GLOBAL_UI_FONT_DICE)  -- pinned: dice letters are exempt from GLOBAL_UI_FONT, see Main.lua
     fontSize(tileSize * 0.45)
-    
+
     -- background
     drawRoundedRect(cx, cy, side + 10, side + 10, tileSize * 0.22, Color.gridBg, Color.gridBg)
     
