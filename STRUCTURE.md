@@ -334,6 +334,33 @@ the attribution's own fill alpha — so it fades in on the EXACT same curve as t
 not just an earlier pop-in threshold.
 ```
 
+## Menu Dice Word Filter (HaikuMenu.lua, 2026-08-09)
+
+```
+Section 3's min-word-length dice (menuDiceDisplayWord) spell an actual random SOWPODS
+word of length MIN_WORD_LEN, re-rolled every whole second (randomWordOfLength(n) pulls
+from WORDS_BY_LENGTH[n], built from the real DICT). Since SOWPODS contains genuine slurs
+and profanity as valid Scrabble words (confirmed: 87 exact matches against a standard
+moderation blocklist, at lengths 3-6 — NIGGER, FAGGOT, KIKE, SPIC, CUNT, etc. are all
+valid SOWPODS entries), this could display something offensive UNPROMPTED to anyone
+glancing at the menu.
+
+randomMenuDiceWord(n) wraps randomWordOfLength's list with a retry-away-from-
+MENU_DICE_BLOCKLIST loop (25 attempts, then a one-time full-list filter as a fallback
+that should never actually trigger). MENU_DICE_BLOCKLIST is the 3-6 letter single-word
+subset of the LDNOOBW list (github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-
+Otherwise-Bad-Words, MIT, originally Shutterstock's moderation blocklist) — 126 entries,
+exact whole-word match only (NOT substring — avoids the Scunthorpe problem).
+
+SCOPE, DELIBERATELY NARROW: this ONLY affects the menu dice display. randomWordOfLength()
+itself, DICT, WORDS_BY_LENGTH, and all real gameplay word validation/scoring are
+completely untouched — a player finding an off-color word during an actual round is a
+different, accepted situation; this is specifically about words appearing unbidden on
+the main menu. randomWordOfLength has exactly one caller (the dice display) as of this
+writing — if a second caller is ever added, decide per-caller whether it wants the
+filtered or unfiltered picker, don't assume.
+```
+
 ## Menu Title/Season Band (HaikuMenu.lua)
 
 ```

@@ -619,7 +619,7 @@ function drawMenu()
   local diceWordSec = math.floor(ElapsedTime)
   if menuDiceWordSec ~= diceWordSec or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
     menuDiceWordSec = diceWordSec
-    menuDiceDisplayWord = randomWordOfLength(MIN_WORD_LEN)
+    menuDiceDisplayWord = randomMenuDiceWord(MIN_WORD_LEN)
   end
 
   local dieRowLeft = -(diceRowW * 0.5)
@@ -1107,6 +1107,69 @@ function randomWordOfLength(n)
   local list = WORDS_BY_LENGTH[n]
   if not list or #list == 0 then return nil end
   return list[math.random(1, #list)]
+end
+
+------------------------------------------------------------
+-- MENU DICE WORD FILTER — scope: ONLY the min-word-length dice preview
+-- (Section 3, menuDiceDisplayWord above). Deliberately does NOT touch DICT,
+-- WORDS_BY_LENGTH, or any actual gameplay word validation/scoring — players
+-- finding an off-color word during a real round is unrelated and untouched.
+-- This is specifically about words appearing UNPROMPTED on the main menu to
+-- anyone glancing at the app.
+--
+-- Source: the 3-6 letter single-word entries from the LDNOOBW "List of Dirty,
+-- Naughty, Obscene, and Otherwise Bad Words" (github.com/LDNOOBW/List-of-
+-- Dirty-Naughty-Obscene-and-Otherwise-Bad-Words, en list, MIT-licensed,
+-- originally curated by Shutterstock) — a widely-used, publicly maintained
+-- moderation blocklist covering slurs, profanity, and explicit-content terms.
+-- Cross-checked 2026-08-09: 87 of these are valid SOWPODS words (the rest
+-- aren't in the dictionary at all, so are harmless no-ops to keep listed).
+------------------------------------------------------------
+
+MENU_DICE_BLOCKLIST = MENU_DICE_BLOCKLIST or (function()
+  local words = {
+    "ANAL","ANUS","ASS","BBW","BDSM","BEANER","BIMBOS","BITCH","BONER","BOOB",
+    "BOOBS","BUSTY","BUTT","CIALIS","CLIT","COCK","COCKS","COON","COONS","CUM",
+    "CUNT","DARKIE","DICK","DILDO","DOMMES","DVDA","ECCHI","EROTIC","ESCORT",
+    "EUNUCH","FAG","FAGGOT","FECAL","FELCH","FELTCH","FEMDOM","FUCK","FUCKIN",
+    "GOATCX","GOATSE","GOKKUN","GROPE","GURO","HENTAI","HONKEY","HOOKER",
+    "HORNY","INCEST","JIZZ","JUGGS","KIKE","KINKY","LOLITA","MILF","MONG",
+    "NAMBLA","NEGRO","NIGGA","NIGGER","NIPPLE","NSFW","NUDE","NUDITY","NUTTEN",
+    "NYMPHO","ORGASM","ORGY","PAKI","PANTY","PENIS","PIKEY","POOF","POON",
+    "PORN","PORNO","PTHC","PUBES","PUNANY","PUSSY","QUEAF","QUEEF","QUIM",
+    "RAPE","RAPING","RAPIST","RECTUM","RIMJOB","SADISM","SCAT","SEMEN","SEX",
+    "SEXCAM","SEXO","SEXUAL","SEXY","SHIT","SHITTY","SHOTA","SKEET","SLUT",
+    "SMUT","SNATCH","SODOMY","SPIC","SPOOGE","SPUNK","SUCK","SUCKS","TIT",
+    "TITS","TITTY","TOSSER","TRANNY","TUSHY","TWAT","TWINK","VAGINA","VIAGRA",
+    "VOYEUR","VOYUER","VULVA","WANK","WHORE","XXX","YAOI","YIFFY",
+  }
+  local set = {}
+  for _, w in ipairs(words) do set[w] = true end
+  return set
+end)()
+
+-- Same as randomWordOfLength(), but retries away from MENU_DICE_BLOCKLIST.
+-- Exact whole-word match only (not substring) — deliberately avoids the
+-- "Scunthorpe problem" of an innocuous word getting rejected because a
+-- shorter blocked word happens to appear inside it.
+function randomMenuDiceWord(n)
+  ensureWordsByLength()
+  local list = WORDS_BY_LENGTH[n]
+  if not list or #list == 0 then return nil end
+
+  for _ = 1, 25 do
+    local w = list[math.random(1, #list)]
+    if not MENU_DICE_BLOCKLIST[w] then return w end
+  end
+
+  -- Pathological fallback (should never trigger in practice — the blocklist
+  -- is a tiny fraction of any WORDS_BY_LENGTH bucket): filter once and pick.
+  local clean = {}
+  for _, w in ipairs(list) do
+    if not MENU_DICE_BLOCKLIST[w] then clean[#clean + 1] = w end
+  end
+  if #clean == 0 then return nil end
+  return clean[math.random(1, #clean)]
 end
 
 ------------------------------------------------------------

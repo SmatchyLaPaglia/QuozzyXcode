@@ -1074,7 +1074,6 @@ function setup()
     -- Delayed call: generic alert needs HaikuMenu globals loaded
     autoShowDebugAlertPending = true
   end
-
 end
 
 function setupSparklerParameters()
