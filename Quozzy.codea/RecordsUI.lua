@@ -87,8 +87,8 @@ function drawBoardThumbnailFromTiles(tiles, n, cx, cy, side)
     font(GLOBAL_UI_FONT_DICE)  -- pinned: dice letters are exempt from GLOBAL_UI_FONT, see Main.lua
     fontSize(tileSize * 0.45)
 
-    -- background
-    drawRoundedRect(cx, cy, side + 10, side + 10, tileSize * 0.22, Color.gridBg, Color.gridBg)
+    -- background (thin border around the tiles)
+    drawRoundedRect(cx, cy, side + 4, side + 4, tileSize * 0.22, Color.gridBg, Color.gridBg)
 
     local idx = 1
     for r = 1, n do
@@ -121,7 +121,7 @@ function getRecordsBoardThumb(m, px)
     setContext(img)
     background(0,0,0,0)
 
-    local side = px * 0.86
+    local side = px * 0.96   -- tiles fill nearly the whole thumbnail (thin margin)
     drawBoardThumbnailFromTiles(tiles, n, px * 0.5, px * 0.5, side)
 
     setContext()
@@ -252,7 +252,7 @@ local function _drawMiniBalloon(txt, x, yBot, maxW, fillCol, txtCol, tailSide)
     fontSize(fs)
 
     local padX = 12
-    local bodyH = 30
+    local bodyH = 32
     local tailH = 7
     local shown = _truncateWithEllipsis(txt, maxW - padX * 2)
     local tw = textSize(shown)
@@ -340,7 +340,7 @@ function drawRecordsOverlay()
     drawRoundedRect(panelX, panelY, panelW, panelH, 22, color(pc.r, pc.g, pc.b, 255), color(pc.r, pc.g, pc.b, 255))
     popStyle()
 
-    local innerPadding = 14
+    local innerPadding = 10
     local innerLeft   = panelX - panelW/2 + innerPadding
     local innerRight  = panelX + panelW/2 - innerPadding
     local innerTop    = panelY + panelH/2 - innerPadding
@@ -446,13 +446,13 @@ function drawRecordsOpponentsList(b)
             local cardCx = b.innerLeft + b.listWidth * 0.5
             _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
 
-            -- avatar (left)
-            local avCx = b.innerLeft + 14 + avSize * 0.5
+            -- avatar (left), thin margin
+            local avCx = b.innerLeft + 8 + avSize * 0.5
             drawAvatarCircle(entryAvatars[i], avCx, cardCy, avSize, "O")
 
             -- text block: name (top, larger) + stats (bottom, smaller/dimmer)
-            local textX = avCx + avSize * 0.5 + 14
-            local textMaxW = b.innerRight - 14 - textX
+            local textX = avCx + avSize * 0.5 + 12
+            local textMaxW = b.innerRight - 8 - textX
 
             pushStyle()
             textMode(CORNER)
@@ -525,18 +525,24 @@ function drawRecordsMatchesList(b)
     local matches = recordsMatchesForOpponent(oppId)
     recordsMatchRowRects = {}
 
-    local rowH  = 128         -- card + gap
-    local cardH = 116
+    local rowH  = 140         -- card + gap
+    local cardH = 130
     local borderCol = color(Color.tileText.r, Color.tileText.g, Color.tileText.b, 70)
     local fillA = Color.uiAccent or color(40, 80, 60)
     local txtC  = Color.panelBG or color(255)
 
+    -- Very thin margins throughout so the board + balloons are as large as possible.
+    local BOARD_MARGIN = 4    -- gap from card edge to board thumbnail
+    local BALLOON_GAP  = 6    -- gap from thumbnail to the balloons
+    local RIGHT_MARGIN = 4    -- gap from balloons/date to card right edge
+
     -- Pre-generate board thumbnails BEFORE the clip region (getRecordsBoardThumb uses
     -- setContext render-to-texture, which corrupts under an active clip scissor — same
-    -- reason as the avatars in the opponents list). Cached, so this is one-time cost.
+    -- reason as the avatars in the opponents list). Cached. Requested at high res so the
+    -- now-larger thumbnail stays crisp.
     local matchThumbs = {}
     for i, m in ipairs(matches) do
-        matchThumbs[i] = getRecordsBoardThumb(m, 128)
+        matchThumbs[i] = getRecordsBoardThumb(m, 200)
     end
 
     clip(b.innerLeft, b.listBottom, b.listWidth, b.listHeight)
@@ -548,9 +554,9 @@ function drawRecordsMatchesList(b)
             local cardCx = b.innerLeft + b.listWidth * 0.5
             _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
 
-            -- board preview: full row height (square), left
-            local boardPx = cardH - 16
-            local boardCx = b.innerLeft + 12 + boardPx * 0.5
+            -- board preview: nearly the full card height (square), hard against the left
+            local boardPx = cardH - BOARD_MARGIN * 2
+            local boardCx = b.innerLeft + BOARD_MARGIN + boardPx * 0.5
             local thumb = matchThumbs[i]
             if thumb then
                 pushStyle()
@@ -561,13 +567,14 @@ function drawRecordsMatchesList(b)
 
             -- right block, divided into three rows:
             --   top = opponent's comment balloon, mid = local comment balloon,
-            --   bottom = date (mm/dd/yyyy) + result
-            local rx = boardCx + boardPx * 0.5 + 12
-            local rW = b.innerRight - 12 - rx
+            --   bottom = date (mm/dd/yyyy) + result. Balloons fill the width tightly.
+            local rx = boardCx + boardPx * 0.5 + BALLOON_GAP
+            local rW = b.innerRight - RIGHT_MARGIN - rx
             local cardTop = cardCy + cardH * 0.5
 
-            local oppYBot   = cardTop - 8 - 37
-            local localYBot = oppYBot - 4 - 37
+            local balloonTotalH = 39   -- bodyH(32) + tailH(7); keep in sync with _drawMiniBalloon
+            local oppYBot   = cardTop - 6 - balloonTotalH
+            local localYBot = oppYBot - 4 - balloonTotalH
             if (m.oppComment or "") ~= "" then
                 _drawMiniBalloon(m.oppComment, rx, oppYBot, rW, fillA, txtC, "left")
             end
