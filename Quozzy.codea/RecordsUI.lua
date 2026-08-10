@@ -289,9 +289,18 @@ end
 -- reads as "transparent", just the overlay showing through) and only a subtle darker ring
 -- shows. Two concentric fills — a border-colored rounded rect, then a slightly smaller
 -- panel-colored one on top — because drawRoundedRect has no thin-stroke mode.
+--
+-- IMPORTANT: the border color MUST be opaque. drawRoundedRect rounds its corners with four
+-- thick round-capped lines whose caps OVERLAP at each corner; a translucent color blends
+-- twice there, darkening only the corners (the visible artifact). borderCol's alpha is
+-- therefore treated as a blend amount against the panel color and flattened to opaque here.
 local function _drawRowCard(cx, cy, w, h, r, borderCol, t)
-    drawRoundedRect(cx, cy, w, h, r, borderCol, borderCol)
     local pc = Color.panelBG or color(40, 40, 40, 255)
+    local a  = (borderCol.a or 255) / 255
+    local bc = color(pc.r + (borderCol.r - pc.r) * a,
+                     pc.g + (borderCol.g - pc.g) * a,
+                     pc.b + (borderCol.b - pc.b) * a, 255)
+    drawRoundedRect(cx, cy, w, h, r, bc, bc)
     drawRoundedRect(cx, cy, w - 2 * t, h - 2 * t, math.max(0, r - t),
         color(pc.r, pc.g, pc.b, 255), color(pc.r, pc.g, pc.b, 255))
 end
