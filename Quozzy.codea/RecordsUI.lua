@@ -239,7 +239,7 @@ end
 -- (updated in place each call) so nothing is allocated per frame — important given the
 -- avatar-texture leak lesson (see Avatars.lua). x,yBot = bottom-left of the whole balloon
 -- (tail tip sits at yBot).
-local function _drawMiniBalloon(txt, x, yBot, maxW, fillCol, txtCol)
+local function _drawMiniBalloon(txt, x, yBot, maxW, fillCol, txtCol, tailSide)
     txt = tostring(txt or "")
     if txt == "" then return end
     _miniTailMesh = _miniTailMesh or mesh()   -- lazy: don't allocate a GPU object at file load
@@ -248,11 +248,11 @@ local function _drawMiniBalloon(txt, x, yBot, maxW, fillCol, txtCol)
     textMode(CORNER)
     textAlign(LEFT)
     font(GLOBAL_UI_FONT)
-    local fs = 15
+    local fs = 16
     fontSize(fs)
 
-    local padX = 10
-    local bodyH = 28
+    local padX = 12
+    local bodyH = 30
     local tailH = 7
     local shown = _truncateWithEllipsis(txt, maxW - padX * 2)
     local tw = textSize(shown)
@@ -263,15 +263,16 @@ local function _drawMiniBalloon(txt, x, yBot, maxW, fillCol, txtCol)
     local cx = x + w * 0.5
 
     -- body
-    drawRoundedRect(cx, bodyCy, w, bodyH, 9, fillCol, fillCol)
+    drawRoundedRect(cx, bodyCy, w, bodyH, 10, fillCol, fillCol)
 
-    -- tail (persistent mesh, vertices re-set each call)
+    -- tail (persistent mesh, vertices re-set each call). Left tail by default; "right"
+    -- puts it near the balloon's right end (used to distinguish the two speakers).
     local tm = _miniTailMesh
-    local baseX = x + 16
+    local baseX = (tailSide == "right") and (x + w - 26) or (x + 16)
     tm.vertices = {
         vec2(baseX, bodyBottom + 1),
         vec2(baseX + 12, bodyBottom + 1),
-        vec2(baseX + 2, yBot),
+        vec2((tailSide == "right") and (baseX + 10) or (baseX + 2), yBot),
     }
     tm:setColors(fillCol)
     tm:draw()
@@ -282,6 +283,32 @@ local function _drawMiniBalloon(txt, x, yBot, maxW, fillCol, txtCol)
 
     popStyle()
     return w
+end
+
+-- Outline-only rounded-rect row card: the interior is filled with the panel color (so it
+-- reads as "transparent", just the overlay showing through) and only a subtle darker ring
+-- shows. Two concentric fills — a border-colored rounded rect, then a slightly smaller
+-- panel-colored one on top — because drawRoundedRect has no thin-stroke mode.
+local function _drawRowCard(cx, cy, w, h, r, borderCol, t)
+    drawRoundedRect(cx, cy, w, h, r, borderCol, borderCol)
+    local pc = Color.panelBG or color(40, 40, 40, 255)
+    drawRoundedRect(cx, cy, w - 2 * t, h - 2 * t, math.max(0, r - t),
+        color(pc.r, pc.g, pc.b, 255), color(pc.r, pc.g, pc.b, 255))
+end
+
+local function _formatMatchDateShort(t)
+    t = tonumber(t) or 0
+    if t <= 0 then return "" end
+    local d = os.date("*t", t)
+    return string.format("%02d/%02d/%04d", d.month, d.day, d.year)
+end
+
+local function _matchResultText(m)
+    if not m.complete then return "in progress" end
+    local a, b = m.localScore or 0, m.oppScore or 0
+    if a > b then return string.format("you won %d to %d", a, b)
+    elseif a < b then return string.format("you lost %d to %d", a, b)
+    else return string.format("you tied %d-%d", a, b) end
 end
 
 --####################################################################
@@ -299,31 +326,21 @@ function drawRecordsOverlay()
     rect(0, 0, WIDTH, HEIGHT)
     popStyle()
 
-    local panelW = WIDTH * 0.85
-    local panelH = HEIGHT * 0.85
+    -- Big panel with only a small side gap (drawn directly, not the smaller prebuilt
+    -- overlayPanelRecords sprite, so we can size it freely). Shared by both list levels.
+    local panelW = WIDTH - 16
+    local panelH = HEIGHT * 0.9
     local panelX = WIDTH / 2
     local panelY = HEIGHT / 2
 
-    -- panel (rounded, prebuilt per season)
-    local panelSprite = overlayPanelRecords
-    if panelSprite then
-        local c = Color.panelBG or color(40, 40, 40, 220)
-        pushStyle()
-        spriteMode(CENTER)
-        tint(255, 255, 255, c.a or 255)
-        sprite(panelSprite, panelX, panelY)
-        noTint()
-        popStyle()
-    else
-        pushStyle()
-        rectMode(CENTER)
-        noStroke()
-        fill(Color.panelBG)
-        rect(panelX, panelY, panelW, panelH)
-        popStyle()
-    end
+    pushStyle()
+    rectMode(CENTER)
+    noStroke()
+    local pc = Color.panelBG or color(40, 40, 40, 255)
+    drawRoundedRect(panelX, panelY, panelW, panelH, 22, color(pc.r, pc.g, pc.b, 255), color(pc.r, pc.g, pc.b, 255))
+    popStyle()
 
-    local innerPadding = 24
+    local innerPadding = 14
     local innerLeft   = panelX - panelW/2 + innerPadding
     local innerRight  = panelX + panelW/2 - innerPadding
     local innerTop    = panelY + panelH/2 - innerPadding
@@ -397,14 +414,17 @@ function drawRecordsOpponentsList(b)
             alias = rec.alias or id,
             wins = rec.wins or 0,
             losses = rec.losses or 0,
+            ties = rec.ties or 0,
         }
     end
     table.sort(entries, function(a, b2) return (a.alias or "") < (b2.alias or "") end)
 
     recordsRowRects = {}
 
-    local rowH = 92
-    local avSize = 60
+    local rowH  = 88          -- card + gap
+    local cardH = 76
+    local avSize = 56
+    local borderCol = color(Color.tileText.r, Color.tileText.g, Color.tileText.b, 70)
 
     -- Pre-generate avatar images BEFORE the clip region. unknownPlayerAvatar renders via
     -- setContext (render-to-texture); doing that while a clip() scissor is active corrupts
@@ -421,39 +441,40 @@ function drawRecordsOpponentsList(b)
 
     for i, e in ipairs(entries) do
         local rowTopY = b.listTop - recordsScrollY - (i - 1) * rowH
-        local rowBotY = rowTopY - rowH
-        if rowBotY < b.listTop and rowTopY > b.listBottom then
-            local cy = (rowTopY + rowBotY) * 0.5
+        local cardCy  = rowTopY - cardH * 0.5
+        if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
+            local cardCx = b.innerLeft + b.listWidth * 0.5
+            _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
 
             -- avatar (left)
-            local avCx = b.innerLeft + 8 + avSize * 0.5
-            drawAvatarCircle(entryAvatars[i], avCx, cy, avSize, "O")
+            local avCx = b.innerLeft + 14 + avSize * 0.5
+            drawAvatarCircle(entryAvatars[i], avCx, cardCy, avSize, "O")
 
-            -- W/L badges (right), then name in the remaining middle space
-            local badgesLeftX = _drawLargeScoreBadges(b.innerRight - 8, cy, e.wins, e.losses)
+            -- text block: name (top, larger) + stats (bottom, smaller/dimmer)
+            local textX = avCx + avSize * 0.5 + 14
+            local textMaxW = b.innerRight - 14 - textX
 
-            local nameX = avCx + avSize * 0.5 + 16
-            local nameMaxW = badgesLeftX - 14 - nameX
             pushStyle()
-            fill(Color.tileText)
-            font("HelveticaNeue-Bold")
-            fontSize(20)
             textMode(CORNER)
             textAlign(LEFT)
-            local nameStr = _truncateWithEllipsis(e.alias or e.id, math.max(20, nameMaxW))
-            local _, nh = textSize(nameStr)
-            text(nameStr, nameX, cy - (nh or 22) * 0.5)
-            popStyle()
 
-            -- separator
-            pushStyle()
-            stroke(Color.tileText.r, Color.tileText.g, Color.tileText.b, 40)
-            strokeWidth(1)
-            line(b.innerLeft + 6, rowBotY, b.innerRight - 6, rowBotY)
+            fill(Color.tileText)
+            font("HelveticaNeue-Bold")
+            fontSize(21)
+            local nameStr = _truncateWithEllipsis(e.alias or e.id, textMaxW)
+            text(nameStr, textX, cardCy + 3)
+
+            local total = (e.wins or 0) + (e.losses or 0) + (e.ties or 0)
+            local pct = (total > 0) and math.floor((e.wins or 0) / total * 100 + 0.5) or 0
+            local stats = string.format("total games: %d, games won: %d (%d%%)", total, e.wins or 0, pct)
+            fill(Color.tileText.r, Color.tileText.g, Color.tileText.b, 165)
+            font("HelveticaNeue")
+            fontSize(14)
+            text(_truncateWithEllipsis(stats, textMaxW), textX, cardCy - 20)
             popStyle()
 
             recordsRowRects[#recordsRowRects + 1] = {
-                x = b.innerLeft, y = rowBotY, w = b.listWidth, h = rowH, oppId = e.id,
+                x = b.innerLeft, y = cardCy - cardH * 0.5, w = b.listWidth, h = cardH, oppId = e.id,
             }
         end
     end
@@ -504,89 +525,69 @@ function drawRecordsMatchesList(b)
     local matches = recordsMatchesForOpponent(oppId)
     recordsMatchRowRects = {}
 
-    local rowH = 132
+    local rowH  = 128         -- card + gap
+    local cardH = 116
+    local borderCol = color(Color.tileText.r, Color.tileText.g, Color.tileText.b, 70)
+    local fillA = Color.uiAccent or color(40, 80, 60)
+    local txtC  = Color.panelBG or color(255)
 
     -- Pre-generate board thumbnails BEFORE the clip region (getRecordsBoardThumb uses
     -- setContext render-to-texture, which corrupts under an active clip scissor — same
     -- reason as the avatars in the opponents list). Cached, so this is one-time cost.
     local matchThumbs = {}
     for i, m in ipairs(matches) do
-        matchThumbs[i] = getRecordsBoardThumb(m, 96)
+        matchThumbs[i] = getRecordsBoardThumb(m, 128)
     end
 
     clip(b.innerLeft, b.listBottom, b.listWidth, b.listHeight)
 
     for i, m in ipairs(matches) do
         local rowTopY = b.listTop - recordsScrollY - (i - 1) * rowH
-        local rowBotY = rowTopY - rowH
-        if rowBotY < b.listTop and rowTopY > b.listBottom then
-            -- thumbnail (left, upper strip)
-            local thumbSize = 74
-            local thumbCx = b.innerLeft + 8 + thumbSize * 0.5
-            local thumbCy = rowTopY - 10 - thumbSize * 0.5
+        local cardCy  = rowTopY - cardH * 0.5
+        if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
+            local cardCx = b.innerLeft + b.listWidth * 0.5
+            _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
+
+            -- board preview: full row height (square), left
+            local boardPx = cardH - 16
+            local boardCx = b.innerLeft + 12 + boardPx * 0.5
             local thumb = matchThumbs[i]
             if thumb then
                 pushStyle()
                 spriteMode(CENTER)
-                sprite(thumb, thumbCx, thumbCy, thumbSize, thumbSize)
+                sprite(thumb, boardCx, cardCy, boardPx, boardPx)
                 popStyle()
             end
 
-            -- score / word-count / date text block (right of thumb)
-            local nLocalWords = #(m.localWords or {})
-            local nOppWords   = #(m.oppWords or {})
-            local textX = b.innerLeft + 8 + thumbSize + 14
-            local textAvailW = b.innerRight - 8 - textX
-            local lineTop = rowTopY - 14
+            -- right block, divided into three rows:
+            --   top = opponent's comment balloon, mid = local comment balloon,
+            --   bottom = date (mm/dd/yyyy) + result
+            local rx = boardCx + boardPx * 0.5 + 12
+            local rW = b.innerRight - 12 - rx
+            local cardTop = cardCy + cardH * 0.5
 
+            local oppYBot   = cardTop - 8 - 37
+            local localYBot = oppYBot - 4 - 37
+            if (m.oppComment or "") ~= "" then
+                _drawMiniBalloon(m.oppComment, rx, oppYBot, rW, fillA, txtC, "left")
+            end
+            if (m.localComment or "") ~= "" then
+                _drawMiniBalloon(m.localComment, rx, localYBot, rW, fillA, txtC, "right")
+            end
+
+            -- date + result row (bottom)
             pushStyle()
             textMode(CORNER)
             textAlign(LEFT)
-            fill(Color.tileText)
-
             font("HelveticaNeue-Bold")
-            fontSize(18)
-            text(_truncateWithEllipsis(string.format("You  %d  ·  %d words", m.localScore or 0, nLocalWords), textAvailW),
-                textX, lineTop - 18)
-
-            font("HelveticaNeue")
-            fontSize(18)
-            -- Both branches: truncate the (possibly long) alias to leave room for a short
-            -- fixed suffix, so the suffix is never what gets truncated away.
-            local suffix = m.complete
-                and string.format("  %d  ·  %d words", m.oppScore or 0, nOppWords)
-                or  "  · waiting to play"
-            local aliasW = math.max(24, textAvailW - textSize(suffix))
-            local oppLine = _truncateWithEllipsis(alias, aliasW) .. suffix
-            text(_truncateWithEllipsis(oppLine, textAvailW), textX, lineTop - 42)
-
-            fill(Color.tileText.r, Color.tileText.g, Color.tileText.b, 150)
-            font("HelveticaNeue")
-            fontSize(14)
-            text(_truncateWithEllipsis(_formatMatchDate(m.endedAt), textAvailW), textX, lineTop - 64)
-            popStyle()
-
-            -- comment balloons (bottom strip): opponent (left), local (right)
-            local stripBottom = rowBotY + 10
-            local half = (b.listWidth - 16) * 0.5
-            local fillA = Color.uiAccent or color(40, 80, 60)
-            local txtC  = Color.panelBG or color(255)
-            if (m.oppComment or "") ~= "" then
-                _drawMiniBalloon(m.oppComment, b.innerLeft + 8, stripBottom, half - 6, fillA, txtC)
-            end
-            if (m.localComment or "") ~= "" then
-                _drawMiniBalloon(m.localComment, b.innerLeft + 8 + half, stripBottom, half - 6, fillA, txtC)
-            end
-
-            -- separator
-            pushStyle()
-            stroke(Color.tileText.r, Color.tileText.g, Color.tileText.b, 40)
-            strokeWidth(1)
-            line(b.innerLeft + 6, rowBotY, b.innerRight - 6, rowBotY)
+            fontSize(15)
+            fill(Color.tileText)
+            local line = _formatMatchDateShort(m.endedAt) .. "   " .. _matchResultText(m)
+            text(_truncateWithEllipsis(line, rW), rx, cardCy - cardH * 0.5 + 10)
             popStyle()
 
             recordsMatchRowRects[#recordsMatchRowRects + 1] = {
-                x = b.innerLeft, y = rowBotY, w = b.listWidth, h = rowH, matchIndex = i,
+                x = b.innerLeft, y = cardCy - cardH * 0.5, w = b.listWidth, h = cardH, matchIndex = i,
             }
         end
     end

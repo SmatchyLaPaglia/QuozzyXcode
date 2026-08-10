@@ -1679,7 +1679,12 @@ function drawEndScreenWith(model, layout)
   -- in; the composer itself now lives inside the local speech balloon below)
   ------------------------------------------------------------
 
-  if model.rematch and model.rematch.canOffer then
+  if endScreenReturnToRecords then
+    -- Viewing a historical match from the records list: a rematch offer doesn't belong
+    -- here — replace it with a Back button that closes the same way the × does (the dispose
+    -- intercept returns to the records match list). Shown for complete AND incomplete views.
+    drawEndScreenButton(layout.playAgainRect, "Back", disposeEndScreenAndReturnToMenu)
+  elseif model.rematch and model.rematch.canOffer then
     drawEndScreenButton(layout.playAgainRect, model.rematch.label, offerEndScreenRematch)
   else
     endScreen2PButtonRect = nil

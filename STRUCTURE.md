@@ -152,18 +152,32 @@ CAPTURE HOOK (EndScreenFP.lua buildEndScreenModel, after reconcile): whenever a 
   in-progress game before the opponent moves (recorded incomplete, upserted to complete when
   the finished version is later viewed). Re-viewing history re-hits it but dedups to a no-op.
 
-UI (RecordsUI.lua): recordsOverlayMode "grid" (opponents) | "detail" (matches). drawRecordsOverlay
-  dispatches; drawRecordsOpponentsList (avatar left / name mid / enlarged red W/L circles via
-  _drawLargeScoreBadges) and drawRecordsMatchesList (thumbnail via getRecordsBoardThumb,
-  scores+word counts, os.date, comment balloons via _drawMiniBalloon). handleRecordsTouch is
-  tap-vs-drag aware (movement > _RECORDS_TAP_SLOP = scroll, else a row tap drills down); the
-  bottom button is "Close" in grid, "Back" in detail.
+UI (RecordsUI.lua): recordsOverlayMode "grid" (opponents) | "detail" (matches). Shared wide
+  panel (WIDTH-16 × HEIGHT*0.9, drawn via drawRoundedRect — NOT the smaller prebuilt
+  overlayPanelRecords sprite anymore). Every row is an outline-only rounded-rect card
+  (_drawRowCard: two concentric fills — border color, then panel color inside — since
+  drawRoundedRect has no thin-stroke mode; border = tileText @ ~70 alpha).
+  drawRecordsOpponentsList: avatar left, then two stacked lines — name (larger) on top,
+  stats "total games: N, games won: N (N%)" below (NO red circles anymore — removed
+  _drawLargeScoreBadges usage; the function still exists but is unused).
+  drawRecordsMatchesList: full-row-height board thumbnail (getRecordsBoardThumb) on the left,
+  then three stacked rows — opponent comment balloon, local comment balloon (both via
+  _drawMiniBalloon, now wider and with a tailSide arg: opp="left", local="right"), and a
+  bottom line of `mm/dd/yyyy  <result>` where result is "you won N to N" / "you lost N to N" /
+  "you tied N-N" / "in progress" (no scores/word-counts/opponent-name line — deliberately
+  minimal). handleRecordsTouch is tap-vs-drag aware (movement > _RECORDS_TAP_SLOP = scroll,
+  else a row tap drills down); bottom button is "Close" in grid, "Back" in detail.
+  Badge suppression: drawMatchBadge (Badges.lua) bails while recordsOverlay (or any other
+  overlay) is up, so the "match ready" badge never floats over a panel.
 LEVEL 3 (openHistoricalMatchEndScreen): saves live game state into recordsSavedLiveState,
   reconstructs currentQMatch from the snapshot (opponent didPlay mirrors completeness;
   recordOutcomeApplied=true so the end screen doesn't re-count W/L), sets score/foundWords/
   etc, sets endScreenReturnToRecords={oppId}, closes the overlay, state=STATE_END. The end
-  screen renders unchanged; composer stays hidden (no live tbm.currentMatch); the rematch
-  button works via offerEndScreenRematch (currentQMatch).
+  screen renders unchanged AT ITS NORMAL SIZE; composer stays hidden (no live
+  tbm.currentMatch). When endScreenReturnToRecords is set the end screen's play-again button
+  is replaced by a "Back" button (EndScreenFP.lua ~1682) whose action is
+  disposeEndScreenAndReturnToMenu — i.e. it duplicates the × (a rematch offer doesn't belong
+  in a history view).
 RETURN PATH: disposeEndScreenAndReturnToMenu (EndScreen.lua) intercepts — if
   endScreenReturnToRecords is set and pendingRematchAfterEndScreenExit is NOT (rematch goes
   to menu instead), it reopenRecordsInDetailMode(oppId) + restoreLiveStateAfterHistoricalView()

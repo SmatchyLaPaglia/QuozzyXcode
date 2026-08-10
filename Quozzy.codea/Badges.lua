@@ -371,8 +371,11 @@ end
 
 function drawMatchBadge()
   if state ~= STATE_MENU then return end
-  if colorInspectorOverlay then return end  -- don't overlap the color inspector
-  if showInfoOverlay then return end  -- don't overlap the (now full-screen) about panel
+  -- Suppress while ANY overlay is showing — the badge should never float over a panel.
+  if colorInspectorOverlay or showInfoOverlay or recordsOverlay or balloonMockupOverlay
+     or gcSignInOverlay or gcMatchmakerErrorOverlay or genericAlertActive then
+    return
+  end
   if not matchBadge.active then return end
   if matchBadge.phase ~= "visible" then return end
   
