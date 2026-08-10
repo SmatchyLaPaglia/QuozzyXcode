@@ -127,11 +127,24 @@ colorInspectorOverlay = false
 GLOBAL_UI_FONT      = "HelveticaNeue-BoldItalic"
 GLOBAL_UI_FONT_DICE = "Helvetica"  -- what dice/tile letters rendered as before this change (no font() was ever set for them)
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal).
-SHOW_DEBUG_BUTTON = false  -- dev-only: true shows the 🐛 button on the main menu (opens the balloon mockup). FALSE for shipped builds.
+SHOW_DEBUG_BUTTON = true  -- TEMP (2026-08-10): re-enabled so the 🐛 button reaches the balloon color picker below; revert to false once a scheme is chosen. FALSE for shipped builds.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
 mockupScenarioIndex = mockupScenarioIndex or 1  -- which of the 7 BALLOON_MOCKUP_STATES is showing
 mockupChipRects = nil           -- hit rects for the 7 scenario chips, set each frame
 mockupCloseBtnRect = nil        -- hit rect for the close button
+
+-- TEMP (2026-08-10): balloon color picker debug screen — see BALLOON_COLOR_SCHEMES
+-- and drawBalloonColorPickerOverlay in EndScreenFP.lua. Reachable via the 🐛 button
+-- while SHOW_DEBUG_BUTTON is true above; remove alongside it once a scheme is chosen.
+balloonColorPickerOverlay = false
+colorPickerScrollY        = 0
+colorPickerScrollTouchId  = nil
+colorPickerScrollPrevY    = 0
+colorPickerTouchStartX    = 0
+colorPickerTouchStartY    = 0
+colorPickerTouchMoved     = false
+colorPickerRowRects       = nil  -- hit rects for the 10 scheme rows, set each frame
+colorPickerGeom           = nil  -- close/preview button rects + list viewport, set each frame
 
 STATE_MENU   = "menu"
 STATE_PLAY   = "play"
@@ -994,7 +1007,7 @@ function setup()
   end)
   initDictionary()
   applyStartingSeason()
-  
+
   nextHaiku()
 
   avatarMesh = mesh()
@@ -1239,6 +1252,7 @@ function draw()
     drawColorInspectorOverlay()
     drawGCSignInOverlay()
     drawBalloonMockupOverlay()
+    drawBalloonColorPickerOverlay()
     drawGCMatchmakerErrorOverlay()
     drawReplayMatchmakingOverlay()
     drawConfetti()
@@ -1371,6 +1385,60 @@ function touched(t)
       elseif commentFields[2] and commentFields[2].focused and commentFields[2].tv then
         commentFields[2].tv:resignFirstResponder_()
       end
+    end
+    return
+  end
+
+  -- Balloon color picker overlay (dev) eats all touches. Drag-to-scroll +
+  -- tap-slop over the 10 BALLOON_COLOR_SCHEMES rows (see
+  -- drawBalloonColorPickerOverlay, EndScreenFP.lua) — a tap (no significant
+  -- movement) on a row selects that scheme immediately; "preview on full end
+  -- screen" jumps into the existing balloon mockup (scenario 6) so the picked
+  -- scheme can be seen in full context.
+  if balloonColorPickerOverlay then
+    local g = colorPickerGeom
+    if not g then
+      if t.state == ENDED or t.state == CANCELLED then balloonColorPickerOverlay = false end
+      return
+    end
+    if t.state == BEGAN then
+      if pointInRect(t.x, t.y, g.closeBtn.cx, g.closeBtn.cy, g.closeBtn.w, g.closeBtn.h)
+        or pointInRect(t.x, t.y, g.previewBtn.cx, g.previewBtn.cy, g.previewBtn.w, g.previewBtn.h) then
+        colorPickerScrollTouchId = nil
+      elseif t.x >= g.listLeft and t.x <= g.listLeft + g.listWidth and
+             t.y >= g.listBottom and t.y <= g.listBottom + g.listHeight then
+        colorPickerScrollTouchId = t.id
+        colorPickerScrollPrevY   = t.y
+        colorPickerTouchStartX   = t.x
+        colorPickerTouchStartY   = t.y
+        colorPickerTouchMoved    = false
+      end
+    elseif t.state == MOVING then
+      if colorPickerScrollTouchId and t.id == colorPickerScrollTouchId then
+        local dy = t.y - colorPickerScrollPrevY
+        colorPickerScrollPrevY = t.y
+        colorPickerScrollY = colorPickerScrollY - dy
+        if math.abs(t.y - colorPickerTouchStartY) > 10 or math.abs(t.x - colorPickerTouchStartX) > 10 then
+          colorPickerTouchMoved = true
+        end
+      end
+    elseif t.state == ENDED or t.state == CANCELLED then
+      if pointInRect(t.x, t.y, g.closeBtn.cx, g.closeBtn.cy, g.closeBtn.w, g.closeBtn.h) then
+        balloonColorPickerOverlay = false
+      elseif pointInRect(t.x, t.y, g.previewBtn.cx, g.previewBtn.cy, g.previewBtn.w, g.previewBtn.h) then
+        balloonColorPickerOverlay = false
+        balloonMockupOverlay = true
+        mockupScenarioIndex = 6
+      elseif colorPickerScrollTouchId and t.id == colorPickerScrollTouchId
+             and t.state == ENDED and not colorPickerTouchMoved and colorPickerRowRects then
+        for i, r in pairs(colorPickerRowRects) do
+          if t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h then
+            balloonColorSchemeIndex = i
+            break
+          end
+        end
+      end
+      colorPickerScrollTouchId = nil
     end
     return
   end

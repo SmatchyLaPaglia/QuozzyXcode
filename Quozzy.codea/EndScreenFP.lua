@@ -514,6 +514,82 @@ local function drawSpeechBalloon(rect, textValue, tailAnchorX, tailAnchorY, tail
   popStyle()
 end
 
+-- Ten candidate balloon color schemes, built live from the ACTIVE season's Color
+-- table (not hardcoded per-season) so every option auto-translates across seasons
+-- via blendColor(). Each entry supplies an active style (fill/stroke/text) and a
+-- further-muted placeholder style (for the empty/unfocused composer balloon).
+-- #10 is the original pre-muting look (bright uiAccent fill), kept as a baseline
+-- for comparison in the debug picker. See drawBalloonColorPickerOverlay below.
+BALLOON_COLOR_SCHEMES = BALLOON_COLOR_SCHEMES or {
+  { name = "Soft Accent", build = function(C)
+      local fill = blendColor(C.uiAccent, C.panelBG, 0.55)
+      return { fill = fill, stroke = C.tileStroke, text = C.tileText,
+        placeholderFill = blendColor(fill, C.panelBG, 0.5),
+        placeholderStroke = blendColor(C.tileStroke, C.panelBG, 0.5) }
+    end },
+  { name = "Pastel Tile", build = function(C)
+      return { fill = C.tileFill, stroke = C.tileStroke, text = C.tileText,
+        placeholderFill = blendColor(C.tileFill, C.panelBG, 0.5),
+        placeholderStroke = blendColor(C.tileStroke, C.panelBG, 0.5) }
+    end },
+  { name = "Muted Accent 2", build = function(C)
+      local fill = blendColor(C.uiAccent2, C.panelBG, 0.5)
+      local stroke = blendColor(C.uiAccent2, C.tileText, 0.35)
+      return { fill = fill, stroke = stroke, text = C.tileText,
+        placeholderFill = blendColor(fill, C.panelBG, 0.5),
+        placeholderStroke = blendColor(stroke, C.panelBG, 0.5) }
+    end },
+  { name = "Ink on Cream", build = function(C)
+      return { fill = C.panelBG, stroke = C.tileText, text = C.tileText,
+        placeholderFill = blendColor(C.panelBG, C.gridBg, 0.5),
+        placeholderStroke = blendColor(C.tileText, C.panelBG, 0.6) }
+    end },
+  { name = "Grid Wash", build = function(C)
+      local fill = blendColor(C.gridBg, C.uiAccent, 0.25)
+      return { fill = fill, stroke = C.tileStroke, text = C.tileText,
+        placeholderFill = blendColor(C.gridBg, C.panelBG, 0.4),
+        placeholderStroke = blendColor(C.tileStroke, C.panelBG, 0.5) }
+    end },
+  { name = "Dusty Ink", build = function(C)
+      local fill = blendColor(C.tileText, C.panelBG, 0.78)
+      return { fill = fill, stroke = C.tileText, text = C.panelBG,
+        placeholderFill = blendColor(fill, C.panelBG, 0.4),
+        placeholderStroke = blendColor(C.tileText, C.panelBG, 0.65) }
+    end },
+  { name = "Accent Whisper", build = function(C)
+      local fill = blendColor(C.uiAccent, C.bg, 0.6)
+      local stroke = blendColor(C.uiAccent, C.tileText, 0.4)
+      return { fill = fill, stroke = stroke, text = C.tileText,
+        placeholderFill = blendColor(fill, C.bg, 0.45),
+        placeholderStroke = blendColor(stroke, C.bg, 0.45) }
+    end },
+  { name = "Warm Neutral", build = function(C)
+      local fill = blendColor(C.panelBG, C.tileStroke, 0.22)
+      return { fill = fill, stroke = C.tileStroke, text = C.tileText,
+        placeholderFill = blendColor(fill, C.panelBG, 0.5),
+        placeholderStroke = blendColor(C.tileStroke, C.panelBG, 0.5) }
+    end },
+  { name = "Highlight Soft", build = function(C)
+      local hl = C.selectLineAlsoWeirdlyTileHighlight
+      local fill = blendColor(hl, C.panelBG, 0.6)
+      local stroke = blendColor(hl, C.tileText, 0.35)
+      return { fill = fill, stroke = stroke, text = C.tileText,
+        placeholderFill = blendColor(fill, C.panelBG, 0.5),
+        placeholderStroke = blendColor(stroke, C.panelBG, 0.5) }
+    end },
+  { name = "Original (baseline)", build = function(C)
+      return { fill = C.uiAccent, stroke = C.tileText, text = C.panelBG,
+        placeholderFill = color(214, 214, 214, 255),
+        placeholderStroke = color(168, 168, 168, 255) }
+    end },
+}
+balloonColorSchemeIndex = balloonColorSchemeIndex or 1  -- default = "Soft Accent" (muted)
+
+function currentBalloonColorScheme()
+  local entry = BALLOON_COLOR_SCHEMES[balloonColorSchemeIndex] or BALLOON_COLOR_SCHEMES[1]
+  return entry.build(Color)
+end
+
 local function drawEndScreenSpeechBalloons(model, layout)
   local ui = model and model.commentUI
   endScreenOppBalloonRect = nil
@@ -552,13 +628,14 @@ local function drawEndScreenSpeechBalloons(model, layout)
   -- Per-balloon color overrides: <opp/local>FillOverride wins, then the shared
   -- fillOverride (legacy single override), then the seasonal default. Lets the
   -- mockup grey each balloon out independently based on its own field state.
-  local defFill         = Color.uiAccent or color(40, 80, 60, 255)
-  local defStroke       = Color.tileText  or color(40, 80, 60, 255)
+  local scheme          = currentBalloonColorScheme()
+  local defFill         = scheme.fill   or Color.uiAccent or color(40, 80, 60, 255)
+  local defStroke       = scheme.stroke or Color.tileText  or color(40, 80, 60, 255)
   local oppFill         = ui.oppFillOverride     or ui.fillOverride   or defFill
   local oppStroke       = ui.oppStrokeOverride   or ui.strokeOverride or defStroke
   local localFill       = ui.localFillOverride   or ui.fillOverride   or defFill
   local localStroke     = ui.localStrokeOverride or ui.strokeOverride or defStroke
-  local bText           = Color.panelBG or color(245, 242, 232, 255)
+  local bText           = scheme.text or Color.panelBG or color(245, 242, 232, 255)
 
   -- When only ONE balloon is visible, center it horizontally; when both show, keep
   -- the staggered left/right positions. The tail stays put across the shift because
@@ -729,7 +806,7 @@ local function updateCommentField(i, rect, shown, fontSize, textEntryEnabled)
     end
     -- visible native text in the balloon's seasonal text color — or RED while the
     -- line-cap flash timer is active (set when an over-limit keystroke was blocked).
-    local tc = Color.panelBG or color(245, 242, 232, 255)
+    local tc = (currentBalloonColorScheme().text) or Color.panelBG or color(245, 242, 232, 255)
     if (F.flash or 0) > 0 then
       tv.textColor = color(224, 48, 48, 255)
     else
@@ -1016,8 +1093,9 @@ function drawBalloonMockupOverlay()
     }
   }
   if scn.localComposing and not localActive then
-    model.commentUI.localFillOverride   = color(214, 214, 214, 255)  -- off-state: light gray, opaque
-    model.commentUI.localStrokeOverride = color(168, 168, 168, 255)  -- outline: a little darker
+    local placeholderScheme = currentBalloonColorScheme()
+    model.commentUI.localFillOverride   = placeholderScheme.placeholderFill
+    model.commentUI.localStrokeOverride = placeholderScheme.placeholderStroke
   end
   drawEndScreenSpeechBalloons(model, layout)
 
@@ -1081,6 +1159,148 @@ function drawBalloonMockupOverlay()
   font("HelveticaNeue")
   fontSize(13)
   text("balloon mockup (dev)", WIDTH * 0.5, HEIGHT - 40)
+
+  popStyle()
+end
+
+-- Dev-only scrollable picker over the 10 BALLOON_COLOR_SCHEMES candidates.
+-- Each row renders TWO live balloons via the real drawSpeechBalloon primitive:
+-- an "active" sample (left) and a "placeholder/inactive" sample (right), so
+-- both states the user asked to mute are visible side by side. Tapping a row
+-- sets balloonColorSchemeIndex immediately (drawEndScreenSpeechBalloons picks
+-- it up on the very next frame, in the real end screen too). Manual
+-- drag-to-scroll + tap-slop, same pattern as RecordsUI.lua's opponent/match
+-- lists (not the ScrollList class — that class swallows short taps as
+-- zero-distance drags, which would make row selection impossible here).
+function drawBalloonColorPickerOverlay()
+  if not balloonColorPickerOverlay then return end
+  pushStyle()
+
+  noStroke()
+  fill(0, 0, 0, 140)
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+
+  local panelW = math.min(WIDTH * 0.92, 640)
+  local panelH = HEIGHT * 0.86
+  local panelX, panelY = WIDTH * 0.5, HEIGHT * 0.5
+  drawRoundedRect(panelX, panelY, panelW, panelH, 24,
+    Color.panelBG or color(245, 242, 232, 255), Color.tileStroke or color(180, 160, 140, 255))
+
+  local panelTop    = panelY + panelH * 0.5
+  local panelBottom = panelY - panelH * 0.5
+
+  pushStyle()
+  fill(Color.tileText or color(40, 80, 60, 255))
+  textMode(CENTER); textAlign(CENTER)
+  font("HelveticaNeue-Bold")
+  fontSize(17)
+  text("balloon colors (dev)", panelX, panelTop - 28)
+  font("HelveticaNeue-Italic")
+  fontSize(12)
+  text("tap a row to select  ·  left = active, right = placeholder", panelX, panelTop - 48)
+  popStyle()
+
+  -- Bottom buttons
+  local closeBtnH   = 44
+  local closeCY     = panelBottom + 18 + closeBtnH * 0.5
+  local previewBtnH = 40
+  local previewCY   = closeCY + closeBtnH * 0.5 + 10 + previewBtnH * 0.5
+  local btnW        = panelW * 0.7
+
+  drawRoundedRect(panelX, previewCY, btnW, previewBtnH, 18,
+    Color.uiAccent2 or Color.uiAccent, Color.uiAccent2 or Color.uiAccent)
+  pushStyle()
+  fill(255); textMode(CENTER); textAlign(CENTER); font("HelveticaNeue-Bold"); fontSize(15)
+  text("preview on full end screen", panelX, previewCY + 1)
+  popStyle()
+
+  drawRoundedRect(panelX, closeCY, btnW, closeBtnH, 20, Color.uiAccent, Color.uiAccent)
+  pushStyle()
+  fill(255); textMode(CENTER); textAlign(CENTER); font("HelveticaNeue-Bold"); fontSize(16)
+  text("close debug screen", panelX, closeCY + 1)
+  popStyle()
+
+  -- Scrollable option list
+  local listLeft   = panelX - panelW * 0.5 + 10
+  local listWidth  = panelW - 20
+  local listBottom = previewCY + previewBtnH * 0.5 + 14
+  local listTop    = panelTop - 64
+  local listHeight = math.max(10, listTop - listBottom)
+
+  local rowH      = 118
+  local totalRows = #BALLOON_COLOR_SCHEMES
+  local contentH  = totalRows * rowH
+  local maxScroll = math.max(0, contentH - listHeight)
+  if colorPickerScrollY < 0 then colorPickerScrollY = 0 end
+  if colorPickerScrollY > maxScroll then colorPickerScrollY = maxScroll end
+
+  colorPickerGeom = {
+    closeBtn   = { cx = panelX, cy = closeCY, w = btnW, h = closeBtnH },
+    previewBtn = { cx = panelX, cy = previewCY, w = btnW, h = previewBtnH },
+    listLeft = listLeft, listBottom = listBottom, listWidth = listWidth, listHeight = listHeight,
+    maxScroll = maxScroll,
+  }
+
+  colorPickerRowRects = {}
+  clip(listLeft, listBottom, listWidth, listHeight)
+  local firstY = (listBottom + listHeight) - rowH
+  for row = 1, totalRows do
+    local y = firstY - (row - 1) * rowH + colorPickerScrollY
+    if y > listBottom - rowH and y < listBottom + listHeight + rowH then
+      local scheme = BALLOON_COLOR_SCHEMES[row].build(Color)
+      local cardLeft   = listLeft + 4
+      local cardW      = listWidth - 8
+      local cardBottom = y + 5
+      local cardH      = rowH - 10
+      local cardCX     = cardLeft + cardW * 0.5
+      local cardCY     = cardBottom + cardH * 0.5
+
+      local isSel = (row == balloonColorSchemeIndex)
+      local borderCol = isSel and (Color.uiAccent2 or Color.uiAccent) or (Color.tileStroke or color(150, 150, 150, 255))
+      local innerT = isSel and 3 or 1.5
+      drawRoundedRect(cardCX, cardCY, cardW, cardH, 14, borderCol, borderCol)
+      drawRoundedRect(cardCX, cardCY, cardW - 2 * innerT, cardH - 2 * innerT, math.max(0, 14 - innerT),
+        Color.panelBG or color(245, 242, 232, 255), Color.panelBG or color(245, 242, 232, 255))
+
+      colorPickerRowRects[row] = { x = cardLeft, y = cardBottom, w = cardW, h = cardH }
+
+      pushStyle()
+      fill(Color.tileText or color(40, 80, 60, 255))
+      -- CORNER mode here (not the file's usual CENTER) because this label is
+      -- left-anchored: textAlign(LEFT) has no effect while textMode(CENTER)
+      -- is active (the given x,y stays the CENTER of the text block
+      -- regardless), which was clipping the front off longer names. CORNER
+      -- anchors bottom-left and flows upward, per project convention.
+      textMode(CORNER); textAlign(LEFT)
+      font(isSel and "HelveticaNeue-Bold" or "HelveticaNeue")
+      fontSize(15)
+      text(row .. ". " .. BALLOON_COLOR_SCHEMES[row].name .. (isSel and "  (selected)" or ""),
+        cardLeft + 14, cardCY + cardH * 0.5 - 26)
+      popStyle()
+
+      local balloonY = cardBottom + 8
+      local balloonH = cardH - 34
+      local gap      = 10
+      local halfW    = (cardW - 28 - gap) * 0.5
+      local activeRect      = { x = cardLeft + 14, y = balloonY, w = halfW, h = balloonH }
+      local placeholderRect = { x = cardLeft + 14 + halfW + gap, y = balloonY, w = halfW, h = balloonH }
+
+      drawSpeechBalloon(activeRect, "Great game, rematch?", 0, 0, "up",
+        scheme.fill, scheme.stroke, {
+          noTail = true, cornerRadius = 10, outlineWidth = 3,
+          fontSizeValue = 12, textInsetX = 6, textInsetY = 4,
+          textColor = scheme.text, maxLines = 2,
+        })
+      drawSpeechBalloon(placeholderRect, "tap here to comment", 0, 0, "up",
+        scheme.placeholderFill, scheme.placeholderStroke, {
+          noTail = true, cornerRadius = 10, outlineWidth = 3,
+          fontSizeValue = 11, textInsetX = 6, textInsetY = 4,
+          textColor = Color.tileText, maxLines = 2,
+        })
+    end
+  end
+  clip()
 
   popStyle()
 end
@@ -1352,8 +1572,9 @@ function buildEndScreenModel()
     and "Add a reply to their comment"
     or "tap here to comment"
   local composingActive = (commentFields and commentFields[3] and commentFields[3].focused) or (endScreenCommentDraft ~= "")
-  local composingOffFill   = color(214, 214, 214, 255)
-  local composingOffStroke = color(168, 168, 168, 255)
+  local placeholderScheme  = currentBalloonColorScheme()
+  local composingOffFill   = placeholderScheme.placeholderFill
+  local composingOffStroke = placeholderScheme.placeholderStroke
 
   local rematchInfo = nil
   if is2P and complete and assignedOpponent then

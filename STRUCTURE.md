@@ -686,6 +686,65 @@ Side effects: sets globals endScreenOppBalloonRect / endScreenLocalBalloonRect =
   position a native view over it.
 ```
 
+### Balloon color schemes + color picker (dev) — 2026-08-10
+
+```
+Muted colors (2026-08-10): the balloon fill/stroke/text were hardcoded to Color.uiAccent /
+  Color.tileText / Color.panelBG (drawEndScreenSpeechBalloons) and, for the placeholder/
+  inactive composer balloon, a flat hardcoded grey (214,214,214 fill / 168,168,168 stroke,
+  set in 3 places: buildEndScreenModel's commentUI, drawBalloonMockupOverlay scenario 2's
+  composing-off branch, and updateCommentField's native tv.textColor). uiAccent is a bright/
+  saturated per-season color meant for buttons, not a big balloon fill — it read as visually
+  loud against the rest of the end screen. Replaced with BALLOON_COLOR_SCHEMES.
+
+BALLOON_COLOR_SCHEMES (EndScreenFP.lua, global array of 10) — each entry is
+  { name, build(C) } where build takes the ACTIVE Color table and returns
+  { fill, stroke, text, placeholderFill, placeholderStroke } via blendColor(a,b,t)
+  (Helpers.lua — linear color interpolation). Built LIVE from Color every call (not
+  hardcoded per-season) so every option auto-translates across seasons. #1 "Soft Accent"
+  is the current default (balloonColorSchemeIndex=1); #10 "Original (baseline)" reproduces
+  the pre-2026-08-10 look (uiAccent fill / panelBG text / flat grey placeholder) for
+  side-by-side comparison in the picker. currentBalloonColorScheme() (global) resolves
+  BALLOON_COLOR_SCHEMES[balloonColorSchemeIndex] against the live Color table — called by
+  drawEndScreenSpeechBalloons (defFill/defStroke/bText), buildEndScreenModel's
+  composingOffFill/Stroke, drawBalloonMockupOverlay scenario 2's composing-off override, and
+  updateCommentField's native typed-text color — so picking a scheme in the debug picker
+  changes the REAL end-screen renderer everywhere balloon colors are drawn, not just a preview.
+
+drawBalloonColorPickerOverlay() [EndScreenFP.lua] — scrollable list of all 10 schemes,
+  reachable via the 🐛 button (temporarily reassigned from the scenario mockup, see below).
+  Each row renders TWO live balloons via the real drawSpeechBalloon primitive (noTail=true):
+  an "active" sample (left, sample text "Great game, rematch?") and a "placeholder" sample
+  (right, "tap here to comment") — so both states the muting applies to are visible side by
+  side per candidate. Manual drag-to-scroll + tap-slop (colorPickerScrollY/ScrollTouchId/
+  TouchStartX/Y/TouchMoved, Main.lua globals), same pattern as RecordsUI.lua's opponent/match
+  lists — NOT the ScrollList class, which swallows short taps as zero-distance drags and would
+  make row selection impossible. Tapping a row sets balloonColorSchemeIndex immediately (takes
+  effect next frame, real end screen included). Row hit rects: colorPickerRowRects[i] =
+  {x,y,w,h} (CORNER-style), rebuilt every draw call, only populated for currently-visible rows
+  (iterate with pairs(), not ipairs() — the table has holes for culled rows). Selected row gets
+  a thicker Color.uiAccent2-bordered card (outline-only card pattern from RecordsUI.lua's
+  _drawRowCard: an outer border-colored drawRoundedRect + an inner panelBG-colored one on top).
+  "preview on full end screen" button → closes the picker and opens the existing 7-scenario
+  balloon mockup (balloonMockupOverlay=true, mockupScenarioIndex=6 "both commented") so the
+  picked scheme can be seen in full end-screen context (avatars, board, both balloons); no
+  path back to the picker from there — reopen via the 🐛 button. "close debug screen" just
+  dismisses. colorPickerGeom (global, rebuilt each draw call) holds the close/preview button
+  rects + list viewport, read by Main.lua's touch handler.
+  GOTCHA hit this build: textAlign(LEFT) has NO effect while textMode(CENTER) is active — the
+  given (x,y) stays the CENTER of the whole text block regardless of textAlign, so a
+  textMode(CENTER)+textAlign(LEFT) row label got its front clipped off by clip() (only the
+  tail of the string was inside the block's right half). Fixed by using textMode(CORNER)
+  (bottom-left anchor, flows upward) for that one left-anchored label instead — every other
+  label in this file's debug overlays uses textMode(CENTER)+textAlign(CENTER) together, which
+  is the only combination that reliably means what it looks like it means here.
+
+Gating (TEMPORARY, 2026-08-10 — see SHOW_DEBUG_BUTTON below): HaikuMenu.lua's
+  key=="debugDialog" now opens balloonColorPickerOverlay (was balloonMockupOverlay). Revert
+  both this and SHOW_DEBUG_BUTTON=false once a scheme is chosen; the scenario mockup stays
+  reachable meanwhile via the picker's "preview on full end screen" button.
+```
+
 ### Dev mockup = comment-entry prototype (menu 🐛 button)
 
 ```
@@ -800,17 +859,22 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
   Gating: BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette + skips
     CTBM/GameCenter bootstrap so no GC modal over QA; FALSE in production, Main.lua:~114)
     and balloonMockupOverlay (menu 🐛 button, HaikuMenu key=="debugDialog", live season).
-  SHOW_DEBUG_BUTTON (Main.lua:~115, FALSE in production): gates the 🐛 button itself — when
-    false, HaikuMenu.lua never draws it and never sets menuHitRects.debugDialog, so it can't
-    be tapped even by coordinate. Added 2026-08-08 for shipping: the button previously drew
+  SHOW_DEBUG_BUTTON (Main.lua:~130, FALSE in production, TEMPORARILY TRUE as of 2026-08-10 —
+    revert once the balloon color scheme is chosen): gates the 🐛 button itself — when false,
+    HaikuMenu.lua never draws it and never sets menuHitRects.debugDialog, so it can't be
+    tapped even by coordinate. Added 2026-08-08 for shipping: the button previously drew
     unconditionally on the live main menu with no flag at all. Flip to true locally for QA.
+    While true, the button opens the balloon COLOR PICKER (see above), not this mockup
+    directly — reach this mockup via the picker's "preview on full end screen" button.
   (old interactive tuner DebugBalloonPanel.lua was DELETED — removed from Info.plist Buffer Order)
 ```
 
 | concern | file | function |
 |---|---|---|
 | comment balloons draw | EndScreenFP.lua | drawEndScreenSpeechBalloons(), drawSpeechBalloon() |
-| balloon dev mockup | EndScreenFP.lua | drawBalloonMockupOverlay() (menu 🐛 / BALLOON_MOCKUP_DEV) |
+| balloon color schemes | EndScreenFP.lua | BALLOON_COLOR_SCHEMES, currentBalloonColorScheme() |
+| balloon color picker (dev) | EndScreenFP.lua | drawBalloonColorPickerOverlay() (menu 🐛, TEMP as of 2026-08-10) |
+| balloon dev mockup | EndScreenFP.lua | drawBalloonMockupOverlay() (BALLOON_MOCKUP_DEV, or picker's "preview" button) |
 | end-screen avatar layout | EndScreenFuncs.lua | getEndUpperRightAvatarLayout(), drawEndUpperRightAvatarsOnly() |
 
 ## Production Comment Composer + End-Screen Rematch Button (2026-07-15)

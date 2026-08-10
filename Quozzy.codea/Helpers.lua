@@ -26,6 +26,20 @@ function pointInRect(px, py, x, y, w, h)
            py >= y - h/2 and py <= y + h/2
 end
 
+-- Linear-interpolate two Codea colors: t=0 -> a, t=1 -> b. Used to derive
+-- muted balloon color schemes from existing seasonal Color entries instead
+-- of hardcoding a parallel palette.
+function blendColor(a, b, t)
+    a = a or color(255, 255, 255, 255)
+    b = b or color(0, 0, 0, 255)
+    return color(
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+        (a.a or 255) + ((b.a or 255) - (a.a or 255)) * t
+    )
+end
+
 function applyScrollInertia(scrollY, currentVel, minY, maxY, dt)
     -- no inertia if we have no meaningful velocity
     if not currentVel or math.abs(currentVel) < 5 then

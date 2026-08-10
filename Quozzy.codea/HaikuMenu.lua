@@ -1080,9 +1080,11 @@ function handleMenuTouch(t)
     openInfoOverlay()
 
   elseif key == "debugDialog" then
-    -- Open the balloon mockup overlay, always starting on scenario 1
-    balloonMockupOverlay = true
-    mockupScenarioIndex = 1
+    -- TEMP (2026-08-10): opens the balloon color picker (10 muted-color
+    -- candidates). Its own "preview on full end screen" button reaches the
+    -- older 7-scenario balloon mockup for full-context comparison.
+    balloonColorPickerOverlay = true
+    colorPickerScrollY = 0
   end
 end
 
