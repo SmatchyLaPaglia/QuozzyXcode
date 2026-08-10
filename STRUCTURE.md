@@ -123,6 +123,63 @@ STATE_END → STATE_MENU: NOT immediate
   → guard ObjC teardown with boolean flags (not nil checks)
 ```
 
+## Records UI — 3-level drill-down (RecordsUI.lua + opponentRecords.lua, 2026-08-09)
+
+```
+Menu records button -> opponents list -> that opponent's matches -> that match's end screen.
+All Codea-drawn; the deepest level reuses the real end screen.
+
+PERSISTENCE (opponentRecords.lua): matchHistoryByOpponent[oppId] = { <snapshot>, ... }
+newest-first, saved as JSON under saveLocalData key "MatchHistoryV1", capped 50/opp.
+opponentRecords (aggregate W/L) is SEPARATE and unchanged. Snapshot fields:
+  { id, endedAt, boardSize, minWordLen, boardTiles, oppId, oppAlias, complete, outcome,
+    localScore, oppScore, localWords, oppWords, localComment, oppComment }.
+  Scores are the RESOLVED/counted scores; localWords/oppWords are the RAW per-player found
+  words (so a re-view reconstructs the same reconciled columns the original showed, and the
+  match-list row can show both counted score and raw "words found" count).
+recordMatchSnapshot(m): upsert by id — replaces only when the incoming is at least as
+  complete and as recent (a completed version wins over an earlier in-progress one), and
+  ONLY writes to disk when content actually changed (it runs every frame the end screen is
+  up; a content signature gates the write). matchesForOpponent(oppId) reads the list.
+HISTORY IS FORWARD-ONLY: nothing was captured before this shipped, so pre-existing matches
+  can't appear (their board/word/comment data was never stored). Aggregate W/L is unaffected.
+
+CAPTURE HOOK (EndScreenFP.lua buildEndScreenModel, after reconcile): whenever a full match
+  record is on the device AND the local player has played it (complete OR in-progress —
+  gate is `assignedOpponent and pLocal.didPlay`), builds a snapshot and calls
+  recordMatchSnapshot. This is the single capture point; it fires for a fresh finish, an
+  opponent-finished match opened from Game Center, and an initiator examining their own
+  in-progress game before the opponent moves (recorded incomplete, upserted to complete when
+  the finished version is later viewed). Re-viewing history re-hits it but dedups to a no-op.
+
+UI (RecordsUI.lua): recordsOverlayMode "grid" (opponents) | "detail" (matches). drawRecordsOverlay
+  dispatches; drawRecordsOpponentsList (avatar left / name mid / enlarged red W/L circles via
+  _drawLargeScoreBadges) and drawRecordsMatchesList (thumbnail via getRecordsBoardThumb,
+  scores+word counts, os.date, comment balloons via _drawMiniBalloon). handleRecordsTouch is
+  tap-vs-drag aware (movement > _RECORDS_TAP_SLOP = scroll, else a row tap drills down); the
+  bottom button is "Close" in grid, "Back" in detail.
+LEVEL 3 (openHistoricalMatchEndScreen): saves live game state into recordsSavedLiveState,
+  reconstructs currentQMatch from the snapshot (opponent didPlay mirrors completeness;
+  recordOutcomeApplied=true so the end screen doesn't re-count W/L), sets score/foundWords/
+  etc, sets endScreenReturnToRecords={oppId}, closes the overlay, state=STATE_END. The end
+  screen renders unchanged; composer stays hidden (no live tbm.currentMatch); the rematch
+  button works via offerEndScreenRematch (currentQMatch).
+RETURN PATH: disposeEndScreenAndReturnToMenu (EndScreen.lua) intercepts — if
+  endScreenReturnToRecords is set and pendingRematchAfterEndScreenExit is NOT (rematch goes
+  to menu instead), it reopenRecordsInDetailMode(oppId) + restoreLiveStateAfterHistoricalView()
+  + state=STATE_MENU, landing back on the match list with live state restored.
+
+TWO GOTCHAS fixed here (both easy to reintroduce):
+  - RENDER-TO-TEXTURE UNDER CLIP: getRecordsBoardThumb / unknownPlayerAvatar use setContext,
+    which produces GPU garbage if called while a clip() scissor is active. Both lists
+    PRE-GENERATE all thumbnails/avatars BEFORE clip() (cached), then the clipped loop is a
+    pure draw; drawAvatarCircle is passed a non-nil image so it never creates one in-clip.
+  - UTF-8 TRUNCATION: _truncateWithEllipsis must not cut mid-multibyte-char (an em dash split
+    across the cut = invalid UTF-8 that textSize mis-measures and text() renders as nothing —
+    it silently ate the in-progress row's "waiting" line). It now backs the cut off any
+    trailing UTF-8 continuation byte.
+```
+
 ## Ready-Screen Dice Rattle (Board.lua, 2026-08-08)
 
 ```

@@ -657,10 +657,28 @@ function disposeEndScreenAndReturnToMenu()
     return commitEndScreenCommentAndExit() and true or false
   end
   if finalizeCompletedTurnBasedMatch then
-    finalizeCompletedTurnBasedMatch(nil)
+    finalizeCompletedTurnBasedMatch(nil)   -- safe no-op for a historical match (no live tbm.currentMatch)
   end
   if teardownEndScreenCommentField then teardownEndScreenCommentField() end
   endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
+
+  -- If this end screen was opened from the records match list (RecordsUI.lua), a plain
+  -- close returns to that match list instead of the menu — restoring the live game state
+  -- that was swapped out. The rematch path sets pendingRematchAfterEndScreenExit first, so
+  -- it falls through to the normal menu transition (a new game is starting); we just drop
+  -- the saved state in that case since we're not going back to the list.
+  if endScreenReturnToRecords then
+    local oppId = endScreenReturnToRecords.oppId
+    endScreenReturnToRecords = nil
+    if not pendingRematchAfterEndScreenExit then
+      if reopenRecordsInDetailMode then reopenRecordsInDetailMode(oppId) end
+      if restoreLiveStateAfterHistoricalView then restoreLiveStateAfterHistoricalView() end
+      state = STATE_MENU
+      return true
+    end
+    recordsSavedLiveState = nil
+  end
+
   startSeasonTransition()
   return true
 end

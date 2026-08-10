@@ -1303,6 +1303,40 @@ function buildEndScreenModel()
   and string.format("Win/Loss vs This Player: %d / %d", wins, losses)
   or nil
 
+  -- Capture this match into per-opponent history (opponentRecords.lua) whenever a
+  -- full record is on the device and the local player has played it — complete OR
+  -- in-progress (initiator examining before the opponent moves). recordMatchSnapshot
+  -- upserts by id and only touches disk on a real change, so calling it every frame
+  -- here is cheap. Stores RAW per-player found-words (+ resolved scores separately)
+  -- so a re-view reconstructs the SAME reconciled columns the original showed, and
+  -- the match-list row can show both "words found" (raw count) and the counted score.
+  if recordMatchSnapshot and assignedOpponent and pLocal and pLocal.didPlay then
+    local snap = {
+      id         = q and q.id,
+      oppId      = otherId,
+      oppAlias   = (oppDisplayName ~= "" and oppDisplayName) or rawOppName or "",
+      boardSize  = (q and q.boardSize) or boardSize,
+      minWordLen = (q and q.minWordLen) or MIN_WORD_LEN,
+      boardTiles = q and q.boardTiles,
+      endedAt    = math.floor(tonumber(q and q.lastUpdated) or os.time()),
+      complete   = complete and true or false,
+      localScore = complete and scoreAResolved or ((pLocal and pLocal.score) or 0),
+      oppScore   = complete and scoreBResolved or ((pOther and pOther.score) or 0),
+      localWords = (pLocal and pLocal.words) or {},
+      oppWords   = (pOther and pOther.words) or {},
+      localComment = localComment or "",
+      oppComment   = opponentComment or "",
+    }
+    if complete then
+      if scoreAResolved > scoreBResolved then snap.outcome = "win"
+      elseif scoreAResolved < scoreBResolved then snap.outcome = "loss"
+      else snap.outcome = "tie" end
+    end
+    if snap.id and snap.oppId and snap.boardTiles then
+      recordMatchSnapshot(snap)
+    end
+  end
+
   -- While composing, the balloon shows the live draft (or a placeholder so it
   -- renders/grows even before any text exists) instead of the (not yet
   -- submitted) persisted comment. suppressLocalText hides the Codea-drawn
