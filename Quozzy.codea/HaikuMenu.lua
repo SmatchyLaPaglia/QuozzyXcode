@@ -1080,11 +1080,12 @@ function handleMenuTouch(t)
     openInfoOverlay()
 
   elseif key == "debugDialog" then
-    -- TEMP (2026-08-10): opens the balloon color picker (10 muted-color
-    -- candidates). Its own "preview on full end screen" button reaches the
-    -- older 7-scenario balloon mockup for full-context comparison.
-    balloonColorPickerOverlay = true
-    colorPickerScrollY = 0
+    -- Open the balloon mockup overlay, always starting on scenario 1. (The
+    -- 10-scheme color picker used to pick the permanent "Grid Wash" balloon
+    -- colors on 2026-08-11 is still available — see drawBalloonColorPickerOverlay,
+    -- EndScreenFP.lua — just not wired to this button by default anymore.)
+    balloonMockupOverlay = true
+    mockupScenarioIndex = 1
   end
 end
 

@@ -702,8 +702,9 @@ BALLOON_COLOR_SCHEMES (EndScreenFP.lua, global array of 10) — each entry is
   { fill, stroke, text, placeholderFill, placeholderStroke } via blendColor(a,b,t)
   (Helpers.lua — linear color interpolation). Built LIVE from Color every call (not
   hardcoded per-season) so every option auto-translates across seasons. #1 "Soft Accent"
-  is the current default (balloonColorSchemeIndex=1); #10 "Original (baseline)" reproduces
-  the pre-2026-08-10 look (uiAccent fill / panelBG text / flat grey placeholder) for
+  #5 "Grid Wash" was CHOSEN (2026-08-11) as the permanent default (balloonColorSchemeIndex=5);
+  #10 "Original (baseline)" reproduces the pre-2026-08-10 look (uiAccent fill / panelBG text /
+  flat grey placeholder) for
   side-by-side comparison in the picker. currentBalloonColorScheme() (global) resolves
   BALLOON_COLOR_SCHEMES[balloonColorSchemeIndex] against the live Color table — called by
   drawEndScreenSpeechBalloons (defFill/defStroke/bText), buildEndScreenModel's
@@ -739,10 +740,11 @@ drawBalloonColorPickerOverlay() [EndScreenFP.lua] — scrollable list of all 10 
   label in this file's debug overlays uses textMode(CENTER)+textAlign(CENTER) together, which
   is the only combination that reliably means what it looks like it means here.
 
-Gating (TEMPORARY, 2026-08-10 — see SHOW_DEBUG_BUTTON below): HaikuMenu.lua's
-  key=="debugDialog" now opens balloonColorPickerOverlay (was balloonMockupOverlay). Revert
-  both this and SHOW_DEBUG_BUTTON=false once a scheme is chosen; the scenario mockup stays
-  reachable meanwhile via the picker's "preview on full end screen" button.
+Gating (2026-08-11, reverted to steady state now that a scheme is chosen): HaikuMenu.lua's
+  key=="debugDialog" opens balloonMockupOverlay again (as it did before 2026-08-10), not the
+  color picker. SHOW_DEBUG_BUTTON is back to false. The picker itself is NOT deleted — it's
+  dormant opt-in QA tooling for re-tuning later: set balloonColorPickerOverlay=true directly
+  (e.g. temporarily re-point debugDialog at it, or add a QA hook in setup()) to reopen it.
 ```
 
 ### Dev mockup = comment-entry prototype (menu 🐛 button)
@@ -859,13 +861,12 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
   Gating: BALLOON_MOCKUP_DEV (auto-opens at launch + forces Summer/teal palette + skips
     CTBM/GameCenter bootstrap so no GC modal over QA; FALSE in production, Main.lua:~114)
     and balloonMockupOverlay (menu 🐛 button, HaikuMenu key=="debugDialog", live season).
-  SHOW_DEBUG_BUTTON (Main.lua:~130, FALSE in production, TEMPORARILY TRUE as of 2026-08-10 —
-    revert once the balloon color scheme is chosen): gates the 🐛 button itself — when false,
-    HaikuMenu.lua never draws it and never sets menuHitRects.debugDialog, so it can't be
-    tapped even by coordinate. Added 2026-08-08 for shipping: the button previously drew
+  SHOW_DEBUG_BUTTON (Main.lua:~130, FALSE in production): gates the 🐛 button itself — when
+    false, HaikuMenu.lua never draws it and never sets menuHitRects.debugDialog, so it can't
+    be tapped even by coordinate. Added 2026-08-08 for shipping: the button previously drew
     unconditionally on the live main menu with no flag at all. Flip to true locally for QA.
-    While true, the button opens the balloon COLOR PICKER (see above), not this mockup
-    directly — reach this mockup via the picker's "preview on full end screen" button.
+    (Briefly repointed at the balloon color picker 2026-08-10/11 while choosing a scheme;
+    reverted to opening this mockup once "Grid Wash" was picked — see color picker section above.)
   (old interactive tuner DebugBalloonPanel.lua was DELETED — removed from Info.plist Buffer Order)
 ```
 
@@ -873,8 +874,8 @@ drawBalloonMockupOverlay()  [EndScreenFP.lua] — REUSES drawEndScreenSpeechBall
 |---|---|---|
 | comment balloons draw | EndScreenFP.lua | drawEndScreenSpeechBalloons(), drawSpeechBalloon() |
 | balloon color schemes | EndScreenFP.lua | BALLOON_COLOR_SCHEMES, currentBalloonColorScheme() |
-| balloon color picker (dev) | EndScreenFP.lua | drawBalloonColorPickerOverlay() (menu 🐛, TEMP as of 2026-08-10) |
-| balloon dev mockup | EndScreenFP.lua | drawBalloonMockupOverlay() (BALLOON_MOCKUP_DEV, or picker's "preview" button) |
+| balloon color picker (dev) | EndScreenFP.lua | drawBalloonColorPickerOverlay() (dormant; not wired to 🐛 by default, see above) |
+| balloon dev mockup | EndScreenFP.lua | drawBalloonMockupOverlay() (menu 🐛 / BALLOON_MOCKUP_DEV) |
 | end-screen avatar layout | EndScreenFuncs.lua | getEndUpperRightAvatarLayout(), drawEndUpperRightAvatarsOnly() |
 
 ## Production Comment Composer + End-Screen Rematch Button (2026-07-15)

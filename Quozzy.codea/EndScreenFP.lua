@@ -583,7 +583,7 @@ BALLOON_COLOR_SCHEMES = BALLOON_COLOR_SCHEMES or {
         placeholderStroke = color(168, 168, 168, 255) }
     end },
 }
-balloonColorSchemeIndex = balloonColorSchemeIndex or 1  -- default = "Soft Accent" (muted)
+balloonColorSchemeIndex = balloonColorSchemeIndex or 5  -- 2026-08-11: "Grid Wash" chosen as the permanent balloon color scheme
 
 function currentBalloonColorScheme()
   local entry = BALLOON_COLOR_SCHEMES[balloonColorSchemeIndex] or BALLOON_COLOR_SCHEMES[1]

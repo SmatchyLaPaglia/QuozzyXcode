@@ -127,15 +127,17 @@ colorInspectorOverlay = false
 GLOBAL_UI_FONT      = "HelveticaNeue-BoldItalic"
 GLOBAL_UI_FONT_DICE = "Helvetica"  -- what dice/tile letters rendered as before this change (no font() was ever set for them)
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal).
-SHOW_DEBUG_BUTTON = true  -- TEMP (2026-08-10): re-enabled so the 🐛 button reaches the balloon color picker below; revert to false once a scheme is chosen. FALSE for shipped builds.
+SHOW_DEBUG_BUTTON = false  -- dev-only: true shows the 🐛 button on the main menu (opens the balloon mockup). FALSE for shipped builds.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
 mockupScenarioIndex = mockupScenarioIndex or 1  -- which of the 7 BALLOON_MOCKUP_STATES is showing
 mockupChipRects = nil           -- hit rects for the 7 scenario chips, set each frame
 mockupCloseBtnRect = nil        -- hit rect for the close button
 
--- TEMP (2026-08-10): balloon color picker debug screen — see BALLOON_COLOR_SCHEMES
--- and drawBalloonColorPickerOverlay in EndScreenFP.lua. Reachable via the 🐛 button
--- while SHOW_DEBUG_BUTTON is true above; remove alongside it once a scheme is chosen.
+-- Balloon color picker debug screen (used 2026-08-10 to pick "Grid Wash" as the
+-- permanent balloon color scheme — see balloonColorSchemeIndex, EndScreenFP.lua).
+-- Not wired to the 🐛 button by default anymore (see HaikuMenu.lua debugDialog);
+-- kept around as opt-in QA tooling for re-tuning later — set balloonColorPickerOverlay
+-- = true directly (e.g. from debugDialog) to reopen it.
 balloonColorPickerOverlay = false
 colorPickerScrollY        = 0
 colorPickerScrollTouchId  = nil
