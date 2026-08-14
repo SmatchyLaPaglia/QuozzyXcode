@@ -14,6 +14,14 @@ local P = {
 
 local DEFAULT_COLOR = color(60,40,20,255)
 
+-- How many alpha units per frame the haiku (state B) fades in — 255/this ≈ frames
+-- to fully fade in. Particle lifetimes (startPoof below) are derived from this so
+-- they can never drift far out of sync with it: previously maxLife was a fixed
+-- 90-150 frames (1.5-2.5s at 60fps), badly outlasting the ~0.7s haiku fade-in and
+-- leaving lingering dust long enough to read the haiku through before it cleared.
+local HAIKU_FADE_STEP   = 6
+local HAIKU_FADE_FRAMES = 255 / HAIKU_FADE_STEP
+
 local function applyTextSpecs(s)
   font(s.font)
   fontSize(s.size)
@@ -117,7 +125,9 @@ function startPoof(specsA, specsB)
         p.vy = lift + (math.random() - 0.5) * 0.4
 
         p.life    = 0
-        p.maxLife = 90 + math.random(0, 60)
+        -- Dies within a few frames of the haiku finishing its fade-in — a split
+        -- second, not the ~1-1.8s of extra lingering the old fixed range gave it.
+        p.maxLife = HAIKU_FADE_FRAMES + math.random(0, 15)
         p.size    = math.random(2, 3)          -- keep the existing poof dot size
         p.phase   = math.random() * math.pi * 2
 
@@ -176,7 +186,7 @@ function drawPoofingText(specA, specB)
 
   -- Fade in B text
 
-  P.alphaB = math.min(255, P.alphaB + 6)
+  P.alphaB = math.min(255, P.alphaB + HAIKU_FADE_STEP)
   
   if P.specsB then
     pushStyle()

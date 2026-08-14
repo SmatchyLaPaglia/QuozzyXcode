@@ -47,7 +47,19 @@ touch routing: handleGCSignInOverlayTouch (Main.lua touched(), before state hand
 ## Play Again Flow
 
 ```
-NOTE: The playAgain button has been removed from the main menu (HaikuMenu.lua) as of the 6-section redesign. Play again will be re-introduced elsewhere.
+NOTE (stale as of the replay-avatar button below, still kept for the rest of this section's
+plumbing which is accurate): the main menu's section-4 button row now DOES show a 3rd
+"play last opponent" button (menuHitRects.playAgain, HaikuMenu.lua ~line 726, hasReplay =
+getLastMatchReplaySettings().opponentId) whenever a last-match opponent exists — opponent
+avatar + win/loss record ("W - L", no circles, just numbers with a dash) on a rotated
+rounded-rect button matching solo/vs. Tapping it is the "playAgain" key below, which still
+routes through startLastMatchReplayFromMenu() exactly as this section describes.
+  Vertical centering (2026-08-11 fix): the avatar (avatarBaseCY=0.20*btnH) and the win/loss
+  row (badgesBaseY=-0.22*btnH) were independently hand-placed and, as a rigid group, sat
+  visibly high in the button — more empty space below than above. groupYOffset now shifts
+  both by the same amount, computed from their combined bounding box (avatar top edge to
+  the win/loss row's bottom edge) so the pair is centered in btnH regardless of how the two
+  base offsets or avatarSize/badgeR are tuned later.
 
 Legacy flow (still functional via startLastMatchReplayFromMenu in Main.lua):
   → getLastMatchReplaySettings()
@@ -166,9 +178,19 @@ UI (RecordsUI.lua): recordsOverlayMode "grid" (opponents) | "detail" (matches). 
   bottom line of `mm/dd/yyyy  <result>` where result is "you won N to N" / "you lost N to N" /
   "you tied N-N" / "in progress" (no scores/word-counts/opponent-name line — deliberately
   minimal). handleRecordsTouch is tap-vs-drag aware (movement > _RECORDS_TAP_SLOP = scroll,
-  else a row tap drills down); bottom button is "Close" in grid, "Back" in detail.
-  Badge suppression: drawMatchBadge (Badges.lua) bails while recordsOverlay (or any other
-  overlay) is up, so the "match ready" badge never floats over a panel.
+  else a row tap drills down); bottom button is "Close" in grid, "Back" in detail — sized
+  listWidth x 60 (2026-08-11, was a fixed 200x48 pill) to match the end screen's own
+  bottom button (EndScreen.lua buttonH=60, full contentW) for visual consistency between
+  the two overlays; both records levels share this one drawButton call.
+  Badge suppression: matchBadgeSuppressed() (Badges.lua, global) is a shared predicate —
+  colorInspectorOverlay/showInfoOverlay/recordsOverlay/balloonMockupOverlay/
+  balloonColorPickerOverlay/gcSignInOverlay/gcMatchmakerErrorOverlay/genericAlertActive —
+  used by BOTH drawMatchBadge (visibility) and handleMatchBadgeTouch (hit-testing). Bug
+  fixed 2026-08-11: handleMatchBadgeTouch used to only check `recordsOverlay`, so while any
+  OTHER overlay was open, a tap landing on the badge's floating (arbitrary) position could
+  still open a match even though the badge was never drawn that frame — reported as "a
+  match started while I was closing an overlay." Now both read the same predicate so they
+  can't drift apart again.
 LEVEL 3 (openHistoricalMatchEndScreen): saves live game state into recordsSavedLiveState,
   reconstructs currentQMatch from the snapshot (opponent didPlay mirrors completeness;
   recordOutcomeApplied=true so the end screen doesn't re-count W/L), sets score/foundWords/
@@ -402,7 +424,16 @@ SeasonFlecks.lua (NEW tab — registered in Info.plist "Buffer Order"):
 TextGoPoof.lua poof (swipe → haiku) reworked to DIRECTIONAL DRIFT:
   startPoof: keep only ~50% of lit pixels; per particle vx = P.direction*baseSpd,
     vy = lift (POSITIVE = up in Codea y-up; source brief was y-down), life counts
-    UP to maxLife (90–150 frames), size 2–3 (unchanged).
+    UP to maxLife, size 2–3 (unchanged).
+  Particle lifetime coupled to the haiku fade-in (2026-08-11 fix): maxLife used to be a
+    flat 90–150 frames (1.5–2.5s @60fps) independent of P.alphaB's own fade-in (+6/frame,
+    ~42.5 frames/~0.7s to reach 255) — particles badly outlived the haiku's fade, leaving
+    dust on screen long enough to read the haiku through before it finished clearing.
+    HAIKU_FADE_STEP (=6) and HAIKU_FADE_FRAMES (=255/HAIKU_FADE_STEP) are now named
+    constants; maxLife = HAIKU_FADE_FRAMES + random(0,15) (~0.71–0.96s), and P.alphaB's
+    own increment reads HAIKU_FADE_STEP too, so the two can't drift apart if either
+    changes. Last particle now dies within roughly a quarter-second of the haiku
+    finishing its fade — "a split second," not 1–1.8s of extra lingering.
   drawPoofingText ANIM: vx += P.direction*0.04 (drag 0.98), vy += sine float,
     color = P.specsA.color (season accent), full opacity to 40% of life then fade.
   No gravity/ground-bounce anymore. Word is NOT redrawn during ANIM (no word-fade).
@@ -945,23 +976,43 @@ buildEndScreenModel() commentUI, while composing (canComposeComment==true):
   else (including the initiator's very first comment, and a responder whose opponent
   stayed silent) gets the generic "tap here to comment" instead.
 
-BALLOON VISIBILITY TOGGLE (endScreenSpeechBalloonsVisible, EndScreen.lua): tapping
-  g.topToggleRect (the avatar/board/message row, above where balloons render) OR tapping
-  directly on a non-editable balloon toggles all balloons show/hide. "Non-editable" =
-  the opponent balloon always, or the local balloon whenever it ISN'T the live composer
-  (a live composer's native UITextView intercepts its own taps via normal UIKit hit-testing
-  before they ever reach Codea's touched(), so no explicit exclusion code is needed beyond
-  checking shouldShowFinalCommentComposer()). Gated on endScreenHasVisibleBalloons() (true
-  once composing OR once either player has a persisted comment) so tapping does nothing
-  when there's nothing to toggle.
-  DELIBERATELY NOT reproduced in the debug mockup (2026-07-20 decision): this handler
-  (handleEndScreenTouch) lives entirely inside the STATE_END-gated production touch path;
+BALLOON VISIBILITY (endScreenSpeechBalloonsVisible, EndScreen.lua handleEndScreenTouch) —
+  reworked 2026-08-11 from a restricted-region TOGGLE to an ANY-TAP-HIDES + narrow-tap-SHOWS
+  split, since users kept accidentally leaving the composer/balloons up and cluttering the
+  screen:
+  - HIDE: any tap (t.state==BEGAN) anywhere on the end screen, while balloons are currently
+    visible and endScreenHasVisibleBalloons() is true, sets endScreenSpeechBalloonsVisible=
+    false. Does NOT consume the touch — runs as a side effect before the close button / card
+    gesture checks, so those still work normally off the same tap. Safe while composing: a
+    live composer's native UITextView intercepts taps on itself via UIKit hit-testing before
+    they reach Codea's touched(), so this can't yank the keyboard away mid-keystroke; a tap
+    elsewhere just hides the draft balloon (endScreenCommentDraft itself is preserved).
+  - SHOW: a deliberate, narrow tap on the small grey "comments" affordance (EndScreenFP.lua
+    drawEndScreenSpeechBalloons, italic Color.greyCaption text, drawn under the LOWER avatar)
+    sets it back true. endScreenCommentsAffordanceRect is only populated once both balloon
+    alphas have actually decayed to ~0 (i.e. only when nothing is left visible to tap
+    instead), so this can't fire mid-fade or collide with a real balloon tap. Positioned via
+    getEndUpperRightAvatarLayout's localY/localSize (NOT boardBottom, which is where the
+    balloon itself sits and collides with the word-list card's own "Your Words" header once
+    nothing opaque is covering it).
+  - The old g.topToggleRect (a hit-region spanning the avatar/board/message row) is gone —
+    removed from calculateEndScreenDimensions along with the toggle it drove.
+  DELIBERATELY NOT reproduced in the debug mockup (2026-07-20 decision, still holds): this
+  handler lives entirely inside the STATE_END-gated production touch path;
   drawBalloonMockupOverlay's touched() branch is a separate early-return block that has
-  never called into it, before or after the 7-state picker rework. It gets real coverage
-  from any actual 2P match reaching the end screen with comments, so there's no gap to
-  backfill — and doing so in the mockup would mean either a second parallel implementation
-  (the exact anti-pattern the 2026-07-15 composer fix above was written to avoid) or wiring
-  the mockup into currentQMatch/STATE_END machinery it deliberately doesn't carry.
+  never called into it. It gets real coverage from any actual 2P match reaching the end
+  screen with comments (or the records "historical match" viewer, openHistoricalMatchEndScreen
+  — RecordsUI.lua — which also drives the real handleEndScreenTouch/drawEndScreenSpeechBalloons
+  path and is the easiest way to QA this without playing a live match).
+
+CLOSE BUTTON (the circle-× top-right, g.closeX/closeY/closeSize, calculateEndScreenDimensions
+  in EndScreen.lua): 2026-08-11 — made 1/3 larger (closeSize = 40 * 4/3 ≈ 53.3, was a flat
+  40) with the button's UPPER-RIGHT bounding-box corner held fixed at its old screen
+  position — it grows down-and-left from there rather than from its center, so it doesn't
+  drift further into the corner or off-panel as it scales. The "×" glyph's fontSize
+  (closeSize*0.75) and its hit rect (pointInRect using closeSize) both read the same
+  variable, so they scale automatically; EndScreenFP.lua's mockup close button reads the
+  same layout.closeX/Y/Size and picks up the change for free.
 
 REMATCH BUTTON (occupies layout.playAgainRect, now freed since the composer moved into
 the balloon): shown when is2P && complete && assignedOpponent (model.rematch.canOffer).

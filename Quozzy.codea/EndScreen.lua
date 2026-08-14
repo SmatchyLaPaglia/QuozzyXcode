@@ -313,8 +313,16 @@ function calculateEndScreenDimensions()
   msgCY   = innerTop - msgH*0.5
   scoreCY = (innerTop - msgH - vGap) - scoreH*0.5
   
-  closeSize = 40
-  closeX, closeY = innerRight + 6, innerTop + 8
+  -- 2026-08-11: 1/3 larger (was a flat 40), upper-right corner of the button's
+  -- bounding box held fixed at its old position — grows down-and-left from there.
+  do
+    local oldSize = 40
+    closeSize = oldSize * (4 / 3)
+    local topRightX = innerRight + 6 + oldSize * 0.5
+    local topRightY = innerTop   + 8 + oldSize * 0.5
+    closeX = topRightX - closeSize * 0.5
+    closeY = topRightY - closeSize * 0.5
+  end
   
   -- single-player list + button rects (cached too)
   listTop = listsTop
@@ -374,13 +382,6 @@ function calculateEndScreenDimensions()
   
   g.boardCX, g.boardCY, g.boardSide = boardCX, boardCY, boardSide
   g.rightCX, g.rightW, g.msgCY, g.msgH, g.scoreCY, g.scoreH = rightCX, rightW, msgCY, msgH, scoreCY, scoreH
-  g.topToggleRect = {
-    x = innerLeft,
-    y = listsTop,
-    w = contentW,
-    h = innerTop - listsTop
-  }
-  
   g.closeX, g.closeY, g.closeSize = closeX, closeY, closeSize
   
   g.singleListRect = { x = innerLeft, y = listBot, w = contentW, h = listH2 }
@@ -718,20 +719,24 @@ function handleEndScreenTouch(t)
     end
   end
 
-  -- Toggle all balloons show/hide: tapping anywhere above them (the
-  -- avatar/board/message row), OR tapping directly on a balloon that isn't
-  -- currently editable (the opponent's balloon always; the local balloon
-  -- whenever it's not the live composer — a live composer's native
-  -- UITextView intercepts its own taps before they reach here).
-  if t.state == BEGAN and endScreenHasVisibleBalloons() then
-    local composing = shouldShowFinalCommentComposer and shouldShowFinalCommentComposer()
-    local toggled = pointInCornerRect(t.x, t.y, g.topToggleRect)
-      or pointInCornerRect(t.x, t.y, endScreenOppBalloonRect)
-      or ((not composing) and pointInCornerRect(t.x, t.y, endScreenLocalBalloonRect))
-    if toggled then
-      endScreenSpeechBalloonsVisible = not endScreenSpeechBalloonsVisible
-      return true
-    end
+  -- ANY tap anywhere on the end screen hides the comment balloons/composer —
+  -- does NOT consume the touch, so the close button, card swipes, etc. still
+  -- work normally off the same tap (a live composer's native UITextView
+  -- intercepts its own taps before they ever reach here, so this can't yank
+  -- the keyboard away mid-keystroke; a tap elsewhere while composing hides
+  -- the draft balloon same as any other tap, but the draft text itself is
+  -- preserved in endScreenCommentDraft).
+  if t.state == BEGAN and endScreenSpeechBalloonsVisible and endScreenHasVisibleBalloons() then
+    endScreenSpeechBalloonsVisible = false
+  end
+
+  -- Re-showing is a deliberate, narrow tap on the small grey "comments"
+  -- affordance drawn under the avatars while hidden (see
+  -- drawEndScreenSpeechBalloons, EndScreenFP.lua) — only set once the
+  -- balloons have actually faded out, so this can't fire mid-fade.
+  if t.state == BEGAN and pointInCornerRect(t.x, t.y, endScreenCommentsAffordanceRect) then
+    endScreenSpeechBalloonsVisible = true
+    return true
   end
 
   -- card gesture handling: swipe between cards or scroll within a card

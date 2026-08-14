@@ -732,10 +732,20 @@ function drawMenu()
     local fillCol = (pressedButton == "playAgain") and Color.uiAccent2 or Color.uiAccent
     drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
 
-    -- Draw opponent avatar (smaller, upper portion of the button)
+    -- Avatar + win/loss row as one vertically-centered group. Both Y offsets
+    -- below are the ORIGINAL hand-tuned positions (avatar high, record row
+    -- low); groupYOffset re-centers their combined bounding box in the
+    -- button as a rigid shift, since independently they sat visibly high
+    -- (extra empty space below the group than above it).
     local avatar = getLastMatchReplayAvatar and getLastMatchReplayAvatar() or nil
-    local avatarSize = btnH * 0.48
-    local avatarCY   = btnH * 0.20
+    local avatarSize   = btnH * 0.48
+    local badgeR        = btnH * 0.13
+    local avatarBaseCY  = btnH * 0.20
+    local badgesBaseY   = -btnH * 0.22
+    local groupTop      = avatarBaseCY + avatarSize * 0.5
+    local groupBottom   = badgesBaseY  - (badgeR * 1.5) * 0.5
+    local groupYOffset  = -(groupTop + groupBottom) * 0.5
+    local avatarCY = avatarBaseCY + groupYOffset
     if avatar then
       -- Use drawAvatarCircle if available, otherwise fall back to sprite
       if drawAvatarCircle then
@@ -760,9 +770,8 @@ function drawMenu()
     local wins   = (rec and rec.wins)   or 0
     local losses = (rec and rec.losses) or 0
 
-    local badgeR  = btnH * 0.13
     local sep     = badgeR * 1.5
-    local badgesY = -btnH * 0.22
+    local badgesY = badgesBaseY + groupYOffset
     local leftCx  = -(sep * 0.5 + badgeR)
     local rightCx =  (sep * 0.5 + badgeR)
 

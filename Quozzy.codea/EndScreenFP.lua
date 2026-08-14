@@ -594,6 +594,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local ui = model and model.commentUI
   endScreenOppBalloonRect = nil
   endScreenLocalBalloonRect = nil
+  endScreenCommentsAffordanceRect = nil
   if not (ui and ui.hasAnyComment) then return end
   -- Per-balloon visibility: showOpponent/showLocal default to true and are gated
   -- by the master showBalloons flag, so existing callers (which set neither) keep
@@ -604,7 +605,33 @@ local function drawEndScreenSpeechBalloons(model, layout)
   endScreenLocalBalloonAlpha  = endScreenLocalBalloonAlpha  + (localTarget - endScreenLocalBalloonAlpha)  * math.min(1, DeltaTime * 14)
   local oppAlpha   = endScreenSpeechBalloonAlpha
   local localAlpha = endScreenLocalBalloonAlpha
-  if oppAlpha <= 0.01 and localAlpha <= 0.01 then return end
+  if oppAlpha <= 0.01 and localAlpha <= 0.01 then
+    -- Fully hidden: small grey "comments" affordance under the avatar cluster —
+    -- tap target to bring the balloons back (see handleEndScreenTouch, EndScreen.lua).
+    -- Any-tap-hides no longer uses this renderer's own hit regions to TOGGLE, so this
+    -- is the only way back in. Positioned right under the LOWER avatar (not down at
+    -- the balloon's usual spot, boardBottom — that collides with the word-list card's
+    -- own "Your Words" header, which the balloon normally sits on top of/hides).
+    local topY2   = layout.msgCY + layout.msgH * 0.5
+    local bottomY2 = layout.scoreCY - layout.scoreH * 0.5
+    local areaCY2  = (topY2 + bottomY2) * 0.5
+    local areaH2   = math.max(1, topY2 - bottomY2)
+    local avLayout = getEndUpperRightAvatarLayout{
+      rightCX = layout.rightCX, areaCY = areaCY2,
+      rightW  = layout.rightW,  areaH  = areaH2,
+    }
+    local labelCX = layout.rightCX
+    local labelCY = avLayout.localY - avLayout.localSize * 0.5 - 14
+    pushStyle()
+    fill(Color.greyCaption or color(150, 150, 150, 255))
+    textMode(CENTER); textAlign(CENTER)
+    font("HelveticaNeue-Italic")
+    fontSize(14)
+    text("comments", labelCX, labelCY)
+    popStyle()
+    endScreenCommentsAffordanceRect = { x = labelCX - 55, y = labelCY - 16, w = 110, h = 32 }
+    return
+  end
 
   local topY    = layout.msgCY + layout.msgH * 0.5
   local bottomY = layout.scoreCY - layout.scoreH * 0.5

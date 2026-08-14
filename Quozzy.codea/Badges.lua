@@ -369,13 +369,20 @@ function updateMatchBadge(dt)
   end
 end
 
+-- Shared by drawMatchBadge (visibility) and handleMatchBadgeTouch (hit-testing) so the
+-- two can never drift apart. Bug fixed 2026-08-11: handleMatchBadgeTouch used to only
+-- check `recordsOverlay`, so a tap landing on the badge's (floating, arbitrary) position
+-- while some OTHER overlay was open — info panel, color inspector, balloon mockup/picker,
+-- a GC modal — could open a match even though the badge was never drawn that frame.
+function matchBadgeSuppressed()
+  return colorInspectorOverlay or showInfoOverlay or recordsOverlay or balloonMockupOverlay
+     or balloonColorPickerOverlay or gcSignInOverlay or gcMatchmakerErrorOverlay or genericAlertActive
+end
+
 function drawMatchBadge()
   if state ~= STATE_MENU then return end
   -- Suppress while ANY overlay is showing — the badge should never float over a panel.
-  if colorInspectorOverlay or showInfoOverlay or recordsOverlay or balloonMockupOverlay
-     or gcSignInOverlay or gcMatchmakerErrorOverlay or genericAlertActive then
-    return
-  end
+  if matchBadgeSuppressed() then return end
   if not matchBadge.active then return end
   if matchBadge.phase ~= "visible" then return end
   
@@ -503,7 +510,7 @@ function handleMatchBadgeTouch(t)
   if state ~= STATE_MENU then return false end
   if not matchBadge.active then return false end
   if matchBadge.phase ~= "visible" then return false end
-  if recordsOverlay then return false end
+  if matchBadgeSuppressed() then return false end
   if t.state ~= BEGAN then return false end
   
   local dx = t.x - matchBadge.x

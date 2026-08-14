@@ -378,8 +378,10 @@ function drawRecordsOverlay()
         drawRecordsOpponentsList(bounds)
     end
 
-    -- bottom button: "Close" (opponents) / "Back" (matches)
-    local btnW, btnH = 200, 48
+    -- bottom button: "Close" (opponents) / "Back" (matches). Sized to match the
+    -- end screen's own bottom button (EndScreen.lua buttonH=60, full content width)
+    -- instead of a smaller one-off pill, so the two overlays feel consistent.
+    local btnW, btnH = listWidth, 60
     local btnX = panelX
     local btnY = innerBottom + btnH/2
     drawButton(btnX, btnY, btnW, btnH, isDetail and "Back" or "Close", false)
