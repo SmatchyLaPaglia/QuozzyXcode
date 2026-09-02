@@ -123,6 +123,77 @@ Main.lua tbm:onReceivingTurn callback (~862)
   → enterQMatch(q)  [GameCenter.lua]
 ```
 
+## Simultaneous Play — initial handshake (2026-09-02)
+
+```
+GOAL: decouple "playing your round" from GameKit's turn alternation. Old model: P1 plays
+  fully, THEN ends their GK turn (the only point board/score are ever sent), THEN P2 can
+  start. New model: as soon as a match is created, the board is relayed immediately via an
+  auto turn-end carrying no score — both players can then play whenever they want.
+
+enterQMatch(q) [GameCenter.lua ~238]:
+  1. FIRST CHECK (before anything else): if currentQMatch.id==q.id and state is
+     STATE_READY/STATE_PLAY and I haven't submitted (didPlay==false), this is an incoming
+     turn-event for a match I'm ACTIVELY PLAYING LOCALLY — merge only the opponent's
+     q.players[oppId] slot into currentQMatch and return, WITHOUT calling
+     startRoundFromCurrentSettings() (which would otherwise unconditionally reset
+     score/foundWords/timeRemaining and regenerate the board — see qMatch_qPlayer.lua:115).
+     Under the old strictly-sequential model this collision could never happen (you could
+     only start a round when it was already your GK turn); under simultaneous play it's
+     routine — P2's turn-pass can land while P1 is still mid-round on the same match.
+  2. needsInitialHandshake flag: computed right after ensureQMatchPlayers — true when
+     tbm.isMyTurn==true AND the incoming q.boardTiles fails areBoardTilesValidForSize(),
+     AND no player in q.players has didPlay==true. "No valid boardTiles in the incoming
+     payload" reliably means nothing has ever been sent for this match (makeQMatchFromGK
+     only ever sets q.boardTiles from decoded GK data — qMatch_qPlayer.lua:277) — i.e. this
+     is the creator's very first turn-event right after match creation (including "Play
+     Again" rematches, Main.lua:415 / qMatch_qPlayer.lua's _tryRematchForLastReplay path —
+     same shape as a fresh matchmaker match).
+  3. NOTE: the pre-existing fallthrough (isMyTurn==false && didPlay==false → proceeds to
+     startRoundFromCurrentSettings() rather than forcing the end/waiting screen,
+     GameCenter.lua ~348-369) already supported "start playing even when it's not my GK
+     turn" — no gating change was needed there. Only the two things above (#1, #2) were
+     actually missing.
+  4. At the very end: startRoundFromCurrentSettings() (unchanged) then, if
+     needsInitialHandshake, beginInitialHandshakeSend(currentQMatch).
+
+beginInitialHandshakeSend(q) / attemptHandshakeSend(matchId) [GameCenter.lua]:
+  sets awaitingHandshakeSend=true, builds turnData (boardSize/minWordLen/boardTiles/players
+  — same shape as submitFinalCommentFromEndScreen's, no score/didPlay), stores it in
+  pendingTurnSendsByMatchId[q.id] (persisted via persistPendingTurnSends — this table +
+  persist/load fns already existed unused in qMatch_qPlayer.lua:1-13, now wired up), calls
+  tbm:endTurnWithDataTable(turnData, onError).
+  RETRY: up to HANDSHAKE_MAX_ATTEMPTS=3, backoff HANDSHAKE_RETRY_DELAYS via tween.delay
+  (same idiom as Avatars.lua:230). After 3 failures: clear awaitingHandshakeSend (let the
+  player through to play) but leave the pending entry on disk for background retry.
+  CTBM:endTurnWithDataTable(t, onError) [CodeaTurnBasedMatches.lua:806] gained the optional
+  onError param — previously a failed turn-end was only logged, with no way for a Lua
+  caller to observe it. Backward-compatible (existing call site passes nothing).
+
+awaitingHandshakeSend (global bool, Main.lua): gates a NEW drawReadyMessage() branch
+  [Board.lua ~538, "Sending board to <opponentAlias>..."] shown INSTEAD of the normal
+  "tap to begin" panel, and blocks all touches in touched()'s STATE_READY branch
+  [Main.lua ~1493] including the quit button (which would otherwise call endGameRound()
+  and wrongly mark didPlay=true with score 0 mid-send). Cleared by the success path
+  (tbm:onTurnEnded, Main.lua ~1068 — matches pendingTurnSendsByMatchId by matchID) or by
+  retry exhaustion.
+
+Background/cross-launch retry: pendingHandshakeResendReason deferred-flag, mirrors the
+  existing finishedMatchAutoCheckPendingReason pattern exactly (Main.lua) — set on auth
+  (tbm:uponDetectingAuthentication), on app-foreground transition, and once in setup();
+  consumed in draw() → retryPendingHandshakeSends(reason) [Main.lua, near
+  maybeAutoOpenMostRecentFinishedMatch — uses the same _safeObjCString/_safeArrayCount/
+  _safeArrayGet + objc.async + pcall safety wrappers, NOT raw ipairs/== on ObjC objects,
+  which don't reliably compare via the bridge]. Re-verifies tbm.isMyTurn==true (via
+  tbm:_setCurrentMatch on the freshly-loaded GKTurnBasedMatch) before resending — never
+  blindly resends without re-confirming turn ownership.
+
+Reconciliation (verified unchanged, no code needed): submitFinalCommentFromEndScreen /
+  finalizeCompletedTurnBasedMatch already branch purely on info.opponentPlayed +
+  tbm.isMyTurn, never on chronological play order — works correctly regardless of which
+  player plays first under the new model.
+```
+
 ## State Machine
 
 ```
@@ -354,6 +425,9 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 | comment gate | GameCenter.lua | currentFinalCommentPhase() |
 | comment submit | GameCenter.lua | submitFinalCommentFromEndScreen() |
 | finalize match | GameCenter.lua | finalizeCompletedTurnBasedMatch() |
+| initial handshake send | GameCenter.lua | beginInitialHandshakeSend(), attemptHandshakeSend() |
+| handshake wait UI | Board.lua | drawReadyMessage() awaitingHandshakeSend branch |
+| handshake background retry | Main.lua | retryPendingHandshakeSends(), requestPendingHandshakeResendCheck() |
 | comment field ObjC | EndScreenFP.lua | ensureEndScreenNativeCommentField(), teardownEndScreenCommentField() |
 | end screen draw | EndScreenFP.lua | drawEndScreenFP() → buildEndScreenModel() → drawEndScreenWith() |
 | end screen touch | EndScreen.lua | handleEndScreenTouch() |

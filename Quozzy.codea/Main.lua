@@ -188,6 +188,8 @@ appWasActiveLastFrame = appWasActiveLastFrame == nil and true or appWasActiveLas
 finishedMatchAutoCheckInFlight = finishedMatchAutoCheckInFlight or false
 finishedMatchAutoCheckPendingReason = finishedMatchAutoCheckPendingReason or nil
 pendingRematchAfterEndScreenExit = pendingRematchAfterEndScreenExit or false
+awaitingHandshakeSend = awaitingHandshakeSend or false
+pendingHandshakeResendReason = pendingHandshakeResendReason or nil
 
 local function _sanitizeBoardSize(v)
   v = math.floor(tonumber(v) or 4)
@@ -479,6 +481,10 @@ local function requestAutoOpenFinishedMatchCheck(reason)
   finishedMatchAutoCheckPendingReason = reason or "unknown"
 end
 
+local function requestPendingHandshakeResendCheck(reason)
+  pendingHandshakeResendReason = reason or "unknown"
+end
+
 local function _extractMatchSortTime(gkMatch, dataTable)
   local ts = nil
   local ok = pcall(function()
@@ -607,6 +613,48 @@ local function maybeAutoOpenMostRecentFinishedMatch(reason)
   end
 end
 
+function retryPendingHandshakeSends(reason)
+  if not next(pendingTurnSendsByMatchId) then return end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  if not (tbm and GKTurnBasedMatch) then return end
+
+  local ok = pcall(function()
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        local okInner, errInner = pcall(function()
+          if o__err then
+            local errText = _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "unknown"
+            devLog("retryPendingHandshakeSends: load error", errText)
+            return
+          end
+          local matches = o__matches
+          local matchCount = _safeArrayCount(matches)
+          for pendingId, _ in pairs(pendingTurnSendsByMatchId) do
+            for i = 1, matchCount do
+              local m = _safeArrayGet(matches, i)
+              local mid = m and _safeObjCString(m.matchID)
+              if mid and mid == pendingId then
+                tbm:_setCurrentMatch(m, "handshake-resend")
+                if tbm.isMyTurn == true then
+                  devLog("retryPendingHandshakeSends: resending", "matchId=", pendingId, "reason=", reason)
+                  attemptHandshakeSend(pendingId)
+                end
+                break
+              end
+            end
+          end
+        end)
+        if not okInner then
+          devLog("retryPendingHandshakeSends crashed safely", tostring(errInner))
+        end
+      end)
+    end)
+  end)
+  if not ok then
+    devLog("retryPendingHandshakeSends: loadMatches call failed")
+  end
+end
+
 local function isRunningOnSimulator()
   local ok, yes = pcall(function()
     local env = objc and objc.NSProcessInfo and objc.NSProcessInfo.processInfo and objc.NSProcessInfo.processInfo.environment
@@ -695,7 +743,7 @@ function generateLoadingScreenImage(force)
       for col = -1, 1 do
         local x = cx + col * (targetW * 0.50)
         local y = cy + row * (targetH * 0.32)
-        text("Kotoba", x, y + targetH * 0.03)
+        text("Vivaldi-ku", x, y + targetH * 0.03)
         fontSize(targetH * 0.085)
         text("SEASONS", x, y - targetH * 0.09)
         fontSize(targetH * 0.17)
@@ -720,7 +768,7 @@ function generateLoadingScreenImage(force)
       local qSize = math.floor(titleBlockH * 0.55)
       local sSize = math.floor(titleBlockH * 0.25)
       fontSize(qSize)
-      local qW = textSize("Kotoba")
+      local qW = textSize("Vivaldi-ku")
       fontSize(sSize)
       local sW = textSize("SEASONS")
       if qW <= maxTitleW and sW <= maxTitleW then
@@ -735,7 +783,7 @@ function generateLoadingScreenImage(force)
     local sY = cy - titleBlockH * 0.20
 
     fontSize(qSize)
-    text("Kotoba", cx, qY)
+    text("Vivaldi-ku", cx, qY)
     fontSize(sSize)
     text("SEASONS", cx, sY)
     popStyle()
@@ -1037,6 +1085,7 @@ function setup()
     requestHomeScreenBadgePermission()
     refreshHomeScreenBadgeFromGCMatches("auth")
     requestAutoOpenFinishedMatchCheck("auth")
+    requestPendingHandshakeResendCheck("auth")
   end)
 
   tbm:onReceivingTurn(function(gkMatch, dataTable)
@@ -1065,6 +1114,14 @@ function setup()
 
   tbm:onTurnEnded(function(gkMatch, dataTable)
     refreshHomeScreenBadgeFromGCMatches("turnEnded")
+    local mid = gkMatch and gkMatch.matchID
+    if mid and pendingTurnSendsByMatchId[mid] then
+      pendingTurnSendsByMatchId[mid] = nil
+      persistPendingTurnSends()
+      if awaitingHandshakeSend and currentQMatch and currentQMatch.id == mid then
+        awaitingHandshakeSend = false
+      end
+    end
   end)
 
   tbm:onSettingCurrentMatch(function(gkMatch, data)
@@ -1079,6 +1136,7 @@ function setup()
   end)
 
   loadPendingTurnSends()
+  requestPendingHandshakeResendCheck("setup")
   setupGCDebugParameters()
   if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
     openDebugCommentPhasePreview()
@@ -1189,17 +1247,24 @@ function draw()
   
   if appStateActive and (not appWasActiveLastFrame) then
     requestAutoOpenFinishedMatchCheck("foreground")
+    requestPendingHandshakeResendCheck("foreground")
   end
   appWasActiveLastFrame = appStateActive
-  
+
   updateSeasonTransition(DeltaTime)
   updateConfetti(DeltaTime)
   updateMatchBadge(DeltaTime)
-  
+
   if finishedMatchAutoCheckPendingReason then
     local reason = finishedMatchAutoCheckPendingReason
     finishedMatchAutoCheckPendingReason = nil
     maybeAutoOpenMostRecentFinishedMatch(reason)
+  end
+
+  if pendingHandshakeResendReason then
+    local reason = pendingHandshakeResendReason
+    pendingHandshakeResendReason = nil
+    retryPendingHandshakeSends(reason)
   end
   
   if state == STATE_MENU then
@@ -1468,9 +1533,10 @@ function touched(t)
   
   -- READY: any tap starts the round
   if state == STATE_READY then
-    if handleQuitButtonTouch(t) then 
+    if awaitingHandshakeSend then return end   -- board still sending; nothing tappable yet
+    if handleQuitButtonTouch(t) then
       endGameRound()
-      return 
+      return
     end
     if t.state == BEGAN then
       captureBoardSnapAnim()

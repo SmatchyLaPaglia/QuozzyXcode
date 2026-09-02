@@ -240,13 +240,47 @@ function enterQMatch(q)
     print("enterQMatch: nil q or id")
     return
   end
+
+  -- A turn-event for a match I'm actively playing locally (STATE_READY/STATE_PLAY)
+  -- and haven't submitted yet: merge in only the opponent's data, don't restart my
+  -- round. Under simultaneous play, this collision is routine (the opponent's turn
+  -- can pass back to me while I'm still mid-round) — without this guard,
+  -- startRoundFromCurrentSettings() below would silently wipe my live progress.
+  if currentQMatch and currentQMatch.id == q.id
+     and (state == STATE_READY or state == STATE_PLAY)
+     and not (currentQMatch.players and currentQMatch.players[localPID()]
+              and currentQMatch.players[localPID()].didPlay) then
+    local myId = localPID()
+    for pid, pdata in pairs(q.players or {}) do
+      if pid ~= myId then
+        currentQMatch.players[pid] = pdata
+      end
+    end
+    currentQMatch.lastUpdated = q.lastUpdated or currentQMatch.lastUpdated
+    devLog("enterQMatch: merged incoming opponent data into in-progress local round; not restarting")
+    return
+  end
+
   if endReplayMatchmakingBusy then
     endReplayMatchmakingBusy()
   end
-  
+
+  -- Detect "this is my very first turn-event for a brand-new match I just created":
+  -- I own the turn, and the incoming payload has no valid board tiles yet (the only
+  -- way boardTiles ever gets set is from decoded GK match data — see makeQMatchFromGK
+  -- in qMatch_qPlayer.lua — so no valid tiles means nothing has ever been sent for
+  -- this match). Belt-and-suspenders: nobody has played yet either.
+  local needsInitialHandshake = (tbm and tbm.isMyTurn == true)
+    and not areBoardTilesValidForSize(q.boardTiles, q.boardSize or boardSize)
+  if needsInitialHandshake and q.players then
+    for _, pdata in pairs(q.players) do
+      if pdata and pdata.didPlay == true then needsInitialHandshake = false; break end
+    end
+  end
+
   currentQMatch = ensureQMatchPlayers(q, localPID(), q.otherId or q.opponentId)
   dbgDidPlay("enterQMatch", currentQMatch)
-  
+
   useTurnBased      = true
   currentMatchID    = q.id
   currentOpponentID = q.otherId or q.opponentId or nil
@@ -334,7 +368,52 @@ function enterQMatch(q)
       "otherId=", otherId)
   end
 
-  startRoundFromCurrentSettings()
+  startRoundFromCurrentSettings()   -- generates+stores boardTiles, sets STATE_READY
+  if needsInitialHandshake then
+    beginInitialHandshakeSend(currentQMatch)
+  end
+end
+
+HANDSHAKE_MAX_ATTEMPTS = 3
+HANDSHAKE_RETRY_DELAYS = {1.0, 2.5, 5.0}
+
+function beginInitialHandshakeSend(q)
+  awaitingHandshakeSend = true
+  local turnData = {
+    boardSize   = q.boardSize or boardSize,
+    minWordLen  = q.minWordLen or MIN_WORD_LEN,
+    boardTiles  = q.boardTiles,
+    players     = q.players,
+    lastUpdated = os.time(),
+  }
+  pendingTurnSendsByMatchId[q.id] = { turnData = turnData, attempts = 0 }
+  persistPendingTurnSends()
+  attemptHandshakeSend(q.id)
+end
+
+function attemptHandshakeSend(matchId)
+  local pending = pendingTurnSendsByMatchId[matchId]
+  if not pending then return end
+  pending.attempts = pending.attempts + 1
+  persistPendingTurnSends()
+
+  tbm:endTurnWithDataTable(pending.turnData, function(err)
+    local p = pendingTurnSendsByMatchId[matchId]
+    if not p then return end
+    devLog("handshake send failed", "matchId=", matchId, "attempt=", p.attempts,
+      "err=", err and err.localizedDescription or "n/a")
+    if p.attempts < HANDSHAKE_MAX_ATTEMPTS then
+      tween.delay(HANDSHAKE_RETRY_DELAYS[p.attempts], function()
+        attemptHandshakeSend(matchId)
+      end)
+    else
+      devLog("handshake send exhausted attempts; letting player through, will retry in background", matchId)
+      if awaitingHandshakeSend and currentQMatch and currentQMatch.id == matchId then
+        awaitingHandshakeSend = false
+      end
+      -- pending stays in pendingTurnSendsByMatchId / on disk for background retry
+    end
+  end)
 end
 
 function endGameRound()

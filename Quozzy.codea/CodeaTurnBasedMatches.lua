@@ -803,14 +803,16 @@ function CTBM:_setCurrentMatch(o__match, setterString)
   
 end
 
-function CTBM:endTurnWithDataTable(t)
+function CTBM:endTurnWithDataTable(t, onError)
   if not self.currentMatch then
     self:log("CTBM: can't end turn because currentMatch is nil")
+    if onError then onError(nil) end
     return
   end
-  
+
   if not self.isMyTurn then
     self:log("CTBM: can't end turn because it's not my turn")
+    if onError then onError(nil) end
     return
   end
   
@@ -825,6 +827,7 @@ function CTBM:endTurnWithDataTable(t)
   
   if #nextParticipants == 0 then
     self:log("CTBM: no valid next participants")
+    if onError then onError(nil) end
     return
   end
   
@@ -842,7 +845,8 @@ function CTBM:endTurnWithDataTable(t)
   function(o__err)
     if o__err then
       self:log("CTBM:endTurn error:", o__err.localizedDescription)
-    else    
+      if onError then onError(o__err) end
+    else
       self:log("CTBM: endTurnWithNextParticipants succeeded")
       local sentDataTable = t or nil
       local associatedMatch = self.currentMatch
