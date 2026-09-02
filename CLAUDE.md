@@ -18,9 +18,9 @@ Codea uses OpenGL-style **y-up** coordinates. Origin (0,0) is **bottom-left**.
 
 ## Project Overview
 
-**Kotoba** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#11 (version 1)` (`CURRENT_PROJECT_VERSION` / `MARKETING_VERSION` in `Quozzy.xcodeproj/project.pbxproj`).
+**Vivaldi-ku** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#11 (version 1)` (`CURRENT_PROJECT_VERSION` / `MARKETING_VERSION` in `Quozzy.xcodeproj/project.pbxproj`).
 
-> **Name split:** The app is branded **Kotoba** to users (home-screen `CFBundleDisplayName` + the in-game loading screen). Everything internal is still **Quozzy** and stays that way: the Xcode target/scheme (`Quozzy`), the Codea bundle (`Quozzy.codea`), the executable/process name (`Quozzy` — so `log show ... process == "Quozzy"` is correct), and the bundle ID (`com.jessewonderclark.quozzyseasons`). Don't "fix" internal `Quozzy` references to `Kotoba` — it would break diagnostics and orphan App Store/GameCenter identity. The static launch-screen PNG (`Loading_QuozzySeasons`) still shows "Quozzy" baked into the art; regenerating it is a separate art task.
+> **Name split:** The app is branded **Vivaldi-ku** to users (home-screen `CFBundleDisplayName`, TestFlight, + the in-game loading screen — formerly "Kotoba", before that "Quozzy"). Everything internal is still **Quozzy** and stays that way: the Xcode target/scheme (`Quozzy`), the Codea bundle (`Quozzy.codea`), the executable/process name (`Quozzy` — so `log show ... process == "Quozzy"` is correct), and the bundle ID (`com.jessewonderclark.quozzyseasons`). Don't "fix" internal `Quozzy` references to `Vivaldi-ku` — it would break diagnostics and orphan App Store/GameCenter identity. The static launch-screen PNG (`Loading_QuozzySeasons`) still shows "Quozzy" baked into the art; regenerating it is a separate art task.
 
 ## Running the Project
 

@@ -12,12 +12,12 @@ These are consumed by the `xcode-orchestrator` skill and any CLI-based diagnosti
 | SIM_ID     | `0EF8AE50-8899-40DD-A77E-359C06732886` (iPhone 16e — primary for this project) |
 | SIM_ID_ALT | `1B48ACAA-0AE2-40C3-B28B-BFDB1A4A3044` (iPhone 17 — DO NOT USE for this project) |
 
-> **Rename (done, user-facing only):** The app is branded **Kotoba** to users
-> via `CFBundleDisplayName` and the in-game loading screen. Internals stay
-> **Quozzy** deliberately — SCHEME, BUNDLE_ID, process name, and `.codea` bundle
-> above are all still `Quozzy`/`quozzyseasons` and must not be changed (doing so
-> breaks diagnostics and orphans App Store/GameCenter identity). So these
-> constants remain correct as written.
+> **Rename (done, user-facing only):** The app is branded **Vivaldi-ku** to users
+> via `CFBundleDisplayName` and the in-game loading screen (formerly "Kotoba").
+> Internals stay **Quozzy** deliberately — SCHEME, BUNDLE_ID, process name, and
+> `.codea` bundle above are all still `Quozzy`/`quozzyseasons` and must not be
+> changed (doing so breaks diagnostics and orphans App Store/GameCenter identity).
+> So these constants remain correct as written.
 
 ### Diagnostic Log Access
 
