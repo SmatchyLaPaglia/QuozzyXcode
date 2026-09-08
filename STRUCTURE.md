@@ -194,6 +194,60 @@ Reconciliation (verified unchanged, no code needed): submitFinalCommentFromEndSc
   player plays first under the new model.
 ```
 
+## Simultaneous Play — creator lockout bug fix (2026-09-07)
+
+```
+SYMPTOM: the match creator (P1, holds isMyTurn==true at match creation, so
+  needsInitialHandshake fires) could generate their board fine but then appeared unable
+  to actually start playing — stuck on the "Sending board to <opponent>..." READY-screen
+  message. The receiver (P2, gets a real board via the handshake, needsInitialHandshake
+  computes false for them) never hit this — matches the "works for receiving player, not
+  sending player" report.
+
+ROOT CAUSE: Main.lua touched(), STATE_READY branch had
+  `if awaitingHandshakeSend then return end` BEFORE the tap-to-start / quit checks —
+  blocking ALL touches (not just a resend-in-flight indicator) until the outbound
+  handshake turn-end confirmed success with GameKit. But the board is already generated
+  locally by startRoundFromCurrentSettings() *before* beginInitialHandshakeSend() even
+  fires (enterQMatch, GameCenter.lua) — nothing about playing your own round depends on
+  the opponent having received it yet. The gate's original intent (per its own comment)
+  was narrower: stop the quit button from firing endGameRound() with score 0 while a send
+  was in flight — but quit-with-0 mid-send is actually the CORRECT quit semantics (see
+  CLAUDE.md task note: quit ends the match as if time ran out), not a bug to guard
+  against. The blanket `return` swept up the legitimate tap-to-start gesture too, which
+  defeated the entire point of the handshake feature for whoever created the match.
+
+FIX: removed the gate. STATE_READY now always allows quit and tap-to-start immediately;
+  attemptHandshakeSend's existing retry loop (HANDSHAKE_MAX_ATTEMPTS=3, background retry
+  via retryPendingHandshakeSends) keeps sending the board independently of what state the
+  local player has moved on to. awaitingHandshakeSend / the "Sending board to..." message
+  are now purely cosmetic — never gate input — and drawReadyMessage() is simply not shown
+  once the player leaves STATE_READY, so there's nothing left to display once they've
+  moved on.
+
+NEW EDGE CASE covered: a fast player could now finish their entire round (and try to pass
+  their turn / finalize via submitFinalCommentFromEndScreen or
+  finalizeCompletedTurnBasedMatch, GameCenter.lua) before the handshake's own
+  endTurnWithDataTable call has completed — two outbound endTurn calls for the same match
+  racing. clearPendingHandshakeForMatch(matchId) (GameCenter.lua, called right before both
+  of those functions' own tbm:endTurnWithDataTable calls) drops the queued handshake entry
+  from pendingTurnSendsByMatchId first, so at minimum no *background retry* of the
+  now-redundant handshake-only payload can fire after the real result already went out.
+  Does NOT cancel an already-in-flight network call (not possible via this API) — that
+  remaining sliver (handshake send and real-result send both already dispatched to
+  GameKit concurrently) is unverified live; flagged in HANDOFF.md for an on-device check
+  with two real accounts.
+
+NOT verified with real two-device taps (this environment has no touch-injection tool —
+  same limitation noted throughout this doc's mockup sections). Verified via static trace
+  of every call site of awaitingHandshakeSend, isMyTurn, and tbm.currentMatch. Needs a
+  live pass: create a match from one account, confirm the creator can tap-to-start the
+  instant the READY screen appears (before the "Sending board to..." message would have
+  even had time to resolve), and separately confirm the handshake still actually reaches
+  the opponent (their board should stop showing "?" / stop being invalid) even though nothing
+  blocks the creator's own screen anymore.
+```
+
 ## State Machine
 
 ```

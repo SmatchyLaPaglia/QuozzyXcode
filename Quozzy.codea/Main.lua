@@ -743,7 +743,7 @@ function generateLoadingScreenImage(force)
       for col = -1, 1 do
         local x = cx + col * (targetW * 0.50)
         local y = cy + row * (targetH * 0.32)
-        text("Vivaldi-ku", x, y + targetH * 0.03)
+        text("Vivaldiku", x, y + targetH * 0.03)
         fontSize(targetH * 0.085)
         text("SEASONS", x, y - targetH * 0.09)
         fontSize(targetH * 0.17)
@@ -768,7 +768,7 @@ function generateLoadingScreenImage(force)
       local qSize = math.floor(titleBlockH * 0.55)
       local sSize = math.floor(titleBlockH * 0.25)
       fontSize(qSize)
-      local qW = textSize("Vivaldi-ku")
+      local qW = textSize("Vivaldiku")
       fontSize(sSize)
       local sW = textSize("SEASONS")
       if qW <= maxTitleW and sW <= maxTitleW then
@@ -783,7 +783,7 @@ function generateLoadingScreenImage(force)
     local sY = cy - titleBlockH * 0.20
 
     fontSize(qSize)
-    text("Vivaldi-ku", cx, qY)
+    text("Vivaldiku", cx, qY)
     fontSize(sSize)
     text("SEASONS", cx, sY)
     popStyle()
@@ -1078,6 +1078,13 @@ function setup()
   end
   
   tbm = CTBM()
+  -- CTBM:log()/_logMatchmakingEvent() (the detailed turn/handshake/matchmaking trace
+  -- already written throughout CodeaTurnBasedMatches.lua) are gated behind
+  -- self._logActive, which defaults false and was never being turned on anywhere —
+  -- none of that instrumentation was ever reaching any log channel. Enabled on the
+  -- simulator only (where we can read logs via `xcrun simctl log show`) to keep
+  -- production log volume unchanged.
+  tbm:setLogging(isRunningOnSimulator())
 
   tbm:uponDetectingAuthentication(function()
     defineAvatarsAfterMicrodelay()
@@ -1531,9 +1538,15 @@ function touched(t)
     return
   end
   
-  -- READY: any tap starts the round
+  -- READY: any tap starts the round. The board is already generated locally
+  -- (startRoundFromCurrentSettings ran before beginInitialHandshakeSend in
+  -- enterQMatch), so the player can start immediately regardless of whether
+  -- the outbound handshake to the opponent has finished sending yet — it
+  -- keeps retrying in the background (see attemptHandshakeSend). Gating this
+  -- tap on awaitingHandshakeSend used to lock the match creator out of their
+  -- own round (and the quit button) for as long as the send was in flight,
+  -- which defeated the point of simultaneous play.
   if state == STATE_READY then
-    if awaitingHandshakeSend then return end   -- board still sending; nothing tappable yet
     if handleQuitButtonTouch(t) then
       endGameRound()
       return

@@ -3,6 +3,18 @@ GameCenter.testMode = GameCenter.testMode or false
 MAX_MATCH_COMMENT_LEN = MAX_MATCH_COMMENT_LEN or 100
 FINAL_COMMENT_TURN_MESSAGE = FINAL_COMMENT_TURN_MESSAGE or "Check out the results of your game!"
 
+-- If the player finishes their round (and passes/finalizes their turn) before
+-- the initial handshake send has been confirmed by GameKit — possible now
+-- that starting play no longer waits on it — drop the queued handshake entry
+-- so the background retry (retryPendingHandshakeSends) can't fire a stale,
+-- redundant endTurn call after the real result has already gone out.
+local function clearPendingHandshakeForMatch(matchId)
+  if matchId and pendingTurnSendsByMatchId[matchId] then
+    pendingTurnSendsByMatchId[matchId] = nil
+    persistPendingTurnSends()
+  end
+end
+
 local function sanitizeMatchComment(text)
   local s = tostring(text or "")
   s = s:gsub("[\r\n]+", " ")
@@ -162,6 +174,7 @@ function submitFinalCommentFromEndScreen(commentText)
       local sync = buildRecordSyncForOpponent(oppId, alias, pid, nil)
       if sync then turnData.recordSync = sync end
     end
+    clearPendingHandshakeForMatch(q.id)
     tbm:endTurnWithDataTable(turnData)
     return true
   end
@@ -174,6 +187,7 @@ function finalizeCompletedTurnBasedMatch(commentText)
   local turnData, outcome = buildFinalTurnDataAndOutcome(commentText)
   if not (turnData and outcome) then return false end
 
+  clearPendingHandshakeForMatch(currentQMatch and currentQMatch.id)
   if outcome == "win" then
     tbm:localPlayerWon(turnData)
   elseif outcome == "loss" then
