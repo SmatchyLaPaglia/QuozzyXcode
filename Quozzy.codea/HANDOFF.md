@@ -1033,3 +1033,43 @@ Info.plist, CLAUDE.md, STRUCTURE.md.
 
 **Next task:** live tap-test pass on the vs overlay (see above), then the two-device handshake
 verification (see #1).
+
+### Addendum (same night, after user follow-up): momentum scrolling, Quick Start, record sync
+
+Three more requests landed after the above was written:
+
+1. **Momentum scrolling everywhere.** Wired the existing `applyScrollInertia` (already used by
+   `ScrollList.lua`) into every other hand-rolled scroll view: Records (both opponents grid and
+   matches detail — they share `recordsScrollY`), the About panel, and the vs overlay (which
+   also got real scroll bounds for the first time — it had none before tonight). See
+   STRUCTURE.md → "Momentum scrolling on hand-rolled lists" for the sign-convention gotcha (not
+   every file updates scrollY with the same +/- direction on drag — copying the formula blind
+   between files would make flings decelerate backwards). Skipped the dormant debug balloon
+   color picker (unreachable in production).
+
+2. **"MATCH READY / TAP HERE" was actually two features, not one** — a passive signal AND a
+   fast-start action fused into one hopping badge. Tonight's earlier rewrite (session start,
+   above) kept only the signal half (the static vs-button dot) and I hadn't realized the
+   action half — bypass the list, jump straight into whatever needs you — was a deliberate,
+   separate piece of value until the user flagged it. Restored it as `quickStart` (Badges.lua):
+   same hop/ripple animation as the original, now labeled "QUICK START / NEXT MATCH", driven by
+   the same `vsListEntries`/`vsHasActionable` the list itself uses (one data source, not a
+   second poll loop). Verified visually — screenshot shows it rendering correctly with real
+   Game Center data, coexisting with the vs-button dot. **Not re-tuned:** its avoid-rect
+   (keeps it clear of the menu buttons while hopping) is copied verbatim from the old badge and
+   was sized for the pre-overhaul button layout — one observed hop landed close enough to the
+   "re" button to visually overlap it. Worth a tuning pass if it bothers you in practice.
+
+3. **Opponent W/L record sync now covers every outgoing turn.** This turned out to already be
+   almost entirely built (`buildRecordSyncForOpponent`/`mergeOpponentRecordFromTurnData`,
+   opponentRecords.lua) — a real max()-style reconciliation (whoever has fewer total recorded
+   games against the other adopts the other's numbers), already wired into two of the three
+   outgoing-turn send points. The gap: `beginInitialHandshakeSend` (the very first turn a new
+   match ever sends, added by the 2026-09-02 simultaneous-play work) never attached it — so a
+   match that ended early (e.g. a quit before either side finished) never got a chance to sync
+   at all. Fixed — see STRUCTURE.md → "Opponent record sync now covers every outgoing turn".
+
+None of these three were live-tap-verified for the same reason as the vs overlay above (no
+touch injection in this environment); the record-sync fix specifically also needs a real
+two-device match to confirm the merge actually reconciles correctly end-to-end, not just that
+the code compiles and the outgoing payload now includes the field.
