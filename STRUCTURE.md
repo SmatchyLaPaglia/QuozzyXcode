@@ -186,6 +186,36 @@ New system: drawVsButtonBadge(rect) — a small static red dot (no number, no an
   debug hook still does something visible under the new system.
 ```
 
+## Quick Start (Badges.lua, 2026-09-08 — the action half of the old floating badge)
+
+```
+The original hopping "MATCH READY / TAP HERE" badge was actually two things fused together:
+a passive signal (something needs you) and a fast-path action (tap to jump straight into it
+without opening any list). The 2026-09-07 rewrite above kept only the signal half (the static
+vs-button dot). This restores the action half as its own component, same hop/ripple mechanic
+as before, clearer label ("QUICK START\nNEXT MATCH"), retargeted to the new data source.
+
+quickStart table / _pickQuickStartPosition / _activateQuickStart / _deactivateQuickStart:
+  same hop-to-a-new-random-spot-every-few-seconds + ripple-ring visual as the old matchBadge,
+  same avoid-rect (menu button block) and min-hop-distance logic, copied over unchanged.
+updateQuickStart(dt) [Main.lua draw(), same tier as updateConfetti]: STATE_MENU only;
+  refreshes vsListEntries on menu-entry and every quickStartPollInterval=8s while sitting on
+  the menu (belt-and-suspenders freshness on top of the auth/turn/foreground triggers already
+  in MatchSelection.lua); activates/deactivates purely off vsHasActionable.
+vsQuickStartBestEntry(): newest entry in vsListEntries with needsAction==true (same list,
+  same sort, just picks the first instead of showing them all).
+handleQuickStartTouch(t) [Main.lua touched(), first dibs on STATE_MENU — same tier the old
+  handleMatchBadgeTouch had]: circular hit-test against quickStart.x/y/radius; tap →
+  vsOpenMatchEntry(vsQuickStartBestEntry()) — the SAME function the vs list's own row-tap
+  uses, so quick-start and "tap the row yourself" are one code path, not two.
+Verified visually (screenshot, live Game Center data): renders correctly, ripple animation
+  intact, label reads "QUICK START / NEXT MATCH", coexists with the vs-button dot badge.
+  Not re-tuned: the avoid-rect (avoidOrigin/avoidW/avoidH) is copied verbatim from the old
+  matchBadge and was tuned for the pre-vs-overhaul button layout — in one observed hop it
+  landed close enough to the "re" button to visually overlap it. Same characteristic the old
+  badge had; if it's worth tightening, the avoid rect is the first place to look.
+```
+
 ## Turn Receipt Flow
 
 ```
@@ -700,6 +730,49 @@ showRowDividers (pink section boundary lines) default = false.
 - Helpers.lua:24 — expects CENTER coordinates: pointInRect(px, py, cx, cy, w, h)
 - checks: px in [cx-w/2, cx+w/2] and py in [cy-h/2, cy+h/2]
 - ALWAYS store hit rects as {cx, cy, w, h} — passing corner coords silently halves the hit area
+
+## Momentum scrolling on hand-rolled lists (2026-09-08)
+
+```
+applyScrollInertia(scrollY, vel, minY, maxY, dt) -> scrollY, vel (Helpers.lua) already existed
+  and was already used by ScrollList.lua (exponential-decay deceleration, ~0.5-0.7s fling).
+  It just wasn't wired into any of the OTHER, hand-rolled (non-ScrollList) drag-to-scroll
+  views — those only ever did 1:1 finger tracking with no momentum after release. Added to
+  all of them: RecordsUI.lua (recordsScrollY, shared by both the opponents grid and the
+  matches detail list), OverlayPanels.lua drawInfoOverlay (infoScrollY), MatchSelection.lua's
+  vs overlay (vsScrollY, shared by both list and friends modes — also gained proper
+  maxScroll/clamping, which the vs overlay didn't have at all before this).
+  Pattern at each site (do NOT copy blind — each file has its own sign convention for how a
+  drag updates scrollY, see below): track velocity during MOVING as dy/dt (ElapsedTime-based,
+  matching ScrollList's own approach) using the SAME sign as that file's existing
+  `scrollY = scrollY +/- dy` line; reset vel to 0 on a fresh BEGAN; each draw call, when the
+  touch id is nil (not actively dragging), call applyScrollInertia before the existing
+  clamp-to-[0,maxScroll] lines (kept as a redundant safety net).
+  Sign conventions found: OverlayPanels/MatchSelection both do `scrollY = scrollY + dy`
+  (vel = +dy/dt); RecordsUI does `scrollY = scrollY - dy` (vel = -dy/dt). Get this backwards
+  and a fling will decelerate in the wrong direction (feels like it fights your swipe).
+  NOT done: EndScreenFP.lua's balloon color picker (colorPickerScrollY, Main.lua touched()) —
+  dormant debug-only UI (SHOW_DEBUG_BUTTON=false in production, unreachable), low value.
+```
+
+## Opponent record sync now covers every outgoing turn (2026-09-08)
+
+```
+buildRecordSyncForOpponent(oppId, alias, senderId, result) / mergeOpponentRecordFromTurnData
+  (opponentRecords.lua) were already fully implemented — every outgoing turn is supposed to
+  carry the sender's current W/L totals against this opponent (projected to include the
+  outcome when one's known), and the receiver adopts the remote copy when it represents MORE
+  total games than the receiver's own local count (or same count but newer + actually
+  different) — a max()-style merge standing in for a real server. This already worked for
+  buildFinalTurnDataAndOutcome (match finalize) and submitFinalCommentFromEndScreen's
+  first-to-play branch (comment pass) — but NOT for beginInitialHandshakeSend (GameCenter.lua),
+  the very first turn ever sent for a match under the 2026-09-02 simultaneous-play handshake.
+  Since a match can end (e.g. someone quits) before ever reaching either of the other two send
+  points, that gap meant some matches would never sync at all. Fixed: handshake's turnData now
+  also builds recordSync (result=nil — just current totals, no outcome yet, same as the
+  comment-pass branch's usage). All three of this codebase's outgoing-turnData construction
+  sites now attach it (confirmed by grepping every `local turnData = {` in GameCenter.lua).
+```
 
 ## clampPanelTopToSafeArea (Helpers.lua, 2026-09-07)
 

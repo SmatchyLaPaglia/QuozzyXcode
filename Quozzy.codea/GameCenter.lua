@@ -400,6 +400,19 @@ function beginInitialHandshakeSend(q)
     players     = q.players,
     lastUpdated = os.time(),
   }
+  -- Every outgoing turn should carry the sender's current W/L record against
+  -- this opponent (buildRecordSyncForOpponent) so each side's local totals
+  -- can self-heal from the other's — a crude stand-in for a real server. The
+  -- handshake is the FIRST turn ever sent for a match, so it needs this too;
+  -- previously only the comment-pass/finalize sends did, which meant a match
+  -- that never got past the handshake (e.g. someone quit before finishing)
+  -- never had a chance to sync at all.
+  local oppId = q.opponentId or q.otherId
+  if oppId and buildRecordSyncForOpponent then
+    local alias = q.otherName or q.opponentName or opponentAlias
+    local sync = buildRecordSyncForOpponent(oppId, alias, localPID(), nil)
+    if sync then turnData.recordSync = sync end
+  end
   pendingTurnSendsByMatchId[q.id] = { turnData = turnData, attempts = 0 }
   persistPendingTurnSends()
   attemptHandshakeSend(q.id)

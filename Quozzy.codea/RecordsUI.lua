@@ -13,6 +13,12 @@ recordsThumbCacheOrder = recordsThumbCacheOrder or {}  -- simple LRU list if you
 recordsRowRects      = recordsRowRects      or {}   -- opponents list (grid mode): {..., oppId}
 recordsMatchRowRects = recordsMatchRowRects or {}   -- matches list (detail mode): {..., matchIndex}
 
+-- Momentum scrolling (applyScrollInertia, Helpers.lua): recordsScrollVel is tracked as
+-- -dy/dt while dragging (matching this file's `recordsScrollY = recordsScrollY - dy`
+-- convention) and decayed each draw frame the touch isn't active.
+recordsScrollVel  = recordsScrollVel  or 0
+recordsScrollPrevT = recordsScrollPrevT or 0
+
 -- Saved live game state while a historical match is being viewed on the end screen, so we
 -- can restore it (and reopen the records match list) when the user closes that end screen.
 -- See openHistoricalMatchEndScreen / restoreLiveStateAfterHistoricalView, and the intercept
@@ -508,6 +514,9 @@ function drawRecordsOpponentsList(b)
     -- clamp scroll
     local totalH = #entries * rowH
     local maxScroll = math.max(0, totalH - b.listHeight)
+    if not recordsScrollTouchId then
+        recordsScrollY, recordsScrollVel = applyScrollInertia(recordsScrollY, recordsScrollVel, 0, maxScroll, DeltaTime)
+    end
     if recordsScrollY < 0 then recordsScrollY = 0 end
     if recordsScrollY > maxScroll then recordsScrollY = maxScroll end
 
@@ -626,6 +635,9 @@ function drawRecordsMatchesList(b)
 
     local totalH = #matches * rowH
     local maxScroll = math.max(0, totalH - b.listHeight)
+    if not recordsScrollTouchId then
+        recordsScrollY, recordsScrollVel = applyScrollInertia(recordsScrollY, recordsScrollVel, 0, maxScroll, DeltaTime)
+    end
     if recordsScrollY < 0 then recordsScrollY = 0 end
     if recordsScrollY > maxScroll then recordsScrollY = maxScroll end
 
@@ -781,6 +793,8 @@ function handleRecordsTouch(t)
            t.y >= g.listBottom and t.y <= g.listBottom + g.listHeight then
             recordsScrollTouchId = t.id
             recordsScrollPrevY = t.y
+            recordsScrollPrevT = ElapsedTime
+            recordsScrollVel = 0
             recordsTouchStartX = t.x
             recordsTouchStartY = t.y
             recordsTouchMoved = false
@@ -792,6 +806,10 @@ function handleRecordsTouch(t)
             local dy = t.y - recordsScrollPrevY
             recordsScrollPrevY = t.y
             recordsScrollY = recordsScrollY - dy
+            local now = ElapsedTime
+            local dt = now - (recordsScrollPrevT or now)
+            if dt > 0 then recordsScrollVel = -dy / dt end
+            recordsScrollPrevT = now
             if math.abs(t.y - (recordsTouchStartY or t.y)) > _RECORDS_TAP_SLOP or
                math.abs(t.x - (recordsTouchStartX or t.x)) > _RECORDS_TAP_SLOP then
                 recordsTouchMoved = true

@@ -1172,6 +1172,7 @@ function draw()
 
   updateSeasonTransition(DeltaTime)
   updateConfetti(DeltaTime)
+  updateQuickStart(DeltaTime)
 
   if pendingHandshakeResendReason then
     local reason = pendingHandshakeResendReason
@@ -1227,6 +1228,7 @@ function draw()
     drawMenu()
     drawRecordsOverlay()
     drawVsButtonBadge(menuHitRects and menuHitRects.vs)
+    drawQuickStart()
     drawVsOverlay()
     drawInfoOverlay()
     drawColorInspectorOverlay()
@@ -1323,6 +1325,12 @@ function touched(t)
   -- Generic alert overlay eats all touches, from any state
   if genericAlertActive then
     handleGenericAlertTouch(t)
+    return
+  end
+
+  -- Quick Start tap gets first dibs on the menu screen (same tier the old
+  -- floating badge used) — it's a fast path that bypasses the vs list entirely.
+  if state == STATE_MENU and handleQuickStartTouch(t) then
     return
   end
 

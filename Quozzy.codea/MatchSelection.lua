@@ -17,6 +17,9 @@ vsNewGameBusy      = vsNewGameBusy      or false
 vsScrollY        = vsScrollY        or 0
 vsScrollTouchId  = vsScrollTouchId  or nil
 vsScrollPrevY    = vsScrollPrevY    or 0
+vsScrollPrevT    = vsScrollPrevT    or 0
+vsScrollVel      = vsScrollVel      or 0
+vsScrollMax      = vsScrollMax      or 0   -- recomputed each draw; used by touch handler's clamp
 vsTouchMoved     = vsTouchMoved     or false
 vsTouchStartX    = vsTouchStartX    or 0
 vsTouchStartY    = vsTouchStartY    or 0
@@ -160,7 +163,7 @@ end
 function openVsOverlay()
   vsOverlay = true
   vsOverlayMode = "list"
-  vsScrollY = 0
+  vsScrollY, vsScrollVel = 0, 0
   refreshVsMatchesList("open")
 end
 
@@ -186,13 +189,13 @@ end
 function vsOpenFriendPicker()
   vsOverlayMode = "friends"
   vsFriendsLoadError = nil
-  vsScrollY = 0
+  vsScrollY, vsScrollVel = 0, 0
   vsLoadFriends()
 end
 
 function vsBackToList()
   vsOverlayMode = "list"
-  vsScrollY = 0
+  vsScrollY, vsScrollVel = 0, 0
 end
 
 function vsLoadFriends()
@@ -389,6 +392,15 @@ function _drawVsMatchesList(g)
   local gap = 10
   local newGameH = 60
 
+  local totalH = newGameH + gap + #vsListEntries * (rowH + gap)
+  local maxScroll = math.max(0, totalH - g.listHeight)
+  vsScrollMax = maxScroll
+  if not vsScrollTouchId then
+    vsScrollY, vsScrollVel = applyScrollInertia(vsScrollY, vsScrollVel, 0, maxScroll, DeltaTime)
+  end
+  if vsScrollY < 0 then vsScrollY = 0 end
+  if vsScrollY > maxScroll then vsScrollY = maxScroll end
+
   clip(g.innerLeft, g.listBottom, g.listWidth, g.listHeight)
   local cursorY = g.listTop + vsScrollY
 
@@ -495,10 +507,19 @@ function _drawVsFriendsList(g)
   local listBottom = g.listBottom
   local listHeight = listTop - listBottom
 
-  clip(g.innerLeft, listBottom, g.listWidth, listHeight)
-  local cursorY = listTop + vsScrollY
   local rowH = 72
   local gap = 10
+  local totalH = #vsFriendsEntries * (rowH + gap)
+  local maxScroll = math.max(0, totalH - listHeight)
+  vsScrollMax = maxScroll
+  if not vsScrollTouchId then
+    vsScrollY, vsScrollVel = applyScrollInertia(vsScrollY, vsScrollVel, 0, maxScroll, DeltaTime)
+  end
+  if vsScrollY < 0 then vsScrollY = 0 end
+  if vsScrollY > maxScroll then vsScrollY = maxScroll end
+
+  clip(g.innerLeft, listBottom, g.listWidth, listHeight)
+  local cursorY = listTop + vsScrollY
 
   if vsFriendsLoading and #vsFriendsEntries == 0 then
     fill(tileText.r, tileText.g, tileText.b, 160)
@@ -558,6 +579,7 @@ function handleVsOverlayTouch(t)
 
   if t.state == BEGAN then
     vsScrollTouchId, vsScrollPrevY = t.id, t.y
+    vsScrollPrevT, vsScrollVel = ElapsedTime, 0
     vsTouchStartX, vsTouchStartY, vsTouchMoved = t.x, t.y, false
     return true
   elseif t.state == MOVING then
@@ -565,6 +587,12 @@ function handleVsOverlayTouch(t)
       local dy = t.y - vsScrollPrevY
       vsScrollPrevY = t.y
       vsScrollY = vsScrollY + dy
+      if vsScrollY < 0 then vsScrollY = 0 end
+      if vsScrollY > vsScrollMax then vsScrollY = vsScrollMax end
+      local now = ElapsedTime
+      local dt = now - (vsScrollPrevT or now)
+      if dt > 0 then vsScrollVel = dy / dt end
+      vsScrollPrevT = now
       if math.abs(t.y - vsTouchStartY) > _VS_TAP_SLOP or math.abs(t.x - vsTouchStartX) > _VS_TAP_SLOP then
         vsTouchMoved = true
       end
