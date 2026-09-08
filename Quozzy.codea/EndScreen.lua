@@ -243,6 +243,7 @@ function calculateEndScreenDimensions()
   g, C, W, H = endScreenLayout, Color, WIDTH, HEIGHT
   
   panelW, panelH, panelX, panelY = W-30, H-80, W*0.5, H*0.5
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
   cornerRadius, innerPad, vGap, colGap = 18, 16, 2, 2
   
   innerLeft  = panelX - panelW*0.5 + innerPad

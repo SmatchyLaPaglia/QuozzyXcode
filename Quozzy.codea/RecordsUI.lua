@@ -159,7 +159,7 @@ local function _formatMatchDate(t)
     return string.format("%s %d, %d  %d:%02d %s", _MONTHS[d.month] or "?", d.day, d.year, h, d.min, ampm)
 end
 
-local function _truncateWithEllipsis(s, maxW)
+function _truncateWithEllipsis(s, maxW)
     if not s or s == "" then return "" end
     if textSize(s) <= maxW then return s end
     local ell = "…"
@@ -294,7 +294,7 @@ end
 -- thick round-capped lines whose caps OVERLAP at each corner; a translucent color blends
 -- twice there, darkening only the corners (the visible artifact). borderCol's alpha is
 -- therefore treated as a blend amount against the panel color and flattened to opaque here.
-local function _drawRowCard(cx, cy, w, h, r, borderCol, t)
+function _drawRowCard(cx, cy, w, h, r, borderCol, t)
     local pc = Color.panelBG or color(40, 40, 40, 255)
     local a  = (borderCol.a or 255) / 255
     local bc = color(pc.r + (borderCol.r - pc.r) * a,
@@ -341,6 +341,7 @@ function drawRecordsOverlay()
     local panelH = HEIGHT * 0.9
     local panelX = WIDTH / 2
     local panelY = HEIGHT / 2
+    panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
     pushStyle()
     rectMode(CENTER)

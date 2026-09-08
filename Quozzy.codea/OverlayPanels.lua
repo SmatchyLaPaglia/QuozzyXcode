@@ -193,6 +193,7 @@ function drawInfoOverlay()
   local panelH = HEIGHT - 110
   local panelX = WIDTH * 0.5
   local panelY = HEIGHT * 0.5
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   pushStyle()
   rectMode(CENTER)
@@ -345,6 +346,7 @@ function drawColorInspectorOverlay()
   local panelX, panelY = WIDTH * 0.5, HEIGHT * 0.5
   local panelW = WIDTH - 32
   local panelH = HEIGHT - 110
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
   local solid  = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
   rectMode(CENTER)
   noStroke()
@@ -469,6 +471,7 @@ function drawGCSignInOverlay()
   local _, bodyH = textSize(body)
 
   local panelH = margin + titleH + 18 + bodyH + margin
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   rectMode(CENTER); noStroke()
   local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
@@ -549,6 +552,7 @@ function drawGCMatchmakerErrorOverlay()
   end
   
   local panelH = margin + titleH + 18 + bodyH + 18 + footerH + margin
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   rectMode(CENTER)
   noStroke()

@@ -168,8 +168,6 @@ local BOARD_SIZE_KEY = "SelectedBoardSize"
 local MIN_WORD_LEN_KEY = "SelectedMinWordLen"
 local LAST_MATCH_REPLAY_KEY = "LastMatchReplayV1"
 local LAST_MATCH_REPLAY_AVATAR_KEY = "QB_LastMatchReplayAvatar"
-local LAST_VIEWED_FINISHED_MATCH_ID_KEY = "LastViewedFinishedMatchID"
-local AUTO_OPEN_FINISHED_MATCH_ENABLED = true
 local INSTALL_SIGNATURE_KEY = "LastInstalledBundleSignature"
 local INSTALL_EPOCH_KEY = "LastInstalledAtEpoch"
 local INSTALL_TEXT_KEY = "LastInstalledAtText"
@@ -185,8 +183,6 @@ lastMatchReplayAvatar = lastMatchReplayAvatar or nil
 replayMatchmakingBusy = replayMatchmakingBusy or false
 replayMatchmakingBusyMessage = replayMatchmakingBusyMessage or "matching..."
 appWasActiveLastFrame = appWasActiveLastFrame == nil and true or appWasActiveLastFrame
-finishedMatchAutoCheckInFlight = finishedMatchAutoCheckInFlight or false
-finishedMatchAutoCheckPendingReason = finishedMatchAutoCheckPendingReason or nil
 pendingRematchAfterEndScreenExit = pendingRematchAfterEndScreenExit or false
 awaitingHandshakeSend = awaitingHandshakeSend or false
 pendingHandshakeResendReason = pendingHandshakeResendReason or nil
@@ -330,18 +326,14 @@ function endReplayMatchmakingBusy()
   replayMatchmakingBusy = false
 end
 
+-- Fallback when a "Play Again" rematch attempt can't resolve the specific
+-- opponent (e.g. loadPlayersForIdentifiers or findMatchForRequest fails).
+-- There's no more generic automatch UI to fall back to (see CLAUDE.md task
+-- notes — matches are only ever started against a chosen Game Center
+-- friend); just surface the error and let the player retry from the vs list.
 local function _showGenericMatchmaker()
   endReplayMatchmakingBusy()
-  if not (tbm and tbm.showMatchmaker) then
-    openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
-    return
-  end
-  local ok, err = pcall(function()
-    tbm:showMatchmaker()
-  end)
-  if not ok then
-    openGCMatchmakerErrorOverlay(err)
-  end
+  openGCMatchmakerErrorOverlay("Couldn't start that rematch. Try again from the vs list.")
 end
 
 local function _tryRematchForLastReplay(settings)
@@ -476,11 +468,6 @@ function startLastMatchReplayFromMenu()
   _tryRematchForLastReplay(settings)
 end
 
-local function requestAutoOpenFinishedMatchCheck(reason)
-  if not AUTO_OPEN_FINISHED_MATCH_ENABLED then return end
-  finishedMatchAutoCheckPendingReason = reason or "unknown"
-end
-
 local function requestPendingHandshakeResendCheck(reason)
   pendingHandshakeResendReason = reason or "unknown"
 end
@@ -538,79 +525,6 @@ local function _safeArrayGet(arr, i)
   end)
   if ok then return v end
   return nil
-end
-
-local function maybeAutoOpenMostRecentFinishedMatch(reason)
-  if not AUTO_OPEN_FINISHED_MATCH_ENABLED then return end
-  if finishedMatchAutoCheckInFlight then return end
-  if replayMatchmakingBusy then return end
-  if state ~= STATE_MENU then return end
-  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then return end
-  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
-  if not GKTurnBasedMatch then return end
-  
-  finishedMatchAutoCheckInFlight = true
-  local lastViewedId = readLocalData(LAST_VIEWED_FINISHED_MATCH_ID_KEY)
-  
-  local ok = pcall(function()
-    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
-        local okInner, errInner = pcall(function()
-          finishedMatchAutoCheckInFlight = false
-          if o__err then
-            local errText = _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "unknown"
-            devLog("Auto-open finished match: load error", errText)
-            return
-          end
-          local matches = o__matches
-          local matchCount = _safeArrayCount(matches)
-          if matchCount <= 0 then return end
-          local bestMatch, bestData, bestTs = nil, nil, -1
-          for i = 1, matchCount do
-            local m = _safeArrayGet(matches, i)
-            local ended = (tbm and tbm._getEndStateFromMatch and tbm:_getEndStateFromMatch(m)) or nil
-            if ended then
-              local dataTable = tbm and tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
-              local ts = _extractMatchSortTime(m, dataTable)
-              if ts > bestTs then
-                bestTs = ts
-                bestMatch = m
-                bestData = dataTable
-              end
-            end
-          end
-          
-          if not bestMatch then return end
-          local bestId = _safeObjCString(bestMatch.matchID)
-          if not bestId then return end
-          local lastViewed = _safeObjCString(lastViewedId)
-          if lastViewed and lastViewed == bestId then
-            return
-          end
-          
-          devLog("Auto-opening finished match", "match=", bestId, "reason=", reason or "?")
-          if tbm and tbm._setCurrentMatch then
-            tbm:_setCurrentMatch(bestMatch, "auto-open-finished")
-          end
-          local q = makeQMatchFromGK and makeQMatchFromGK(bestMatch, bestData) or nil
-          if q and enterQMatch then
-            saveLocalData(LAST_VIEWED_FINISHED_MATCH_ID_KEY, bestId)
-            enterQMatch(q)
-          else
-            devLog("Auto-open finished match: failed to build qMatch", bestId)
-          end
-        end)
-        if not okInner then
-          finishedMatchAutoCheckInFlight = false
-          devLog("Auto-open finished match crashed safely", tostring(errInner))
-        end
-      end)
-    end)
-  end)
-  
-  if not ok then
-    finishedMatchAutoCheckInFlight = false
-  end
 end
 
 function retryPendingHandshakeSends(reason)
@@ -1043,10 +957,6 @@ function setup()
   testTextSaves()
   testImageSaves()
   --resetTestState()
-  if isRunningOnSimulator() then
-    AUTO_OPEN_FINISHED_MATCH_ENABLED = false
-    devLog("Auto-open finished match disabled on Simulator")
-  end
   loadGameplaySettings()
   trackInstallTimestampForXcodeLoad()
   
@@ -1091,7 +1001,7 @@ function setup()
     otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
     requestHomeScreenBadgePermission()
     refreshHomeScreenBadgeFromGCMatches("auth")
-    requestAutoOpenFinishedMatchCheck("auth")
+    refreshVsMatchesList("auth")
     requestPendingHandshakeResendCheck("auth")
   end)
 
@@ -1117,10 +1027,12 @@ function setup()
       print("makeQMatchFromGK failed")
     end
     refreshHomeScreenBadgeFromGCMatches("receivingTurn")
+    refreshVsMatchesList("receivingTurn")
   end)
 
   tbm:onTurnEnded(function(gkMatch, dataTable)
     refreshHomeScreenBadgeFromGCMatches("turnEnded")
+    refreshVsMatchesList("turnEnded")
     local mid = gkMatch and gkMatch.matchID
     if mid and pendingTurnSendsByMatchId[mid] then
       pendingTurnSendsByMatchId[mid] = nil
@@ -1253,20 +1165,13 @@ function draw()
   if not okAppState then appStateActive = true end
   
   if appStateActive and (not appWasActiveLastFrame) then
-    requestAutoOpenFinishedMatchCheck("foreground")
+    refreshVsMatchesList("foreground")
     requestPendingHandshakeResendCheck("foreground")
   end
   appWasActiveLastFrame = appStateActive
 
   updateSeasonTransition(DeltaTime)
   updateConfetti(DeltaTime)
-  updateMatchBadge(DeltaTime)
-
-  if finishedMatchAutoCheckPendingReason then
-    local reason = finishedMatchAutoCheckPendingReason
-    finishedMatchAutoCheckPendingReason = nil
-    maybeAutoOpenMostRecentFinishedMatch(reason)
-  end
 
   if pendingHandshakeResendReason then
     local reason = pendingHandshakeResendReason
@@ -1321,7 +1226,8 @@ function draw()
 
     drawMenu()
     drawRecordsOverlay()
-    drawMatchBadge()
+    drawVsButtonBadge(menuHitRects and menuHitRects.vs)
+    drawVsOverlay()
     drawInfoOverlay()
     drawColorInspectorOverlay()
     drawGCSignInOverlay()
@@ -1381,6 +1287,7 @@ function draw()
   safeDrawCall("drawRecordsOverlay", drawRecordsOverlay)
   safeDrawCall("drawConfetti", drawConfetti)
   safeDrawCall("drawGenericAlert", drawGenericAlert)
+
 end
 
 function handlePreviewTouch(t)
@@ -1419,11 +1326,10 @@ function touched(t)
     return
   end
 
-  -- match badge tap gets first dibs on menu screen
-  if state == STATE_MENU and handleMatchBadgeTouch(t) then
+  if vsOverlay and handleVsOverlayTouch(t) then
     return
   end
-  
+
   if showInfoOverlay and handleInfoOverlayTouch(t) then
     return
   end

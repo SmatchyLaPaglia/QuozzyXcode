@@ -92,24 +92,98 @@ Where opponentPlayerID comes from:
               (guard prevents open rematch from overwriting ended match's saved ID)
 ```
 
-## Versus Button Flow
+## Versus Button Flow (2026-09-07 rewrite — matchmaker removed)
 
 ```
+GKTurnBasedMatchmakerViewController is GONE — CTBM:showMatchmaker()/_makeMatchmakerDelegate()/
+  onMatchmakerCancelled/onMatchmakerError all deleted (CodeaTurnBasedMatches.lua). The vs button
+  now opens an app-drawn overlay (MatchSelection.lua) instead of any native GameKit UI.
+
 HaikuMenu.lua: handleMenuTouch() key=="vs"  (section 4 button)
   → tbm exists?  no → openGCMatchmakerErrorOverlay()
-  → authenticated? yes → tbm:showMatchmaker()
-                   no  → openGCSignInOverlay(function() tbm:showMatchmaker() end)
+  → authenticated? yes → openVsOverlay()
+                   no  → openGCSignInOverlay()
 
-tbm:showMatchmaker() (CodeaTurnBasedMatches.lua:~603)
-  → GKMatchRequest (minPlayers=maxPlayers=2)
-  → GKTurnBasedMatchmakerViewController:initWithMatchRequest_(req)
-  → sets vc.turnBasedMatchmakerDelegate = self._matchmakerDelegate
-  → presentModalViewController_animated_(vc, true)
+openVsOverlay() [MatchSelection.lua]: vsOverlay=true, vsOverlayMode="list",
+  refreshVsMatchesList("open"). drawVsOverlay()/handleVsOverlayTouch() wired into Main.lua's
+  draw()/touched() at the same tier as recordsOverlay (before state-specific routing).
 
-matchmakerDelegate callbacks (CodeaTurnBasedMatches.lua:~628)
-  cancelled  → dismissModalViewControllerAnimated_ → _onMatchmakerCancelled()
-  error      → dismissModalViewControllerAnimated_ → _onMatchmakerError()
-  didFindMatch → dismissModalViewControllerAnimated_ (authoritative delivery via GKLocalPlayerListener)
+refreshVsMatchesList(reason): GKTurnBasedMatch:loadMatchesWithCompletionHandler_ → for each
+  match, makeQMatchFromGK(m, decodedData) → classify:
+    ended = tbm:_getEndStateFromMatch(m) ~= nil
+    viewed = ended and vsMatchAlreadyViewed(q.id, oppId)   -- see below
+    SKIP entirely if ended AND viewed (belongs in Records now, not this inbox)
+    needsAction = (not ended and local hasn't played) or (ended and not viewed)
+  Sorted newest-first into vsListEntries. vsHasActionable = true if ANY entry needsAction —
+  this one flag drives the vs-button's red dot (Badges.lua drawVsButtonBadge, no number, just
+  a static dot at the button's corner — replaces the old hopping "MATCH READY" badge, see
+  "vs-button badge" section below).
+  Triggered from: menu tap (openVsOverlay), tbm:uponDetectingAuthentication ("auth"),
+  onReceivingTurn/onTurnEnded ("receivingTurn"/"turnEnded"), app foreground ("foreground").
+
+"Already viewed" (vsMatchAlreadyViewed, MatchSelection.lua): NO separate viewed-flag store.
+  A finished match counts as viewed exactly when its COMPLETE snapshot already exists in
+  matchHistoryByOpponent[oppId] (recordMatchSnapshot, opponentRecords.lua) — which only
+  happens when buildEndScreenModel() actually runs for it (EndScreenFP.lua), i.e. the user
+  opened its end screen. So "tap a finished game in the vs list" → vsOpenMatchEntry() →
+  enterQMatch() → end screen builds → capture hook fires → next refreshVsMatchesList() call
+  naturally excludes it (already ended+viewed) and it shows up under Records instead. This
+  IS the "disappears from list, added to Records only once viewed" behavior from the task
+  spec — no new plumbing needed beyond reusing the existing capture hook.
+
+Row tap → vsOpenMatchEntry(entry): tbm:_setCurrentMatch(entry.gkMatch) → makeQMatchFromGK →
+  enterQMatch() — same shared entry point every other flow uses (turn receipt, Play Again,
+  new game). "+ New Game" row → vsOpenFriendPicker() (mode="friends").
+
+Friend picker (mode="friends"): vsLoadFriends() calls
+  tbm.localPlayer:loadFriendPlayersWithCompletionHandler_ (GKLocalPlayer, iOS 14.5+; first
+  call triggers the system friend-list permission prompt — Info.plist
+  NSGKFriendListUsageDescription). Deliberately NO automatch — recipients list is always
+  exactly one chosen GKPlayer. Row tap → vsStartNewMatchWithFriend(friendEntry): builds a
+  GKMatchRequest with recipients={chosenPlayer}, GKTurnBasedMatch:findMatchForRequest_
+  withCompletionHandler_ (same proven pattern as _tryRematchForLastReplay/"Play Again",
+  Main.lua) → on success, same tbm:_setCurrentMatch → makeQMatchFromGK → enterQMatch chain.
+  "Manage Game Center Friends" button → vsOpenNativeGameCenterFriends(): presents
+  GKGameCenterViewController(viewState=.localPlayerFriendsList) — there is no API for a
+  third-party app to send a friend request programmatically, so this just deep-links to
+  Apple's own Game Center friends screen (closest available equivalent).
+
+Old auto-open-on-launch mechanic REMOVED (requestAutoOpenFinishedMatchCheck/
+  maybeAutoOpenMostRecentFinishedMatch/finishedMatchAutoCheckPendingReason/
+  LAST_VIEWED_FINISHED_MATCH_ID_KEY, all Main.lua) — the vs list is now the only way a
+  finished match's end screen gets opened; nothing auto-opens on launch anymore.
+
+NOT verified with real taps: this environment has no touch-injection tool, and synthetic
+  touched({state=BEGAN/ENDED,...}) calls invoked from inside a temporary draw()-tail QA hook
+  did not visibly reach handleMenuTouch during this session (no devLog output at all from
+  that hook, despite drawVsButtonBadge — reading the exact same menuHitRects.vs at the same
+  point in the same frame — visibly rendering correctly in a screenshot). Root cause not
+  isolated (possibly a Codea/Xcode-runtime Lua-source caching quirk across repeated
+  simctl install cycles without a version bump; possibly something else). What IS verified
+  live: refreshVsMatchesList against real Game Center data (confirmed via devLog against two
+  real accounts' actual match history, "count=9 actionable=true" etc.), and the vs-button red
+  badge rendering correctly in a screenshot. The overlay's own open/friend-picker/row-tap
+  interaction needs a real on-device tap-test pass.
+```
+
+## vs-button badge (Badges.lua, 2026-09-07 — replaces the old floating badge)
+
+```
+Old system (DELETED): matchBadge table + pickMatchBadgePosition/activateMatchBadge/
+  deactivateMatchBadge/updateMatchBadge/drawMatchBadge/handleMatchBadgeTouch — a red circle
+  with "MATCH READY / TAP HERE" text that hopped to a new random position every few seconds,
+  with its OWN independent GK polling loop (refreshPendingMatchesForBadge, 8s timer).
+
+New system: drawVsButtonBadge(rect) — a small static red dot (no number, no animation, no
+  independent polling) at the top-right corner of menuHitRects.vs, shown purely from
+  vsHasActionable (MatchSelection.lua's refreshVsMatchesList — see above). One flag, one
+  source of truth, no separate GK loading path to keep in sync with the vs list itself.
+  badgeSuppressed() (renamed from matchBadgeSuppressed, same purpose) still guards against
+  drawing under any other overlay, now including vsOverlay itself.
+  pendingTurnMatches / storePendingTurnMatch / removePendingMatchById / clearPendingMatches
+  kept as a legacy no-op-ish store — ONLY consumer left is the debug "Simulate Incoming Turn"
+  parameter action (qMatch_qPlayer.lua), repointed to nudge refreshVsMatchesList so that
+  debug hook still does something visible under the new system.
 ```
 
 ## Turn Receipt Flow
@@ -471,7 +545,10 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 | GC auth | CodeaTurnBasedMatches.lua | CTBM:_authenticate() |
 | unauthenticated gate | OverlayPanels.lua | openGCSignInOverlay(), drawGCSignInOverlay(), handleGCSignInOverlayTouch() |
 | post-auth setup | Main.lua ~854 | tbm:uponDetectingAuthentication callback |
-| matchmaker UI | CodeaTurnBasedMatches.lua | CTBM:showMatchmaker() |
+| vs button / matches inbox UI | MatchSelection.lua | openVsOverlay(), drawVsOverlay(), handleVsOverlayTouch(), refreshVsMatchesList() |
+| new game (friend picker) | MatchSelection.lua | vsOpenFriendPicker(), vsLoadFriends(), vsStartNewMatchWithFriend() |
+| native GC friends deep-link | MatchSelection.lua | vsOpenNativeGameCenterFriends() |
+| vs-button red badge | Badges.lua | drawVsButtonBadge() |
 | turn receipt | CodeaTurnBasedMatches.lua | _makeLocalPlayerListener() |
 | qMatch build | qMatch_qPlayer.lua | makeQMatchFromGK() |
 | enter match | GameCenter.lua | enterQMatch() |
@@ -623,6 +700,34 @@ showRowDividers (pink section boundary lines) default = false.
 - Helpers.lua:24 — expects CENTER coordinates: pointInRect(px, py, cx, cy, w, h)
 - checks: px in [cx-w/2, cx+w/2] and py in [cy-h/2, cy+h/2]
 - ALWAYS store hit rects as {cx, cy, w, h} — passing corner coords silently halves the hit area
+
+## clampPanelTopToSafeArea (Helpers.lua, 2026-09-07)
+
+```
+Every full-screen overlay panel (end screen, records, info, generic alert, GC sign-in/error,
+vs overlay) is CENTER-anchored (panelY, panelH). On notched/Dynamic-Island devices a
+tall-enough panel's top edge used to land inside layout.safeArea.top (getTopSafeY()).
+clampPanelTopToSafeArea(panelY, panelH, topPad=12) pushes the top edge down just enough to
+clear it, taking ALL the needed height from the BOTTOM: newPanelH = oldPanelH - overlap,
+newPanelY = oldPanelY - overlap/2 (equivalently: top moves down by `overlap`, bottom stays
+exactly where it was). No-op when the panel doesn't reach that far already (most phones in
+portrait with a small panel).
+  Because every one of these panels computes its top-anchored content (titles, avatar rows,
+  header bands) as fixed-pixel offsets FROM innerTop (= panelY+panelH/2-pad), and innerTop
+  moves down by exactly `overlap` under this formula while innerBottom is untouched, all that
+  top content shifts down by the same amount WITHOUT shrinking — the lost height shows up
+  entirely in whatever sits below (a scroll list gets shorter, or bottom padding shrinks).
+  The one exception is anything computed as a raw fraction of panelH directly (e.g. EndScreen
+  .lua's g.cardPadV = panelH/20) — those shrink by a proportionally tiny amount (a few px);
+  not visually "the top area" and accepted as within tolerance.
+Call sites (all add one line right after computing panelY/panelH, before deriving anything
+  else from them): EndScreen.lua calculateEndScreenDimensions(), OverlayPanels.lua
+  drawInfoOverlay()/drawColorInspectorOverlay()/drawGCSignInOverlay()/
+  drawGCMatchmakerErrorOverlay(), RecordsUI.lua drawRecordsOverlay(), HaikuMenu.lua
+  drawGenericAlert(), MatchSelection.lua _vsPanelGeom().
+Verified visually (About panel screenshot, iPhone 16e/Dynamic Island sim): panel top clears
+  the status bar/notch area; bottom button position unchanged.
+```
 
 ## Global Default Font (Main.lua, 2026-08-09)
 
