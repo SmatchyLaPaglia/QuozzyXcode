@@ -324,6 +324,7 @@ function drawGenericAlert()
 
   -- Fixed generous panel height (don't rely on textSize for layout)
   local panelH = margin + 120 + 24 + 44 + margin  -- 120px for text+avatar, 44 for buttons
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   local left       = panelX - panelW/2 + margin
   local printTop   = panelY + panelH/2 - margin      -- top of printable text area
@@ -1064,14 +1065,13 @@ function handleMenuTouch(t)
 
   elseif key == "vs" then
     devLog("DBG_MENU versus tapped: tbm=", tostring(tbm~=nil), "authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated))
-    if not (tbm and tbm.showMatchmaker) then
+    if not tbm then
       openGCMatchmakerErrorOverlay("Game Center is unavailable in this build or environment.")
       return
     end
 
     if tbm.localPlayer and tbm.localPlayer.authenticated == true then
-      local ok, err = pcall(function() tbm:showMatchmaker() end)
-      if not ok then openGCMatchmakerErrorOverlay(err) end
+      openVsOverlay()
     else
       openGCSignInOverlay()
     end

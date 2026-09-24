@@ -90,6 +90,8 @@ ABOUT_CONTENT = {
 
 infoScrollY       = infoScrollY       or 0
 infoScrollTouchId = infoScrollTouchId or nil
+infoScrollVel     = infoScrollVel     or 0
+infoScrollPrevT   = infoScrollPrevT   or 0
 infoScrollPrevY   = infoScrollPrevY   or 0
 infoOverlayGeom   = infoOverlayGeom   or nil
 aboutLinesCache   = aboutLinesCache   or nil  -- { wrapWidth = , lines = } — rebuilt only when panel width changes
@@ -98,6 +100,7 @@ function openInfoOverlay()
   showInfoOverlay   = true
   infoScrollY       = 0
   infoScrollTouchId = nil
+  infoScrollVel     = 0
 end
 
 function closeInfoOverlay()
@@ -193,6 +196,7 @@ function drawInfoOverlay()
   local panelH = HEIGHT - 110
   local panelX = WIDTH * 0.5
   local panelY = HEIGHT * 0.5
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   pushStyle()
   rectMode(CENTER)
@@ -238,6 +242,9 @@ function drawInfoOverlay()
     totalH = totalH + ln.gapBefore + math.floor(ln.size * 1.3)
   end
   local maxScroll = math.max(0, totalH - bodyHeight)
+  if not infoScrollTouchId then
+    infoScrollY, infoScrollVel = applyScrollInertia(infoScrollY, infoScrollVel, 0, maxScroll, DeltaTime)
+  end
   if infoScrollY < 0 then infoScrollY = 0 end
   if infoScrollY > maxScroll then infoScrollY = maxScroll end
 
@@ -291,6 +298,8 @@ function handleInfoOverlayTouch(t)
        t.y >= g.bodyBottom and t.y <= g.bodyBottom + g.bodyHeight then
       infoScrollTouchId = t.id
       infoScrollPrevY   = t.y
+      infoScrollPrevT   = ElapsedTime
+      infoScrollVel     = 0
       return true
     end
     return true
@@ -301,6 +310,10 @@ function handleInfoOverlayTouch(t)
       -- Drag up (finger moves toward larger y, dy > 0) reveals later content, matching
       -- cursorY's "+infoScrollY" above — so this ADDS dy, the mirror image of that formula.
       infoScrollY = infoScrollY + dy
+      local now = ElapsedTime
+      local dt = now - (infoScrollPrevT or now)
+      if dt > 0 then infoScrollVel = dy / dt end
+      infoScrollPrevT = now
     end
     return true
   elseif t.state == ENDED or t.state == CANCELLED then
@@ -345,6 +358,7 @@ function drawColorInspectorOverlay()
   local panelX, panelY = WIDTH * 0.5, HEIGHT * 0.5
   local panelW = WIDTH - 32
   local panelH = HEIGHT - 110
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
   local solid  = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
   rectMode(CENTER)
   noStroke()
@@ -469,6 +483,7 @@ function drawGCSignInOverlay()
   local _, bodyH = textSize(body)
 
   local panelH = margin + titleH + 18 + bodyH + margin
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   rectMode(CENTER); noStroke()
   local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
@@ -549,6 +564,7 @@ function drawGCMatchmakerErrorOverlay()
   end
   
   local panelH = margin + titleH + 18 + bodyH + 18 + footerH + margin
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
 
   rectMode(CENTER)
   noStroke()

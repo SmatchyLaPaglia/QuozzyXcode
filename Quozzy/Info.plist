@@ -27,7 +27,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This application needs to access your camera.</string>
 	<key>NSGKFriendListUsageDescription</key>
-	<string></string>
+	<string>Vivaldi-ku shows your Game Center friends so you can start a match against them.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This application needs to know your location while in use.</string>
 	<key>UILaunchStoryboardName</key>

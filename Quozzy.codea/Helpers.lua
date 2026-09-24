@@ -26,6 +26,29 @@ function pointInRect(px, py, x, y, w, h)
            py >= y - h/2 and py <= y + h/2
 end
 
+-- Every full-screen overlay panel in this app is CENTER-anchored (panelY, panelH).
+-- On notched/Dynamic-Island devices a tall-enough panel's top edge lands inside
+-- layout.safeArea.top. This pushes the top edge down just enough to clear it,
+-- taking the needed height entirely from the BOTTOM (the bottom edge is left
+-- exactly where it was) so top-anchored content (titles, avatar rows, etc. —
+-- all positioned as fixed offsets from panelTop) never gets compressed; only
+-- the panel's total height shrinks, and the room lost comes out of whatever
+-- sits lower (a scroll list, bottom padding, the bottom button). No-op when the
+-- panel doesn't reach that far up already. topPad is extra breathing room below
+-- the safe-area line (default 12px).
+function clampPanelTopToSafeArea(panelY, panelH, topPad)
+    topPad = topPad or 12
+    local safeTop = getTopSafeY() - topPad   -- getTopSafeY() = HEIGHT - layout.safeArea.top
+    local oldTop  = panelY + panelH * 0.5
+    if oldTop <= safeTop then
+        return panelY, panelH
+    end
+    local overlap   = oldTop - safeTop
+    local newPanelH = panelH - overlap
+    local newPanelY = panelY - overlap * 0.5
+    return newPanelY, newPanelH
+end
+
 -- Linear-interpolate two Codea colors: t=0 -> a, t=1 -> b. Used to derive
 -- muted balloon color schemes from existing seasonal Color entries instead
 -- of hardcoding a parallel palette.

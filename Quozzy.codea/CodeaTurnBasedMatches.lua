@@ -40,12 +40,6 @@ function CTBM:init()
   self._onTurnEnded = function(match, dataTable)
     self:log("CTBM: _onTurnEnded undefined")
   end
-  self._onMatchmakerCancelled = function()
-    self:log("CTBM: _onMatchmakerCancelled undefined")
-  end
-  self._onMatchmakerError = function(err) 
-    self:log("CTBM: _is onMatchmakerError undefined")
-  end
   self._onLocalPlayerWon = function(match, payload)
     self:log("CTBM: _onLocalPlayerWon undefined")
   end 
@@ -185,12 +179,6 @@ function CTBM:onSettingCurrentMatch(fn)
 end
 function CTBM:onTurnEnded(fn)
   self._onTurnEnded = fn
-end
-function CTBM:onMatchmakerCancelled(fn)
-  self._onMatchmakerCancelled = fn
-end
-function CTBM:onMatchmakerError(fn)
-  self._onMatchmakerError = fn
 end
 function CTBM:onLocalPlayerWon(fn)      self._onLocalPlayerWon = fn end
 function CTBM:onLocalPlayerLost(fn)     self._onLocalPlayerLost = fn end
@@ -598,79 +586,6 @@ function CTBM:_makeLocalPlayerListener()
   end
   
   return PlayerListener()
-end
-
-function CTBM:showMatchmaker()
-  self:log("CTBM: showMatchmaker requested")
-  self:_major("showMatchmaker requested")
-  -- Remember the locally selected rules in case a newly-created match comes
-  -- back before any matchData exists yet.
-  self.pendingRequestedBoardSize = boardSize
-  self.pendingRequestedMinWordLen = MIN_WORD_LEN
-  
-  local request = objc.GKMatchRequest()
-  request.minPlayers = 2
-  request.maxPlayers = 2
-  
-  local vc = objc.GKTurnBasedMatchmakerViewController
-  :alloc()
-  :initWithMatchRequest_(request)
-  
-  self._matchmakerDelegate =
-  self._matchmakerDelegate or self:_makeMatchmakerDelegate()
-  
-  vc.turnBasedMatchmakerDelegate = self._matchmakerDelegate
-  
-  self:_major("presenting matchmaker UI")
-  self.viewController:presentModalViewController_animated_(vc, true)
-end
-
-function CTBM:_makeMatchmakerDelegate()
-  local Delegate = objc.class("CTBMMatchmakerDelegate")
-  local thisCTBM = self
-  
-  function Delegate:turnBasedMatchmakerViewControllerWasCancelled_(o__vc)
-    thisCTBM:_logMatchmakingEvent("MM_DELEGATE_CANCELLED", nil)
-    
-    thisCTBM.viewController:dismissModalViewControllerAnimated_(true, nil)
-    
-    if thisCTBM._onMatchmakerCancelled then
-      thisCTBM._onMatchmakerCancelled()
-    end
-  end
-  
-      function Delegate:turnBasedMatchmakerViewController_didFailWithError_(o__vc, o__err)
-    thisCTBM:log(
-    "CTBM: matchmaker error:",
-        o__err and o__err.localizedDescription
-    )
-    
-    thisCTBM.viewController:dismissModalViewControllerAnimated_(true, nil)
-    
-    if thisCTBM._onMatchmakerError then
-          thisCTBM._onMatchmakerError(o__err)
-    end
-  end
-  
-  function Delegate:turnBasedMatchmakerViewController_didFindMatch_(o__vc, o__match)
-    thisCTBM:_logMatchmakingEvent(
-    "MM_DELEGATE_DID_FIND_MATCH",
-        o__match,
-    "(UI only)")
-    
-    
-    thisCTBM.viewController:dismissModalViewControllerAnimated_(true, nil)
-    thisCTBM:_logDismissedMatchState(o__match, "didFindMatch")
-    
-    -- NOTE: match may be nil here; authoritative delivery is via GKLocalPlayerListener
-        if o__match then
-          thisCTBM:_logMatchmakingEvent("MM_DELEGATE_MATCH_NONNIL", o__match, "(ignoring; waiting for player listener)")
-    else
-      thisCTBM:_logMatchmakingEvent("MM_DELEGATE_MATCH_NIL", nil, "(expected sometimes; waiting for player listener)")
-    end
-  end
-  
-  return Delegate()
 end
 
 function CTBM:_makeDeprecatedTurnBasedHandler()

@@ -92,24 +92,128 @@ Where opponentPlayerID comes from:
               (guard prevents open rematch from overwriting ended match's saved ID)
 ```
 
-## Versus Button Flow
+## Versus Button Flow (2026-09-07 rewrite — matchmaker removed)
 
 ```
+GKTurnBasedMatchmakerViewController is GONE — CTBM:showMatchmaker()/_makeMatchmakerDelegate()/
+  onMatchmakerCancelled/onMatchmakerError all deleted (CodeaTurnBasedMatches.lua). The vs button
+  now opens an app-drawn overlay (MatchSelection.lua) instead of any native GameKit UI.
+
 HaikuMenu.lua: handleMenuTouch() key=="vs"  (section 4 button)
   → tbm exists?  no → openGCMatchmakerErrorOverlay()
-  → authenticated? yes → tbm:showMatchmaker()
-                   no  → openGCSignInOverlay(function() tbm:showMatchmaker() end)
+  → authenticated? yes → openVsOverlay()
+                   no  → openGCSignInOverlay()
 
-tbm:showMatchmaker() (CodeaTurnBasedMatches.lua:~603)
-  → GKMatchRequest (minPlayers=maxPlayers=2)
-  → GKTurnBasedMatchmakerViewController:initWithMatchRequest_(req)
-  → sets vc.turnBasedMatchmakerDelegate = self._matchmakerDelegate
-  → presentModalViewController_animated_(vc, true)
+openVsOverlay() [MatchSelection.lua]: vsOverlay=true, vsOverlayMode="list",
+  refreshVsMatchesList("open"). drawVsOverlay()/handleVsOverlayTouch() wired into Main.lua's
+  draw()/touched() at the same tier as recordsOverlay (before state-specific routing).
 
-matchmakerDelegate callbacks (CodeaTurnBasedMatches.lua:~628)
-  cancelled  → dismissModalViewControllerAnimated_ → _onMatchmakerCancelled()
-  error      → dismissModalViewControllerAnimated_ → _onMatchmakerError()
-  didFindMatch → dismissModalViewControllerAnimated_ (authoritative delivery via GKLocalPlayerListener)
+refreshVsMatchesList(reason): GKTurnBasedMatch:loadMatchesWithCompletionHandler_ → for each
+  match, makeQMatchFromGK(m, decodedData) → classify:
+    ended = tbm:_getEndStateFromMatch(m) ~= nil
+    viewed = ended and vsMatchAlreadyViewed(q.id, oppId)   -- see below
+    SKIP entirely if ended AND viewed (belongs in Records now, not this inbox)
+    needsAction = (not ended and local hasn't played) or (ended and not viewed)
+  Sorted newest-first into vsListEntries. vsHasActionable = true if ANY entry needsAction —
+  this one flag drives the vs-button's red dot (Badges.lua drawVsButtonBadge, no number, just
+  a static dot at the button's corner — replaces the old hopping "MATCH READY" badge, see
+  "vs-button badge" section below).
+  Triggered from: menu tap (openVsOverlay), tbm:uponDetectingAuthentication ("auth"),
+  onReceivingTurn/onTurnEnded ("receivingTurn"/"turnEnded"), app foreground ("foreground").
+
+"Already viewed" (vsMatchAlreadyViewed, MatchSelection.lua): NO separate viewed-flag store.
+  A finished match counts as viewed exactly when its COMPLETE snapshot already exists in
+  matchHistoryByOpponent[oppId] (recordMatchSnapshot, opponentRecords.lua) — which only
+  happens when buildEndScreenModel() actually runs for it (EndScreenFP.lua), i.e. the user
+  opened its end screen. So "tap a finished game in the vs list" → vsOpenMatchEntry() →
+  enterQMatch() → end screen builds → capture hook fires → next refreshVsMatchesList() call
+  naturally excludes it (already ended+viewed) and it shows up under Records instead. This
+  IS the "disappears from list, added to Records only once viewed" behavior from the task
+  spec — no new plumbing needed beyond reusing the existing capture hook.
+
+Row tap → vsOpenMatchEntry(entry): tbm:_setCurrentMatch(entry.gkMatch) → makeQMatchFromGK →
+  enterQMatch() — same shared entry point every other flow uses (turn receipt, Play Again,
+  new game). "+ New Game" row → vsOpenFriendPicker() (mode="friends").
+
+Friend picker (mode="friends"): vsLoadFriends() calls
+  tbm.localPlayer:loadFriendPlayersWithCompletionHandler_ (GKLocalPlayer, iOS 14.5+; first
+  call triggers the system friend-list permission prompt — Info.plist
+  NSGKFriendListUsageDescription). Deliberately NO automatch — recipients list is always
+  exactly one chosen GKPlayer. Row tap → vsStartNewMatchWithFriend(friendEntry): builds a
+  GKMatchRequest with recipients={chosenPlayer}, GKTurnBasedMatch:findMatchForRequest_
+  withCompletionHandler_ (same proven pattern as _tryRematchForLastReplay/"Play Again",
+  Main.lua) → on success, same tbm:_setCurrentMatch → makeQMatchFromGK → enterQMatch chain.
+  "Manage Game Center Friends" button → vsOpenNativeGameCenterFriends(): presents
+  GKGameCenterViewController(viewState=.localPlayerFriendsList) — there is no API for a
+  third-party app to send a friend request programmatically, so this just deep-links to
+  Apple's own Game Center friends screen (closest available equivalent).
+
+Old auto-open-on-launch mechanic REMOVED (requestAutoOpenFinishedMatchCheck/
+  maybeAutoOpenMostRecentFinishedMatch/finishedMatchAutoCheckPendingReason/
+  LAST_VIEWED_FINISHED_MATCH_ID_KEY, all Main.lua) — the vs list is now the only way a
+  finished match's end screen gets opened; nothing auto-opens on launch anymore.
+
+NOT verified with real taps: this environment has no touch-injection tool, and synthetic
+  touched({state=BEGAN/ENDED,...}) calls invoked from inside a temporary draw()-tail QA hook
+  did not visibly reach handleMenuTouch during this session (no devLog output at all from
+  that hook, despite drawVsButtonBadge — reading the exact same menuHitRects.vs at the same
+  point in the same frame — visibly rendering correctly in a screenshot). Root cause not
+  isolated (possibly a Codea/Xcode-runtime Lua-source caching quirk across repeated
+  simctl install cycles without a version bump; possibly something else). What IS verified
+  live: refreshVsMatchesList against real Game Center data (confirmed via devLog against two
+  real accounts' actual match history, "count=9 actionable=true" etc.), and the vs-button red
+  badge rendering correctly in a screenshot. The overlay's own open/friend-picker/row-tap
+  interaction needs a real on-device tap-test pass.
+```
+
+## vs-button badge (Badges.lua, 2026-09-07 — replaces the old floating badge)
+
+```
+Old system (DELETED): matchBadge table + pickMatchBadgePosition/activateMatchBadge/
+  deactivateMatchBadge/updateMatchBadge/drawMatchBadge/handleMatchBadgeTouch — a red circle
+  with "MATCH READY / TAP HERE" text that hopped to a new random position every few seconds,
+  with its OWN independent GK polling loop (refreshPendingMatchesForBadge, 8s timer).
+
+New system: drawVsButtonBadge(rect) — a small static red dot (no number, no animation, no
+  independent polling) at the top-right corner of menuHitRects.vs, shown purely from
+  vsHasActionable (MatchSelection.lua's refreshVsMatchesList — see above). One flag, one
+  source of truth, no separate GK loading path to keep in sync with the vs list itself.
+  badgeSuppressed() (renamed from matchBadgeSuppressed, same purpose) still guards against
+  drawing under any other overlay, now including vsOverlay itself.
+  pendingTurnMatches / storePendingTurnMatch / removePendingMatchById / clearPendingMatches
+  kept as a legacy no-op-ish store — ONLY consumer left is the debug "Simulate Incoming Turn"
+  parameter action (qMatch_qPlayer.lua), repointed to nudge refreshVsMatchesList so that
+  debug hook still does something visible under the new system.
+```
+
+## Quick Start (Badges.lua, 2026-09-08 — the action half of the old floating badge)
+
+```
+The original hopping "MATCH READY / TAP HERE" badge was actually two things fused together:
+a passive signal (something needs you) and a fast-path action (tap to jump straight into it
+without opening any list). The 2026-09-07 rewrite above kept only the signal half (the static
+vs-button dot). This restores the action half as its own component, same hop/ripple mechanic
+as before, clearer label ("QUICK START\nNEXT MATCH"), retargeted to the new data source.
+
+quickStart table / _pickQuickStartPosition / _activateQuickStart / _deactivateQuickStart:
+  same hop-to-a-new-random-spot-every-few-seconds + ripple-ring visual as the old matchBadge,
+  same avoid-rect (menu button block) and min-hop-distance logic, copied over unchanged.
+updateQuickStart(dt) [Main.lua draw(), same tier as updateConfetti]: STATE_MENU only;
+  refreshes vsListEntries on menu-entry and every quickStartPollInterval=8s while sitting on
+  the menu (belt-and-suspenders freshness on top of the auth/turn/foreground triggers already
+  in MatchSelection.lua); activates/deactivates purely off vsHasActionable.
+vsQuickStartBestEntry(): newest entry in vsListEntries with needsAction==true (same list,
+  same sort, just picks the first instead of showing them all).
+handleQuickStartTouch(t) [Main.lua touched(), first dibs on STATE_MENU — same tier the old
+  handleMatchBadgeTouch had]: circular hit-test against quickStart.x/y/radius; tap →
+  vsOpenMatchEntry(vsQuickStartBestEntry()) — the SAME function the vs list's own row-tap
+  uses, so quick-start and "tap the row yourself" are one code path, not two.
+Verified visually (screenshot, live Game Center data): renders correctly, ripple animation
+  intact, label reads "QUICK START / NEXT MATCH", coexists with the vs-button dot badge.
+  Not re-tuned: the avoid-rect (avoidOrigin/avoidW/avoidH) is copied verbatim from the old
+  matchBadge and was tuned for the pre-vs-overhaul button layout — in one observed hop it
+  landed close enough to the "re" button to visually overlap it. Same characteristic the old
+  badge had; if it's worth tightening, the avoid rect is the first place to look.
 ```
 
 ## Turn Receipt Flow
@@ -157,6 +261,9 @@ enterQMatch(q) [GameCenter.lua ~238]:
   4. At the very end: startRoundFromCurrentSettings() (unchanged) then, if
      needsInitialHandshake, beginInitialHandshakeSend(currentQMatch).
 
+SUPERSEDED (2026-09-24 merge): attemptHandshakeSend no longer exists. The handshake is now
+  just one "leg" of the generalized relay — see "Turn-send relay" below. Original notes kept
+  for history:
 beginInitialHandshakeSend(q) / attemptHandshakeSend(matchId) [GameCenter.lua]:
   sets awaitingHandshakeSend=true, builds turnData (boardSize/minWordLen/boardTiles/players
   — same shape as submitFinalCommentFromEndScreen's, no score/didPlay), stores it in
@@ -192,6 +299,99 @@ Reconciliation (verified unchanged, no code needed): submitFinalCommentFromEndSc
   finalizeCompletedTurnBasedMatch already branch purely on info.opponentPlayed +
   tbm.isMyTurn, never on chronological play order — works correctly regardless of which
   player plays first under the new model.
+```
+
+## Turn-send relay — all outgoing turns (GameCenter.lua + qMatch_qPlayer.lua, merged 2026-09-24)
+
+```
+One path for every outgoing turn. Replaces the separate handshake send + inline comment/
+finalize sends.
+computeNextOwedLeg(q, myId, now) [qMatch_qPlayer.lua]: pure. Returns "handshake"
+  (q.needsInitialHandshake) | "result" | "finalize" | nil — what I owe this match right now.
+attemptLegSend(q) [GameCenter.lua]: the ONLY entry point; safe to call speculatively (enterQMatch
+  calls it every time). Freezes the payload into pendingTurnSendsByMatchId[id] =
+  {leg, turnData, attempts} so retries resend identical bytes; a new leg replaces an older
+  pending entry. handshake + result legs both attach recordSync (result=nil).
+  beginInitialHandshakeSend(q) = set needsInitialHandshake + attemptLegSend.
+attemptPendingLegSend(matchId): the actual send + retry (HANDSHAKE_MAX_ATTEMPTS).
+onLegSendSucceeded(matchId): called from tbm:onTurnEnded (Main.lua). Clears the pending entry
+  for ANY leg, clears needsInitialHandshake/awaitingHandshakeSend (handshake) or sets
+  me.resultSent (result/finalize).
+Comment timeout: finishedAwaitingDecisionByMatchId (persisted, load/persistFinishedAwaitingDecision)
+  + checkFinishedMatchesForCommentTimeout(now) / applyCommentTimeoutIfExpired — swept by
+  retryPendingHandshakeSends (Main.lua) on auth/foreground/setup, which then sends via
+  attemptPendingLegSend or attemptLegSend.
+decideComment(text): locks in a comment decision, then attemptLegSend.
+Tests: lua tests/run_tests.lua (loads the real qMatch_qPlayer/GameCenter/opponentRecords
+  source into a stub env). Manual two-device plan: MULTIPLAYER_TEST_PLAN.md.
+```
+
+## Match-story badges — "game ended" / "opponent commented" (merged 2026-09-24)
+
+```
+endedMatchBadgeIds / commentMatchBadgeIds (globals, declared in MatchSelection.lua): sets keyed
+  by match id. Populated by refreshVsMatchesList from the SAME GameKit load that builds the vs
+  list — no second poll. Built from EVERY decoded match, not just vsListEntries (an
+  already-viewed finished match can still get a new comment). Logic is pure, in
+  opponentRecords.lua: computeMatchBadges(liveMatches) → matchNeedsEndedBadge(bothPlayed,
+  entry) / matchNeedsCommentBadge(oppComment, entry) (compares comment TEXT against
+  matchHistoryByOpponent). Cleared per match when its snapshot is recorded. Drawn as dots in
+  RecordsUI.lua (_drawMatchStoryBadgeDots, _opponentHasMatchStoryBadge).
+```
+
+## Simultaneous Play — creator lockout bug fix (2026-09-07)
+
+```
+SYMPTOM: the match creator (P1, holds isMyTurn==true at match creation, so
+  needsInitialHandshake fires) could generate their board fine but then appeared unable
+  to actually start playing — stuck on the "Sending board to <opponent>..." READY-screen
+  message. The receiver (P2, gets a real board via the handshake, needsInitialHandshake
+  computes false for them) never hit this — matches the "works for receiving player, not
+  sending player" report.
+
+ROOT CAUSE: Main.lua touched(), STATE_READY branch had
+  `if awaitingHandshakeSend then return end` BEFORE the tap-to-start / quit checks —
+  blocking ALL touches (not just a resend-in-flight indicator) until the outbound
+  handshake turn-end confirmed success with GameKit. But the board is already generated
+  locally by startRoundFromCurrentSettings() *before* beginInitialHandshakeSend() even
+  fires (enterQMatch, GameCenter.lua) — nothing about playing your own round depends on
+  the opponent having received it yet. The gate's original intent (per its own comment)
+  was narrower: stop the quit button from firing endGameRound() with score 0 while a send
+  was in flight — but quit-with-0 mid-send is actually the CORRECT quit semantics (see
+  CLAUDE.md task note: quit ends the match as if time ran out), not a bug to guard
+  against. The blanket `return` swept up the legitimate tap-to-start gesture too, which
+  defeated the entire point of the handshake feature for whoever created the match.
+
+FIX: removed the gate. STATE_READY now always allows quit and tap-to-start immediately;
+  attemptHandshakeSend's existing retry loop (HANDSHAKE_MAX_ATTEMPTS=3, background retry
+  via retryPendingHandshakeSends) keeps sending the board independently of what state the
+  local player has moved on to. awaitingHandshakeSend / the "Sending board to..." message
+  are now purely cosmetic — never gate input — and drawReadyMessage() is simply not shown
+  once the player leaves STATE_READY, so there's nothing left to display once they've
+  moved on.
+
+NEW EDGE CASE covered: a fast player could now finish their entire round (and try to pass
+  their turn / finalize via submitFinalCommentFromEndScreen or
+  finalizeCompletedTurnBasedMatch, GameCenter.lua) before the handshake's own
+  endTurnWithDataTable call has completed — two outbound endTurn calls for the same match
+  racing. SUPERSEDED at merge into main (2026-09-24): the laptop-work helper
+  clearPendingHandshakeForMatch was dropped. On main, every send goes through
+  attemptLegSend -> pendingTurnSendsByMatchId[matchId] = {leg=...}, so a newer leg
+  replaces the queued handshake entry, and onLegSendSucceeded clears it on any
+  successful send. No stale background retry of the handshake payload can fire.
+  Still does NOT cancel an already-in-flight network call (not possible via this API) — that
+  remaining sliver (handshake send and real-result send both already dispatched to
+  GameKit concurrently) is unverified live; flagged in HANDOFF.md for an on-device check
+  with two real accounts.
+
+NOT verified with real two-device taps (this environment has no touch-injection tool —
+  same limitation noted throughout this doc's mockup sections). Verified via static trace
+  of every call site of awaitingHandshakeSend, isMyTurn, and tbm.currentMatch. Needs a
+  live pass: create a match from one account, confirm the creator can tap-to-start the
+  instant the READY screen appears (before the "Sending board to..." message would have
+  even had time to resolve), and separately confirm the handshake still actually reaches
+  the opponent (their board should stop showing "?" / stop being invalid) even though nothing
+  blocks the creator's own screen anymore.
 ```
 
 ## State Machine
@@ -417,7 +617,10 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 | GC auth | CodeaTurnBasedMatches.lua | CTBM:_authenticate() |
 | unauthenticated gate | OverlayPanels.lua | openGCSignInOverlay(), drawGCSignInOverlay(), handleGCSignInOverlayTouch() |
 | post-auth setup | Main.lua ~854 | tbm:uponDetectingAuthentication callback |
-| matchmaker UI | CodeaTurnBasedMatches.lua | CTBM:showMatchmaker() |
+| vs button / matches inbox UI | MatchSelection.lua | openVsOverlay(), drawVsOverlay(), handleVsOverlayTouch(), refreshVsMatchesList() |
+| new game (friend picker) | MatchSelection.lua | vsOpenFriendPicker(), vsLoadFriends(), vsStartNewMatchWithFriend() |
+| native GC friends deep-link | MatchSelection.lua | vsOpenNativeGameCenterFriends() |
+| vs-button red badge | Badges.lua | drawVsButtonBadge() |
 | turn receipt | CodeaTurnBasedMatches.lua | _makeLocalPlayerListener() |
 | qMatch build | qMatch_qPlayer.lua | makeQMatchFromGK() |
 | enter match | GameCenter.lua | enterQMatch() |
@@ -425,7 +628,11 @@ Initiator missing-field bug root: firstNonLocalParticipant() returns nil when
 | comment gate | GameCenter.lua | currentFinalCommentPhase() |
 | comment submit | GameCenter.lua | submitFinalCommentFromEndScreen() |
 | finalize match | GameCenter.lua | finalizeCompletedTurnBasedMatch() |
-| initial handshake send | GameCenter.lua | beginInitialHandshakeSend(), attemptHandshakeSend() |
+| outgoing turn relay (all legs) | GameCenter.lua | attemptLegSend(), attemptPendingLegSend(), onLegSendSucceeded() |
+| which leg is owed | qMatch_qPlayer.lua | computeNextOwedLeg() |
+| comment timeout | qMatch_qPlayer.lua | checkFinishedMatchesForCommentTimeout(), applyCommentTimeoutIfExpired() |
+| match-story badges | MatchSelection.lua + opponentRecords.lua | refreshVsMatchesList() → computeMatchBadges() |
+| initial handshake send | GameCenter.lua | beginInitialHandshakeSend() → attemptLegSend() |
 | handshake wait UI | Board.lua | drawReadyMessage() awaitingHandshakeSend branch |
 | handshake background retry | Main.lua | retryPendingHandshakeSends(), requestPendingHandshakeResendCheck() |
 | comment field ObjC | EndScreenFP.lua | ensureEndScreenNativeCommentField(), teardownEndScreenCommentField() |
@@ -569,6 +776,81 @@ showRowDividers (pink section boundary lines) default = false.
 - Helpers.lua:24 — expects CENTER coordinates: pointInRect(px, py, cx, cy, w, h)
 - checks: px in [cx-w/2, cx+w/2] and py in [cy-h/2, cy+h/2]
 - ALWAYS store hit rects as {cx, cy, w, h} — passing corner coords silently halves the hit area
+
+## Momentum scrolling on hand-rolled lists (2026-09-08)
+
+```
+applyScrollInertia(scrollY, vel, minY, maxY, dt) -> scrollY, vel (Helpers.lua) already existed
+  and was already used by ScrollList.lua (exponential-decay deceleration, ~0.5-0.7s fling).
+  It just wasn't wired into any of the OTHER, hand-rolled (non-ScrollList) drag-to-scroll
+  views — those only ever did 1:1 finger tracking with no momentum after release. Added to
+  all of them: RecordsUI.lua (recordsScrollY, shared by both the opponents grid and the
+  matches detail list), OverlayPanels.lua drawInfoOverlay (infoScrollY), MatchSelection.lua's
+  vs overlay (vsScrollY, shared by both list and friends modes — also gained proper
+  maxScroll/clamping, which the vs overlay didn't have at all before this).
+  Pattern at each site (do NOT copy blind — each file has its own sign convention for how a
+  drag updates scrollY, see below): track velocity during MOVING as dy/dt (ElapsedTime-based,
+  matching ScrollList's own approach) using the SAME sign as that file's existing
+  `scrollY = scrollY +/- dy` line; reset vel to 0 on a fresh BEGAN; each draw call, when the
+  touch id is nil (not actively dragging), call applyScrollInertia before the existing
+  clamp-to-[0,maxScroll] lines (kept as a redundant safety net).
+  Sign conventions found: OverlayPanels/MatchSelection both do `scrollY = scrollY + dy`
+  (vel = +dy/dt); RecordsUI does `scrollY = scrollY - dy` (vel = -dy/dt). Get this backwards
+  and a fling will decelerate in the wrong direction (feels like it fights your swipe).
+  NOT done: EndScreenFP.lua's balloon color picker (colorPickerScrollY, Main.lua touched()) —
+  dormant debug-only UI (SHOW_DEBUG_BUTTON=false in production, unreachable), low value.
+```
+
+## Opponent record sync now covers every outgoing turn (2026-09-08)
+
+```
+buildRecordSyncForOpponent(oppId, alias, senderId, result) / mergeOpponentRecordFromTurnData
+  (opponentRecords.lua) were already fully implemented — every outgoing turn is supposed to
+  carry the sender's current W/L totals against this opponent (projected to include the
+  outcome when one's known), and the receiver adopts the remote copy when it represents MORE
+  total games than the receiver's own local count (or same count but newer + actually
+  different) — a max()-style merge standing in for a real server. This already worked for
+  buildFinalTurnDataAndOutcome (match finalize) and submitFinalCommentFromEndScreen's
+  first-to-play branch (comment pass) — but NOT for beginInitialHandshakeSend (GameCenter.lua),
+  the very first turn ever sent for a match under the 2026-09-02 simultaneous-play handshake.
+  Since a match can end (e.g. someone quits) before ever reaching either of the other two send
+  points, that gap meant some matches would never sync at all. Fixed: handshake's turnData now
+  also builds recordSync (result=nil — just current totals, no outcome yet, same as the
+  comment-pass branch's usage). All three of this codebase's outgoing-turnData construction
+  sites now attach it (confirmed by grepping every `local turnData = {` in GameCenter.lua).
+  2026-09-24 merge: the handshake is now built inside attemptLegSend (see "Turn-send relay"),
+  so the fix lives there — attachRecordSync() on both the "handshake" and "result" legs.
+  Prefers q.opponentId/q.otherId because the opponent may not have a players slot yet.
+  Covered by tests/run_tests.lua.
+```
+
+## clampPanelTopToSafeArea (Helpers.lua, 2026-09-07)
+
+```
+Every full-screen overlay panel (end screen, records, info, generic alert, GC sign-in/error,
+vs overlay) is CENTER-anchored (panelY, panelH). On notched/Dynamic-Island devices a
+tall-enough panel's top edge used to land inside layout.safeArea.top (getTopSafeY()).
+clampPanelTopToSafeArea(panelY, panelH, topPad=12) pushes the top edge down just enough to
+clear it, taking ALL the needed height from the BOTTOM: newPanelH = oldPanelH - overlap,
+newPanelY = oldPanelY - overlap/2 (equivalently: top moves down by `overlap`, bottom stays
+exactly where it was). No-op when the panel doesn't reach that far already (most phones in
+portrait with a small panel).
+  Because every one of these panels computes its top-anchored content (titles, avatar rows,
+  header bands) as fixed-pixel offsets FROM innerTop (= panelY+panelH/2-pad), and innerTop
+  moves down by exactly `overlap` under this formula while innerBottom is untouched, all that
+  top content shifts down by the same amount WITHOUT shrinking — the lost height shows up
+  entirely in whatever sits below (a scroll list gets shorter, or bottom padding shrinks).
+  The one exception is anything computed as a raw fraction of panelH directly (e.g. EndScreen
+  .lua's g.cardPadV = panelH/20) — those shrink by a proportionally tiny amount (a few px);
+  not visually "the top area" and accepted as within tolerance.
+Call sites (all add one line right after computing panelY/panelH, before deriving anything
+  else from them): EndScreen.lua calculateEndScreenDimensions(), OverlayPanels.lua
+  drawInfoOverlay()/drawColorInspectorOverlay()/drawGCSignInOverlay()/
+  drawGCMatchmakerErrorOverlay(), RecordsUI.lua drawRecordsOverlay(), HaikuMenu.lua
+  drawGenericAlert(), MatchSelection.lua _vsPanelGeom().
+Verified visually (About panel screenshot, iPhone 16e/Dynamic Island sim): panel top clears
+  the status bar/notch area; bottom button position unchanged.
+```
 
 ## Global Default Font (Main.lua, 2026-08-09)
 

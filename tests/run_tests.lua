@@ -94,6 +94,29 @@ test("beginInitialHandshakeSend: sends immediately when isMyTurn", function()
   check("no score/comment fields on handshake payload", sent.score == nil and sent.__gcMessage == nil)
 end)
 
+test("beginInitialHandshakeSend: handshake payload carries the sender's recordSync", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  local q = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  q.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
+  beginInitialHandshakeSend(q)
+  local sync = tbm.sentCalls[1] and tbm.sentCalls[1].recordSync
+  check("recordSync attached", sync ~= nil)
+  check("recordSync targets the opponent", sync and sync.opponentId == "opp")
+  check("recordSync sender is me", sync and sync.senderId == "local-player-id")
+end)
+
+test("beginInitialHandshakeSend: recordSync uses q.opponentId when opponent has no player slot yet", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  local q = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  q.players["opp"] = nil -- brand-new match: opponent not seated yet
+  q.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
+  beginInitialHandshakeSend(q)
+  local sync = tbm.sentCalls[1] and tbm.sentCalls[1].recordSync
+  check("recordSync still attached", sync ~= nil and sync.opponentId == "opp")
+end)
+
 test("attemptPendingLegSend: retries on failure up to HANDSHAKE_MAX_ATTEMPTS, then gives up", function()
   useTurnBased = true
   tbm.isMyTurn = true

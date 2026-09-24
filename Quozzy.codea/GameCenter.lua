@@ -479,27 +479,37 @@ function attemptLegSend(q)
       players     = q.players,
       lastUpdated = os.time(),
     }
+    -- Every outgoing leg carries the sender's current W/L record against this
+    -- opponent so each side's local totals can self-heal from the other's.
+    -- The handshake needs it too: a match abandoned right after creation
+    -- otherwise never syncs at all. Outcome isn't known yet on either leg
+    -- (that's what distinguishes them from "finalize"), hence nil. At
+    -- handshake time the opponent may not be in q.players yet, so prefer
+    -- the match's own opponent fields.
+    local function attachRecordSync()
+      if not buildRecordSyncForOpponent then return end
+      local oppId = q.opponentId or q.otherId
+      if not oppId then
+        for pid, _ in pairs(q.players or {}) do
+          if pid ~= myId then oppId = pid end
+        end
+      end
+      if oppId then
+        local alias = q.otherName or q.opponentName or opponentAlias
+        local sync = buildRecordSyncForOpponent(oppId, alias, myId, nil)
+        if sync then payload.recordSync = sync end
+      end
+    end
+
     if leg == "handshake" then
       awaitingHandshakeSend = true
+      attachRecordSync()
     elseif leg == "result" then
       local me = q.players[myId]
       if me and me.comment and me.comment ~= "" then
         payload.__gcMessage = me.comment
       end
-      -- Outcome isn't known yet at this point (that's what distinguishes
-      -- "result" from "finalize") — matches the old first-to-play branch's
-      -- buildRecordSyncForOpponent(..., nil) call this replaces.
-      if buildRecordSyncForOpponent then
-        local oppId = nil
-        for pid, _ in pairs(q.players or {}) do
-          if pid ~= myId then oppId = pid end
-        end
-        if oppId then
-          local alias = q.otherName or q.opponentName or opponentAlias
-          local sync = buildRecordSyncForOpponent(oppId, alias, myId, nil)
-          if sync then payload.recordSync = sync end
-        end
-      end
+      attachRecordSync()
     end
     pending = { leg = leg, turnData = payload, attempts = 0 }
     pendingTurnSendsByMatchId[q.id] = pending

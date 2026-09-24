@@ -13,11 +13,10 @@ These are consumed by the `xcode-orchestrator` skill and any CLI-based diagnosti
 | SIM_ID_ALT | `1B48ACAA-0AE2-40C3-B28B-BFDB1A4A3044` (iPhone 17 — DO NOT USE for this project) |
 
 > **Rename (done, user-facing only):** The app is branded **Vivaldi-ku** to users
-> via `CFBundleDisplayName` and the in-game loading screen (formerly "Kotoba").
-> Internals stay **Quozzy** deliberately — SCHEME, BUNDLE_ID, process name, and
-> `.codea` bundle above are all still `Quozzy`/`quozzyseasons` and must not be
-> changed (doing so breaks diagnostics and orphans App Store/GameCenter identity).
-> So these constants remain correct as written.
+> via `CFBundleDisplayName` and the in-game loading screen (formerly "Kotoba"). Internals stay **Quozzy** deliberately — SCHEME, BUNDLE_ID,
+> process name, and `.codea` bundle above are all still `Quozzy`/`quozzyseasons` and
+> must not be changed (doing so breaks diagnostics and orphans App Store/GameCenter
+> identity). So these constants remain correct as written.
 
 ### Diagnostic Log Access
 
@@ -915,3 +914,191 @@ uncommitted rematch-button/generic-alert work that predated this session), `35b0
 2 dynamics, tail alignment, tap-to-unfocus).
 
 **Next task:** none pending for balloons.
+
+---
+
+## 21. HANDOFF STATE — 2026-09-07/08 (Handshake lockout fix, Vivaldiku rename [reverted], safe-area overlays, vs-button overhaul)
+
+Overnight session, run autonomously per user request (see conversation for the full task
+list). Ran on the primary iPhone 16e simulator (`0EF8AE50-...`) alongside a physical iPad
+(Jesse's, "Rosie") — two real, already-friended Game Center accounts (sim: Gnostic Pan,
+iPad: Smatchy LaPaglia) were available for live testing but **no touch-injection tool exists
+in this environment** (confirmed again this session — see below), so verification leaned on
+devLog/log-show against real Game Center data plus static code tracing, not interactive taps.
+
+### 1. Simultaneous-play handshake lockout — FIXED, not live-verified
+
+Root cause + fix: see STRUCTURE.md → "Simultaneous Play — creator lockout bug fix
+(2026-09-07)". One-line summary: `if awaitingHandshakeSend then return end` in Main.lua's
+STATE_READY touch branch blocked the match CREATOR from tapping to start (or even quitting)
+until their outbound board-handshake confirmed with GameKit — removed; the board is already
+generated locally before the handshake fires, so nothing about playing your own round should
+ever have depended on it. Also added `clearPendingHandshakeForMatch()` (GameCenter.lua) as a
+narrow defensive fix for a new edge case this unblocking creates (finishing your round faster
+than the handshake confirms). *(Dropped at merge into main, 2026-09-24: main's
+`onLegSendSucceeded` already clears `pendingTurnSendsByMatchId[matchId]` on any successful
+send, which supersedes it.)*
+
+**Also fixed as a prerequisite for verifying any of this**: CTBM's own detailed turn/
+matchmaking log trace (`self:log(...)`, `_logMatchmakingEvent(...)`) was silently dead —
+`self._logActive` defaulted false and nothing ever called `setLogging(true)`. Now enabled on
+the simulator only (`tbm:setLogging(isRunningOnSimulator())`, Main.lua setup()).
+
+**NEEDS a real two-device pass**: create a match from one account, confirm the creator can
+tap-to-start the instant the READY screen appears (not after any delay), and confirm the
+board still actually reaches the opponent. Neither this session's static tracing nor its log
+analysis can substitute for watching two real accounts play through it.
+
+### 2. Rename: Vivaldi-ku → Vivaldiku — REVERTED at merge into main (2026-09-24)
+
+The name stays **Vivaldi-ku** (hyphenated). The text below is kept as history only.
+
+All 4 occurrences (Main.lua loading-screen text x2, Info.plist CFBundleDisplayName) plus
+CLAUDE.md/HANDOFF.md's own prose describing the name. Internal `Quozzy` identifiers
+untouched (scheme, bundle ID, process name, `.codea` folder — per CLAUDE.md, deliberate).
+
+### 3. All overlay panels pushed clear of the safe-area top
+
+New shared helper `clampPanelTopToSafeArea()` (Helpers.lua) — see STRUCTURE.md for the exact
+math and full call-site list (end screen, records, info, generic alert, GC sign-in/error
+overlays, and the new vs overlay). Verified visually via a screenshot of the About panel on
+the iPhone 16e (Dynamic Island) sim — panel top now clears the notch area; bottom button
+unmoved.
+
+**Found and left alone** (pre-existing, unrelated bug, noticed only because pushing the info
+panel further down made it visible in a screenshot): the *old* floating match-ready badge
+could render on top of the info overlay despite `matchBadgeSuppressed()` supposedly guarding
+against exactly that (STRUCTURE.md's own "Badge suppression" note claims this was fixed
+2026-08-11). Never root-caused — moot now, since that whole floating-badge system was deleted
+this session anyway (see #5). If a similar z-order issue ever shows up with the *new*
+`drawVsButtonBadge`, start by checking `badgeSuppressed()`'s call site ordering in Main.lua's
+draw().
+
+### 4. VS button now opens an app-drawn overlay; native matchmaker UI removed entirely
+
+New file **MatchSelection.lua** (repurposed — it previously held ~35 lines of dead scaffolding
+from a much earlier, never-wired attempt at this exact feature, `enterMatchFromCTBM`, unused
+since the very first commit). Full architecture in STRUCTURE.md → "Versus Button Flow
+(2026-09-07 rewrite)". Short version: tapping "vs" opens a list of open + finished-unviewed
+games (reusing RecordsUI.lua's row-card visual language — `_drawRowCard`/
+`_truncateWithEllipsis` promoted from `local` to global there for this reuse) plus a
+"+ New Game" row that opens a Game Center friends picker (no automatch — GameKit has no API
+for a third-party app to send friend requests, so a "Manage Game Center Friends" button
+deep-links to Apple's own `GKGameCenterViewController` friends screen instead).
+`CTBM:showMatchmaker()`/`_makeMatchmakerDelegate()` and the old auto-open-finished-match-on-
+launch mechanic are both deleted, not just unwired.
+
+### 5. vs-button red badge replaces the old floating "MATCH READY" badge
+
+Badges.lua rewritten from ~570 lines (hop animation, ripple rings, its own independent 8s GK
+poll loop) down to a small static red dot on the vs button, driven by one flag
+(`vsHasActionable`, computed by MatchSelection.lua's `refreshVsMatchesList` — the same load
+that builds the list, so there's exactly one source of truth instead of two). **This part IS
+visually confirmed** — see below.
+
+### What's actually been verified live this session (real Game Center data, real accounts)
+
+- `refreshVsMatchesList` against the real, already-populated match history between Gnostic
+  Pan and Smatchy LaPaglia: devLog confirmed `count=9` (later `13`, as more turns landed
+  during testing) `actionable=true` real matches loaded, classified, and sorted correctly.
+- The vs-button red badge rendering correctly, in the correct corner, in a real screenshot.
+- No Lua errors/crashes across every rebuild this session (final clean rebuild with a fully
+  wiped DerivedData, reinstalled from scratch, confirmed error-free in the system log).
+- The safe-area panel fix, visually, on the About overlay.
+
+### What's NOT verified — needs a real tap-test pass next session
+
+Opening the vs overlay itself, the friend picker, and row taps. This session tried to work
+around the lack of touch-injection by calling `touched({state=BEGAN/ENDED, x=, y=, id=})`
+directly from a temporary hook at the end of `draw()` (a legitimate technique — Codea's
+`touched()` just takes a table, and it's been used for gesture-simulation before) — but the
+hook's own devLog calls never fired, not even an unconditional one gated on nothing but a
+frame counter, despite `drawVsButtonBadge` reading the exact same `menuHitRects.vs` at the
+same point in the same frame and rendering correctly. Root cause not isolated before time ran
+out on this approach; possibly a Lua-source caching quirk across repeated `simctl install`
+cycles without a build-number bump, possibly something else about how this Xcode-exported
+Codea runtime handles `draw()`. All temporary QA scaffolding was reverted before committing —
+none of it shipped. Recommend either a real two-device tap-test, or if another automated
+attempt is worth it, try bumping `CURRENT_PROJECT_VERSION` between iterations to rule out the
+caching theory, and/or add the diagnostic devLog as the very first line of `draw()` (not the
+last) to bisect whether draw() is erroring out before reaching the tail.
+
+### Also touched, not yet exercised
+
+`vsStartNewMatchWithFriend`'s failure path routes into `openGCMatchmakerErrorOverlay` (kept
+alive and repurposed as a generic "something went wrong" overlay rather than deleted, since
+the vs overlay's own error surfaces reuse it) — not yet seen on screen for a real failure.
+
+**Files touched this session:** Main.lua, GameCenter.lua, CodeaTurnBasedMatches.lua,
+Badges.lua (near-full rewrite), MatchSelection.lua (near-full rewrite), RecordsUI.lua (two
+`local`→global promotions), HaikuMenu.lua, EndScreen.lua, OverlayPanels.lua, Helpers.lua,
+Info.plist, CLAUDE.md, STRUCTURE.md.
+
+**Next task:** live tap-test pass on the vs overlay (see above), then the two-device handshake
+verification (see #1).
+
+### Addendum (same night, after user follow-up): momentum scrolling, Quick Start, record sync
+
+Three more requests landed after the above was written:
+
+1. **Momentum scrolling everywhere.** Wired the existing `applyScrollInertia` (already used by
+   `ScrollList.lua`) into every other hand-rolled scroll view: Records (both opponents grid and
+   matches detail — they share `recordsScrollY`), the About panel, and the vs overlay (which
+   also got real scroll bounds for the first time — it had none before tonight). See
+   STRUCTURE.md → "Momentum scrolling on hand-rolled lists" for the sign-convention gotcha (not
+   every file updates scrollY with the same +/- direction on drag — copying the formula blind
+   between files would make flings decelerate backwards). Skipped the dormant debug balloon
+   color picker (unreachable in production).
+
+2. **"MATCH READY / TAP HERE" was actually two features, not one** — a passive signal AND a
+   fast-start action fused into one hopping badge. Tonight's earlier rewrite (session start,
+   above) kept only the signal half (the static vs-button dot) and I hadn't realized the
+   action half — bypass the list, jump straight into whatever needs you — was a deliberate,
+   separate piece of value until the user flagged it. Restored it as `quickStart` (Badges.lua):
+   same hop/ripple animation as the original, now labeled "QUICK START / NEXT MATCH", driven by
+   the same `vsListEntries`/`vsHasActionable` the list itself uses (one data source, not a
+   second poll loop). Verified visually — screenshot shows it rendering correctly with real
+   Game Center data, coexisting with the vs-button dot. **Not re-tuned:** its avoid-rect
+   (keeps it clear of the menu buttons while hopping) is copied verbatim from the old badge and
+   was sized for the pre-overhaul button layout — one observed hop landed close enough to the
+   "re" button to visually overlap it. Worth a tuning pass if it bothers you in practice.
+
+3. **Opponent W/L record sync now covers every outgoing turn.** This turned out to already be
+   almost entirely built (`buildRecordSyncForOpponent`/`mergeOpponentRecordFromTurnData`,
+   opponentRecords.lua) — a real max()-style reconciliation (whoever has fewer total recorded
+   games against the other adopts the other's numbers), already wired into two of the three
+   outgoing-turn send points. The gap: `beginInitialHandshakeSend` (the very first turn a new
+   match ever sends, added by the 2026-09-02 simultaneous-play work) never attached it — so a
+   match that ended early (e.g. a quit before either side finished) never got a chance to sync
+   at all. Fixed — see STRUCTURE.md → "Opponent record sync now covers every outgoing turn".
+
+None of these three were live-tap-verified for the same reason as the vs overlay above (no
+touch injection in this environment); the record-sync fix specifically also needs a real
+two-device match to confirm the merge actually reconciles correctly end-to-end, not just that
+the code compiles and the outgoing payload now includes the field.
+
+---
+
+## 22. HANDOFF STATE — 2026-09-24 (laptop-work merged into main)
+
+`laptop-work` (sections 21 above) merged into `main`'s relay rework (generalized turn-send
+relay, comment timeout, "game ended"/"opponent commented" badges, `tests/`). Plan followed:
+`MERGE_BRIEF.md` (repo root, kept for reference). Summary of the non-obvious calls:
+
+- **Kept from laptop-work:** vs overlay + Quick Start + static vs-button dot (replaces the
+  old floating badge and native matchmaker), momentum scrolling, safe-area clamping, the
+  STATE_READY tap-gate removal, `tbm:setLogging(isRunningOnSimulator())`, the
+  `NSGKFriendListUsageDescription` string.
+- **Dropped:** the Vivaldiku rename (name stays **Vivaldi-ku**) and
+  `clearPendingHandshakeForMatch` (superseded by `onLegSendSucceeded`).
+- **Re-homed:** main's `refreshMatchStoryBadges` poll is gone; its badge computation now runs
+  inside `refreshVsMatchesList` (MatchSelection.lua) off the same GameKit load. Laptop-work's
+  handshake record-sync fix was re-applied inside `attemptLegSend` (GameCenter.lua), since the
+  function its diff targeted no longer exists. See STRUCTURE.md "Turn-send relay" and
+  "Match-story badges".
+- `lua tests/run_tests.lua`: 129 passed (125 before + 4 new handshake-recordSync checks).
+
+**Still needed:** the two-device pass in `MULTIPLAYER_TEST_PLAN.md`, plus section 21's own
+unverified items (creator tap-to-start, vs overlay taps, record sync end-to-end). Also
+confirm the badge dots in Records still appear/clear now that they're fed by the vs-list
+refresh (menu entry, periodic, auth, foreground, turn received/ended).

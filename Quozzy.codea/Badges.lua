@@ -1,500 +1,248 @@
 --############################################################
--- Match Ready Badge (menu overlay)
+-- vs-button badge (menu)
 --############################################################
+-- Replaces the old hopping "MATCH READY / TAP HERE" floating badge (which
+-- used to roam the menu and separately poll Game Center on its own timer).
+-- The vs button now carries a small static red dot instead — no number, no
+-- animation — driven by vsHasActionable (MatchSelection.lua's
+-- refreshVsMatchesList), which is already true exactly when the vs button's
+-- own list has something needing attention (an unplayed or unviewed-finished
+-- match). Suppressed under the same overlays the old badge was, so it can
+-- never float over a panel.
 
-matchBadge = matchBadge or {
+pendingTurnMatches = pendingTurnMatches or {}  -- legacy store; kept only for the debug
+                                                -- "Simulate Incoming Turn" parameter hook
+
+function badgeSuppressed()
+  return colorInspectorOverlay or showInfoOverlay or recordsOverlay or balloonMockupOverlay
+     or balloonColorPickerOverlay or gcSignInOverlay or gcMatchmakerErrorOverlay or genericAlertActive
+     or vsOverlay
+end
+
+-- rect = {cx, cy, w, h} of the vs button (menuHitRects.vs)
+function drawVsButtonBadge(rect)
+  if not rect then return end
+  if state ~= STATE_MENU then return end
+  if badgeSuppressed() then return end
+  if not vsHasActionable then return end
+
+  local r = math.max(8, math.min(rect.w, rect.h) * 0.12)
+  local x = rect.cx + rect.w * 0.5 - r * 0.6
+  local y = rect.cy + rect.h * 0.5 - r * 0.6
+
+  pushStyle()
+  noStroke()
+  ellipseMode(CENTER)
+  fill(230, 40, 40, 255)
+  ellipse(x, y, r * 2)
+  popStyle()
+end
+
+--############################################################
+-- Quick Start (menu) — fast path into whichever match needs you next,
+-- without opening the vs list at all
+--############################################################
+-- This is the action half of what used to be a single hopping "MATCH READY /
+-- TAP HERE" badge (the vs-button red dot above is the other half — passive
+-- signal only). Re-implemented on the same hop/ripple mechanic as before,
+-- clearer label, retargeted to vsListEntries/vsHasActionable (MatchSelection.lua)
+-- instead of the old standalone pendingTurnMatches/refreshPendingMatchesForBadge
+-- poll loop.
+
+quickStart = quickStart or {
   active          = false,
   x               = 0,
   y               = 0,
-  
-  -- core size
-  radius          = 42,      -- <<< size of button
-  
+  radius          = 42,
+
   phase           = "hidden",
   phaseTime       = 0,
-  
-  -- timing
-  visibleDuration = 4.4,     -- <<< time on-screen before hop (incl. shrink)
-  hiddenDuration  = 0.005,     -- time off-screen between hops
-  appearDuration  = 0.25,    -- pop / bounce in
-  disappearDuration = 0.25,  -- shrink-away out
-  
-  -- animation tuning
-  maxScale        = 1.15,    -- <<< size of bounce
-  rippleCount     = 4,       -- <<< number of ripples
-  rippleWidth     = 4,       -- <<< width of ripples
-  rippleDuration  = 3,     -- <<< how long ripples stay visible (sec)
-  rippleSpeed     = 7,    -- <<< outward speed (pixels per second)
-  
-  permanentRippleOffset = 8,  -- <<< size of “permanent ripple”
-  permanentRippleWidth  = 7, -- <<< stroke width of permanent ripple
-  
-  minHopDistance  = 140,            -- <<< min distance between hops (pixels)
-  -- area to avoid (buttons block)
-  -- menu button block avoidance (updated layout)
+
+  visibleDuration = 4.4,
+  hiddenDuration  = 0.005,
+  appearDuration  = 0.25,
+  disappearDuration = 0.25,
+
+  maxScale        = 1.15,
+  rippleCount     = 4,
+  rippleWidth     = 4,
+  rippleDuration  = 3,
+  rippleSpeed     = 7,
+
+  permanentRippleOffset = 8,
+  permanentRippleWidth  = 7,
+
+  minHopDistance  = 140,
   avoidOrigin = vec2(WIDTH/2, HEIGHT/2 + 20),
   avoidW            = 320,
   avoidH            = 300,
   showDebugRect    = false,
-  
-  -- internal last position (for minHopDistance)
+
   lastX           = nil,
   lastY           = nil,
-  
-  rotationDegRange = 40,     -- <<< max random tilt in degrees
-  rotation        = 0,       -- set per hop
-  rotationDir     = 1,       -- +1 or -1; alternates each hop
+
+  rotationDegRange = 40,
+  rotation        = 0,
+  rotationDir     = 1,
 }
 
-pendingMatchCount = pendingMatchCount or 0
-matchBadgeRefreshInFlight = matchBadgeRefreshInFlight or false
-matchBadgeLastPollAt = matchBadgeLastPollAt or 0
-matchBadgePollInterval = matchBadgePollInterval or 8.0
-matchBadgeWasMenuLastFrame = matchBadgeWasMenuLastFrame or false
+quickStartWasMenuLastFrame = quickStartWasMenuLastFrame or false
+quickStartLastPollAt = quickStartLastPollAt or 0
+quickStartPollInterval = quickStartPollInterval or 8.0
 
-function pointInsideAvoidRect(px, py)
-  local o   = matchBadge.avoidOrigin
-  local hw  = (matchBadge.avoidW or 0) * 0.5
-  local hh  = (matchBadge.avoidH or 0) * 0.5
-  
+local function _quickStartInsideAvoidRect(px, py)
+  local o  = quickStart.avoidOrigin
+  local hw = (quickStart.avoidW or 0) * 0.5
+  local hh = (quickStart.avoidH or 0) * 0.5
   return (px >= o.x - hw and px <= o.x + hw
-  and py >= o.y - hh and py <= o.y + hh)
+      and py >= o.y - hh and py <= o.y + hh)
 end
 
-function pickMatchBadgePosition()
-  local mb   = matchBadge
-  local r    = mb.radius
-  local pad  = 20
-  
+local function _pickQuickStartPosition()
+  local qs  = quickStart
+  local r   = qs.radius
+  local pad = 20
+
   local safeTop = getTopSafeY()
   local safeBot = getBottomSafeY()
-  
+
   local minX = r + pad
   local maxX = WIDTH  - r - pad
   local minY = safeBot + r + pad
   local maxY = safeTop - r - 80
-  
-  -- last position memory
-  local lastX = mb.x
-  local lastY = mb.y
-  
-  -- minimum hop distance before accepting a new location
+
+  local lastX, lastY = qs.x, qs.y
   local minHopDist = r * 2 + 10
-  
-  -- Try multiple times to find a valid point
+
   for _ = 1, 40 do
     local x = math.random(minX, maxX)
     local y = math.random(minY, maxY)
-    
-    -- avoid rect check
-    if not pointInsideAvoidRect(x, y) then
-      -- not too close to last spot
+    if not _quickStartInsideAvoidRect(x, y) then
       if lastX == 0 and lastY == 0 then
-        -- first run, accept
-        mb.x, mb.y = x, y
+        qs.x, qs.y = x, y
         break
       else
-        local dx = x - lastX
-        local dy = y - lastY
+        local dx, dy = x - lastX, y - lastY
         if dx*dx + dy*dy >= minHopDist * minHopDist then
-          mb.x, mb.y = x, y
+          qs.x, qs.y = x, y
           break
         end
       end
     end
   end
-  
-  -- alternating tilt: right, left, right, left...
-  local range = mb.rotationDegRange or 0
+
+  local range = qs.rotationDegRange or 0
   if range > 0 then
-    -- which side this hop should lean to
-    local dir = mb.rotationDir or 1      -- +1 = right, -1 = left
-    
-    -- random magnitude on that side only
+    local dir = qs.rotationDir or 1
     local mag = (math.random(1000) / 1000) * range
-    
-    -- avoid “almost straight” angles
     local minMag = range * 0.35
-    if mag < minMag then
-      mag = minMag
-    end
-    
-    mb.rotation   = dir * mag
-    mb.rotationDir = -dir                -- flip for next hop
+    if mag < minMag then mag = minMag end
+    qs.rotation    = dir * mag
+    qs.rotationDir = -dir
   else
-    mb.rotation   = 0
-    mb.rotationDir = 1
+    qs.rotation    = 0
+    qs.rotationDir = 1
   end
 end
 
-function activateMatchBadge()
-  matchBadge.active    = true
-  matchBadge.phase     = "visible"
-  matchBadge.phaseTime = 0
-  pickMatchBadgePosition()
+local function _activateQuickStart()
+  quickStart.active    = true
+  quickStart.phase     = "visible"
+  quickStart.phaseTime = 0
+  _pickQuickStartPosition()
 end
 
-function deactivateMatchBadge()
-  matchBadge.active    = false
-  matchBadge.phase     = "hidden"
-  matchBadge.phaseTime = 0
+local function _deactivateQuickStart()
+  quickStart.active    = false
+  quickStart.phase     = "hidden"
+  quickStart.phaseTime = 0
 end
 
-local function _safeObjCString(v)
-  if v == nil then return nil end
-  local ok, s = pcall(function() return tostring(v) end)
-  if not ok then return nil end
-  if not s or s == "" then return nil end
-  return s
-end
-
-local function _safeArrayCount(arr)
-  if not arr then return 0 end
-  if type(arr) == "table" then
-    local okLen, n = pcall(function() return #arr end)
-    if okLen and type(n) == "number" then return n end
-    return 0
+-- The single best match to jump into: the newest entry that still needs the
+-- local player's attention (mirrors vsListEntries' own newest-first sort).
+function vsQuickStartBestEntry()
+  for _, e in ipairs(vsListEntries or {}) do
+    if e.needsAction then return e end
   end
-  local okCount, n = pcall(function()
-    if arr.respondsToSelector_ and arr:respondsToSelector_("count") then
-      return tonumber(arr.count) or tonumber(arr:count()) or 0
-    end
-    return 0
-  end)
-  if okCount and type(n) == "number" then return n end
-  return 0
-end
-
-local function _safeArrayGet(arr, i)
-  if not arr or i < 1 then return nil end
-  if type(arr) == "table" then
-    return arr[i]
-  end
-  local ok, v = pcall(function()
-    if arr.respondsToSelector_ and arr:respondsToSelector_("objectAtIndex:") then
-      return arr:objectAtIndex_(i - 1)
-    end
-    return nil
-  end)
-  if ok then return v end
   return nil
 end
 
-local function _matchSortTime(gkMatch, dataTable)
-  local ts = nil
-  pcall(function()
-    local d = gkMatch and (gkMatch.lastTurnDate or gkMatch.date)
-    if d and d.timeIntervalSince1970 then
-      ts = tonumber(d.timeIntervalSince1970)
-    end
-  end)
-  if not ts and dataTable and dataTable.lastUpdated then
-    ts = tonumber(dataTable.lastUpdated)
-  end
-  return ts or 0
-end
-
-local function _isMyTurnOpenMatch(gkMatch)
-  if not (tbm and gkMatch and tbm.localPlayer) then return false end
-  if tbm._isMatchEnded and tbm:_isMatchEnded(gkMatch) then return false end
-  local cp = gkMatch.currentParticipant
-  if not cp then return false end
-  local localId = tbm.localPlayer.playerID
-  local localGameId = tbm.localPlayer.gamePlayerID
-  local cpId = cp.playerID
-  local cpGameId = cp.gamePlayerID
-  if localId and cpId and cpId == localId then return true end
-  if localGameId and cpGameId and cpGameId == localGameId then return true end
-  return false
-end
-
-function updateMatchBadgeStatus()
-  pendingMatchCount = pendingTurnMatches and #pendingTurnMatches or 0
+function updateQuickStart(dt)
   if state ~= STATE_MENU then
-    deactivateMatchBadge()
+    quickStartWasMenuLastFrame = false
+    _deactivateQuickStart()
     return
   end
-  if pendingMatchCount > 0 then
-    if not matchBadge.active then
-      activateMatchBadge()
-    end
-  else
-    deactivateMatchBadge()
-  end
-end
 
-function requestMatchBadgeRefresh(reason)
-  matchBadgeLastPollAt = 0
-  refreshPendingMatchesForBadge(reason or "manual")
-end
-
-function refreshPendingMatchesForBadge(reason)
-  if matchBadgeRefreshInFlight then return end
-  if SAFE_BOOT then return end
-  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then return end
-  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
-  if not GKTurnBasedMatch then return end
-  
-  matchBadgeRefreshInFlight = true
-  local ok = pcall(function()
-    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
-        local okInner, errInner = pcall(function()
-          matchBadgeRefreshInFlight = false
-          matchBadgeLastPollAt = ElapsedTime or 0
-          if o__err then
-            devLog("Badge refresh GC load error", _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "?")
-            return
-          end
-          
-          local list = {}
-          local cnt = _safeArrayCount(o__matches)
-          for i = 1, cnt do
-            local m = _safeArrayGet(o__matches, i)
-            if _isMyTurnOpenMatch(m) then
-              local dataTable = tbm and tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
-              list[#list + 1] = {
-                id = _safeObjCString(m and m.matchID),
-                gkMatch = m,
-                dataTable = dataTable,
-                sortTs = _matchSortTime(m, dataTable),
-              }
-            end
-          end
-          
-          table.sort(list, function(a, b)
-            return (a.sortTs or 0) > (b.sortTs or 0)
-          end)
-          
-          pendingTurnMatches = list
-          pendingMatchCount = #list
-          updateMatchBadgeStatus()
-          devLog("Badge refresh", "pending=", pendingMatchCount, "reason=", reason or "?")
-        end)
-        if not okInner then
-          matchBadgeRefreshInFlight = false
-          devLog("Badge refresh crashed safely", tostring(errInner))
-        end
-      end)
-    end)
-  end)
-  if not ok then
-    matchBadgeRefreshInFlight = false
-  end
-end
-
---####################################################################
--- "Game ended" / "opponent commented" badges (opponentRecords.lua's
--- computeMatchBadges). Separate from the "come play your turn" badge above:
--- a match can be fully finished (both players' scores known) while
--- GameKit still lists it as open, waiting only on the comment/finalize
--- leg — so this polls EVERY match, not just ones where it's currently my
--- turn, and cross-references matchHistoryByOpponent (whether/what the
--- player has already viewed) rather than raw turn ownership.
---####################################################################
-
-endedMatchBadgeIds = endedMatchBadgeIds or {}
-commentMatchBadgeIds = commentMatchBadgeIds or {}
-matchStoryBadgeRefreshInFlight = matchStoryBadgeRefreshInFlight or false
-
-function refreshMatchStoryBadges(reason)
-  if matchStoryBadgeRefreshInFlight then return end
-  if SAFE_BOOT then return end
-  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then return end
-  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
-  if not GKTurnBasedMatch then return end
-
-  matchStoryBadgeRefreshInFlight = true
-  local ok = pcall(function()
-    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
-        local okInner, errInner = pcall(function()
-          matchStoryBadgeRefreshInFlight = false
-          if o__err then
-            devLog("Match story badge refresh GC load error", _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "?")
-            return
-          end
-
-          local myId = localPID()
-          local liveMatches = {}
-          local cnt = _safeArrayCount(o__matches)
-          for i = 1, cnt do
-            local m = _safeArrayGet(o__matches, i)
-            local dataTable = tbm and tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
-            local pl = firstNonLocalParticipant and firstNonLocalParticipant(m) or nil
-            local oppId = pl and (pl.gamePlayerID or pl.playerID) or nil
-            if oppId and dataTable and type(dataTable.players) == "table" then
-              local mePatch  = dataTable.players[myId]
-              local oppPatch = dataTable.players[oppId]
-              liveMatches[#liveMatches + 1] = {
-                id = _safeObjCString(m and m.matchID),
-                oppId = oppId,
-                bothPlayed = ((mePatch and mePatch.didPlay == true) and (oppPatch and oppPatch.didPlay == true)) or false,
-                oppComment = (oppPatch and oppPatch.comment) or "",
-              }
-            end
-          end
-
-          local ended, commented = {}, {}
-          if computeMatchBadges then
-            ended, commented = computeMatchBadges(liveMatches)
-          end
-          local endedSet, commentedSet = {}, {}
-          for _, id in ipairs(ended or {}) do endedSet[id] = true end
-          for _, id in ipairs(commented or {}) do commentedSet[id] = true end
-          endedMatchBadgeIds = endedSet
-          commentMatchBadgeIds = commentedSet
-
-          devLog("Match story badge refresh", "ended=", #(ended or {}), "commented=", #(commented or {}), "reason=", reason or "?")
-        end)
-        if not okInner then
-          matchStoryBadgeRefreshInFlight = false
-          devLog("Match story badge refresh crashed safely", tostring(errInner))
-        end
-      end)
-    end)
-  end)
-  if not ok then
-    matchStoryBadgeRefreshInFlight = false
-  end
-end
-
-local function _openPendingMatchEntry(entry)
-  if not entry or not entry.gkMatch then return false end
-  local gkMatch = entry.gkMatch
-  if tbm and tbm._setCurrentMatch then
-    tbm:_setCurrentMatch(gkMatch, "badge-open-newest")
-  end
-  local dataTable = entry.dataTable
-  if not dataTable and tbm and tbm._matchWithNSDataToDataTable then
-    dataTable = tbm:_matchWithNSDataToDataTable(gkMatch)
-  end
-  local q = makeQMatchFromGK and makeQMatchFromGK(gkMatch, dataTable) or nil
-  if q and enterQMatch then
-    enterQMatch(q)
-    return true
-  end
-  return false
-end
-
-function openNewestAvailableMatchFromBadge()
-  if pendingTurnMatches and #pendingTurnMatches > 0 then
-    if _openPendingMatchEntry(pendingTurnMatches[1]) then
-      return true
-    end
-  end
-  
-  refreshPendingMatchesForBadge("badgeTap")
-  if pendingTurnMatches and #pendingTurnMatches > 0 then
-    return _openPendingMatchEntry(pendingTurnMatches[1])
-  end
-  return false
-end
-
--- Call this from your Game Center layer whenever the number of
--- pending turn-based matches changes.
--- list of stored turn-based matches waiting for you
-pendingTurnMatches = pendingTurnMatches or {}  -- each entry = qMatch or summary
-
-function updateMatchBadge(dt)
-  -- Only show/hop the badge on the menu
-  if state ~= STATE_MENU then
-    matchBadgeWasMenuLastFrame = false
-    deactivateMatchBadge()
-    return
-  end
-  
-  if not matchBadgeWasMenuLastFrame then
-    matchBadgeWasMenuLastFrame = true
-    refreshPendingMatchesForBadge("menuEntry")
-    if refreshMatchStoryBadges then refreshMatchStoryBadges("menuEntry") end
+  if not quickStartWasMenuLastFrame then
+    quickStartWasMenuLastFrame = true
+    if refreshVsMatchesList then refreshVsMatchesList("menuEntry") end
   end
 
   local now = ElapsedTime or 0
-  if (now - (matchBadgeLastPollAt or 0)) >= (matchBadgePollInterval or 8.0) then
-    refreshPendingMatchesForBadge("menuPeriodic")
-    if refreshMatchStoryBadges then refreshMatchStoryBadges("menuPeriodic") end
+  if (now - (quickStartLastPollAt or 0)) >= (quickStartPollInterval or 8.0) then
+    quickStartLastPollAt = now
+    if refreshVsMatchesList then refreshVsMatchesList("menuPeriodic") end
   end
-  
-  -- See if there are any pending matches
-  local hasAny = pendingTurnMatches and #pendingTurnMatches > 0
-  
-  if not hasAny then
-    -- No matches → make sure badge is off and bail.
-    deactivateMatchBadge()
+
+  if not vsHasActionable then
+    _deactivateQuickStart()
     return
   end
-  
-  -- We *do* have matches. If badge wasn't active, start it up.
-  if not matchBadge.active then
-    activateMatchBadge()
+
+  if not quickStart.active then
+    _activateQuickStart()
   end
-  
-  -- === existing animation logic below this stays the same ===
-  matchBadge.phaseTime = matchBadge.phaseTime + dt
-  
-  if matchBadge.phase == "visible" then
-    if matchBadge.phaseTime >= matchBadge.visibleDuration then
-      matchBadge.phase = "hidden"
-      matchBadge.phaseTime = 0
+
+  quickStart.phaseTime = quickStart.phaseTime + dt
+
+  if quickStart.phase == "visible" then
+    if quickStart.phaseTime >= quickStart.visibleDuration then
+      quickStart.phase     = "hidden"
+      quickStart.phaseTime = 0
     end
-  else -- "hidden"
-    if matchBadge.phaseTime >= matchBadge.hiddenDuration then
-      matchBadge.phase = "visible"
-      matchBadge.phaseTime = 0
-      pickMatchBadgePosition()
+  else
+    if quickStart.phaseTime >= quickStart.hiddenDuration then
+      quickStart.phase     = "visible"
+      quickStart.phaseTime = 0
+      _pickQuickStartPosition()
     end
   end
 end
 
--- Shared by drawMatchBadge (visibility) and handleMatchBadgeTouch (hit-testing) so the
--- two can never drift apart. Bug fixed 2026-08-11: handleMatchBadgeTouch used to only
--- check `recordsOverlay`, so a tap landing on the badge's (floating, arbitrary) position
--- while some OTHER overlay was open — info panel, color inspector, balloon mockup/picker,
--- a GC modal — could open a match even though the badge was never drawn that frame.
-function matchBadgeSuppressed()
-  return colorInspectorOverlay or showInfoOverlay or recordsOverlay or balloonMockupOverlay
-     or balloonColorPickerOverlay or gcSignInOverlay or gcMatchmakerErrorOverlay or genericAlertActive
-end
-
-function drawMatchBadge()
+function drawQuickStart()
   if state ~= STATE_MENU then return end
-  -- Suppress while ANY overlay is showing — the badge should never float over a panel.
-  if matchBadgeSuppressed() then return end
-  if not matchBadge.active then return end
-  if matchBadge.phase ~= "visible" then return end
-  
-  local mb = matchBadge
-  local x, y = mb.x, mb.y
-  local r    = mb.radius
-  
-  -- <<< DEBUG: draw avoid rect in world space (no rotation) >>>
-  if mb.showDebugRect == true then
+  if badgeSuppressed() then return end
+  if not quickStart.active then return end
+  if quickStart.phase ~= "visible" then return end
+
+  local qs = quickStart
+  local x, y = qs.x, qs.y
+  local r    = qs.radius
+
+  if qs.showDebugRect == true then
     pushStyle()
     rectMode(CENTER)
     noFill()
     stroke(255, 255, 0, 150)
     strokeWidth(8)
-    rect(mb.avoidOrigin.x, mb.avoidOrigin.y, mb.avoidW, mb.avoidH)
+    rect(qs.avoidOrigin.x, qs.avoidOrigin.y, qs.avoidW, qs.avoidH)
     popStyle()
   end
-  
-  local t          = mb.phaseTime or 0
-  local appear     = mb.appearDuration or 0.25
-  local disappear  = mb.disappearDuration or 0.25
-  local visibleDur = mb.visibleDuration or (appear + disappear + 0.2)
-  
-  local maxScale   = mb.maxScale or 1.25
-  local scale      = 1.0
-  local alpha      = 255
-  
-  -- phase: pop-in, steady, shrink-out
+
+  local t          = qs.phaseTime or 0
+  local appear     = qs.appearDuration or 0.25
+  local disappear  = qs.disappearDuration or 0.25
+  local visibleDur = qs.visibleDuration or (appear + disappear + 0.2)
+
+  local maxScale = qs.maxScale or 1.25
+  local scale    = 1.0
+  local alpha    = 255
+
   if t < appear then
-    -- pop / bounce
     local a = math.min(t / appear, 1.0)
     scale = maxScale - (maxScale - 1.0) * a
   elseif t > visibleDur - disappear then
-    -- shrink-away
     local d = math.min((t - (visibleDur - disappear)) / disappear, 1.0)
     scale = 1.0 - d
     if scale < 0.0 then scale = 0.0 end
@@ -502,37 +250,28 @@ function drawMatchBadge()
   else
     scale = 1.0
   end
-  
+
   pushStyle()
   pushMatrix()
-  
   translate(x, y)
-  rotate(matchBadge.rotation or 0)   -- Codea rotate() uses degrees
-  
-  ------------------------------------------------
-  -- Ripple rings (expand + fade, lifetime-based)
-  ------------------------------------------------
-  
+  rotate(qs.rotation or 0)
+
   do
-    if t < visibleDur - disappear then 
-      local rippleCount = mb.rippleCount or 0
-      local duration    = mb.rippleDuration or 0.6   -- sec
-      local rWidth      = mb.rippleWidth or 3
-      local speed       = mb.rippleSpeed or 90.0     -- px / sec
-      
+    if t < visibleDur - disappear then
+      local rippleCount = qs.rippleCount or 0
+      local duration    = qs.rippleDuration or 0.6
+      local rWidth      = qs.rippleWidth or 3
+      local speed       = qs.rippleSpeed or 90.0
+
       if rippleCount > 0 then
-        -- stagger start times so ripples chase each other
         local stepDelay = duration / math.max(rippleCount, 1)
-        
         for i = 1, rippleCount do
           local startTime = (i - 1) * stepDelay
           local age       = t - startTime
-          
           if age > 0 and age < duration then
-            local rr    = r + age * speed
-            local fade  = 1.0 - (age / duration)
-            local aRip  = 220 * fade
-            
+            local rr   = r + age * speed
+            local fade = 1.0 - (age / duration)
+            local aRip = 220 * fade
             noFill()
             stroke(230, 40, 40, aRip)
             strokeWidth(rWidth)
@@ -542,81 +281,74 @@ function drawMatchBadge()
       end
     end
   end
-  
-  ------------------------------------------------
-  -- Permanent thin ripple around the badge
-  ------------------------------------------------
+
   do
-    local off   = mb.permanentRippleOffset or 12
-    local width = mb.permanentRippleWidth or 1.0
+    local off   = qs.permanentRippleOffset or 12
+    local width = qs.permanentRippleWidth or 1.0
     noFill()
     stroke(230, 40, 40, alpha * 0.55)
     strokeWidth(width)
     ellipse(0, 0, (r + off) * 2 * scale, (r + off) * 2 * scale)
   end
-  
-  ------------------------------------------------
-  -- Main badge (ellipse) with bounce + shrink
-  ------------------------------------------------
+
   noStroke()
   fill(230, 40, 40, alpha)
   ellipse(0, 0, r * 2 * scale, r * 2 * scale)
-  
-  ------------------------------------------------
-  -- Text (singular/plural)
-  ------------------------------------------------
-  local matchCount = pendingTurnMatches and #pendingTurnMatches or 0
-  local label
-  if matchCount <= 1 then
-    label = "MATCH\nREADY\nTAP HERE"
-  else
-    label = "MATCHES\nREADY\nTAP HERE"
-  end
-  
+
   fill(255, 255, 255, alpha)
   textMode(CENTER)
   textAlign(CENTER)
-  fontSize(14 * scale)
-  font("Baskerville-SemiBold")   -- adjust if Codea wants a slightly different name
-  text(label, 0, 0)
-  
+  fontSize(12 * scale)
+  font("Baskerville-SemiBold")
+  text("QUICK START\nNEXT MATCH", 0, 0)
+
   popMatrix()
   popStyle()
 end
 
-function handleMatchBadgeTouch(t)
+function handleQuickStartTouch(t)
   if state ~= STATE_MENU then return false end
-  if not matchBadge.active then return false end
-  if matchBadge.phase ~= "visible" then return false end
-  if matchBadgeSuppressed() then return false end
+  if not quickStart.active then return false end
+  if quickStart.phase ~= "visible" then return false end
+  if badgeSuppressed() then return false end
   if t.state ~= BEGAN then return false end
-  
-  local dx = t.x - matchBadge.x
-  local dy = t.y - matchBadge.y
-  local r  = matchBadge.radius
-  
+
+  local dx = t.x - quickStart.x
+  local dy = t.y - quickStart.y
+  local r  = quickStart.radius
+
   if dx*dx + dy*dy <= r*r then
-    openNewestAvailableMatchFromBadge()
-    return true
+    local entry = vsQuickStartBestEntry()
+    if entry and vsOpenMatchEntry then
+      vsOpenMatchEntry(entry)
+      return true
+    end
   end
-  
+
   return false
 end
 
+------------------------------------------------------------
+-- Legacy pending-matches store: no longer drives any visible UI (superseded
+-- by MatchSelection.lua's vsListEntries, sourced live from Game Center).
+-- Kept only so the "Debug: Simulate Incoming Turn" parameter action
+-- (qMatch_qPlayer.lua) still has somewhere to write; wired to nudge the real
+-- vs list/badge so that debug hook stays meaningful.
+------------------------------------------------------------
+
 function storePendingTurnMatch(q)
   if not q or not q.id then return end
-  pendingTurnMatches = pendingTurnMatches or {}
   local sid = tostring(q.id)
   for i = 1, #pendingTurnMatches do
     local item = pendingTurnMatches[i]
     if item and tostring(item.id or "") == sid then
       pendingTurnMatches[i] = q
-      updateMatchBadgeStatus()
+      if refreshVsMatchesList then refreshVsMatchesList("debugSimulate") end
       return
     end
   end
   pendingTurnMatches[#pendingTurnMatches + 1] = q
-  updateMatchBadgeStatus()
+  if refreshVsMatchesList then refreshVsMatchesList("debugSimulate") end
 end
 
 function removePendingMatchById(id)
@@ -629,18 +361,8 @@ function removePendingMatchById(id)
       break
     end
   end
-  updateMatchBadgeStatus()
 end
 
 function clearPendingMatches()
   pendingTurnMatches = {}
-  updateMatchBadgeStatus()
-end
-
-function loadPendingMatches()
-  refreshPendingMatchesForBadge("loadPendingMatches")
-end
-
-function persistPendingMatches()
-  -- Source of truth is Game Center; no-op.
 end
