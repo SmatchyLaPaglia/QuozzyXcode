@@ -108,6 +108,72 @@ function CTBM:_logMatchmakingEvent(tag, match, extra)
   )
 end
 
+function CTBM:_participantStatusName(status)
+  local E = objc and objc.enum and objc.enum.GKTurnBasedParticipantStatus
+  if not E or status == nil then return "unknown" end
+  if E.unknown and status == E.unknown then return "unknown" end
+  if E.invited and status == E.invited then return "invited" end
+  if E.declined and status == E.declined then return "declined" end
+  if E.matching and status == E.matching then return "matching" end
+  if E.active and status == E.active then return "active" end
+  if E.done and status == E.done then return "done" end
+  return tostring(status)
+end
+
+function CTBM:_logDismissedMatchState(match, reason)
+  if not match then
+    self:_major("matchmaker dismissed", "reason=", reason or "?", "match=nil")
+    return
+  end
+  
+  local localId = self.localPlayer and self.localPlayer.playerID
+  local cp = match.currentParticipant
+  local cpId = cp and cp.playerID
+  local turnOwner = "unknown"
+  if not cp then
+    turnOwner = "none"
+  elseif not cpId then
+    turnOwner = "unassigned"
+  elseif cpId == localId then
+    turnOwner = "me"
+  else
+    turnOwner = "opponent"
+  end
+  
+  local endState = self:_getEndStateFromMatch(match)
+  local lifecycle = endState and ("ended:" .. tostring(endState)) or "open"
+  
+  local remoteAssigned = false
+  local remoteStatus = "none"
+  if match.participants then
+    for i = 1, #match.participants do
+      local p = match.participants[i]
+      local pl = p and p.player
+      local pid = p and p.playerID
+      local isLocal = (pid and localId and pid == localId) or (pl and pl.isLocalPlayer) or false
+      if not isLocal then
+        if pl then
+          remoteAssigned = true
+          remoteStatus = "assigned"
+        else
+          remoteStatus = self:_participantStatusName(p and p.status)
+        end
+        break
+      end
+    end
+  end
+  
+  self:_major(
+    "matchmaker dismissed state",
+    "reason=", reason or "?",
+    "match=", match.matchID or "nil",
+    "lifecycle=", lifecycle,
+    "turnOwner=", turnOwner,
+    "remoteAssigned=", tostring(remoteAssigned),
+    "remoteStatus=", remoteStatus
+  )
+end
+
 function CTBM:onMatchesCleared(fn)
   self._onMatchesCleared = fn
 end
@@ -546,6 +612,7 @@ function CTBM:_makeMatchmakerDelegate()
     
     
     thisCTBM.viewController:dismissModalViewControllerAnimated_(true, nil)
+    thisCTBM:_logDismissedMatchState(o__match, "didFindMatch")
     
     -- NOTE: match may be nil here; authoritative delivery is via GKLocalPlayerListener
         if o__match then
