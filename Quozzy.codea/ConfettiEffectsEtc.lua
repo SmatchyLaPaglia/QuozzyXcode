@@ -14,6 +14,42 @@ SeasonConfettiEmoji = {
     Winter = { "❄️", "⛄️", "🎄", "🧣" },
 }
 
+-- Fake depth-of-field for the season-change confetti burst: small+slightly-
+-- blurred background, larger sharp midground (the nominal focal plane),
+-- largest+most-blurred foreground. Sizes are today's original 24-36 range
+-- for the background tier, doubled for midground, and 1.5x-2x of midground
+-- for foreground.
+CONFETTI_DEPTH_TIERS = {
+    { sizeMin = 24, sizeMax = 36,  blur = 0.35 }, -- background
+    { sizeMin = 48, sizeMax = 72,  blur = 0.0  }, -- midground, in focus
+    { sizeMin = 72, sizeMax = 144, blur = 0.9  }, -- foreground, blurriest
+}
+
+-- Cheap "poor-man's blur": Codea has no real-time blur filter for text, so
+-- this fakes one with a few copies staggered around a small ring at reduced
+-- alpha, plus a faint sharp core so it doesn't read as a hollow ring.
+-- Cheap enough for a burst of ~80 short-lived particles; a real
+-- render-to-texture blur pass would be overkill here. blurAmount 0 draws a
+-- single normal, fully-sharp copy.
+local function drawDepthEmoji(ch, size, blurAmount, baseAlpha)
+    fontSize(size)
+    if not blurAmount or blurAmount <= 0 then
+        fill(255, 255, 255, baseAlpha)
+        text(ch, 0, 0)
+        return
+    end
+    local samples = 5
+    local radius = size * 0.14 * blurAmount
+    local sampleAlpha = baseAlpha * 0.8 / samples
+    for i = 1, samples do
+        local a = (i - 1) / samples * math.pi * 2
+        fill(255, 255, 255, sampleAlpha)
+        text(ch, math.cos(a) * radius, math.sin(a) * radius)
+    end
+    fill(255, 255, 255, baseAlpha * 0.4)
+    text(ch, 0, 0)
+end
+
 Sparkler = {
     spawnFrequency = 6.5,      -- particles per step
     spawnSize      = 32.77,     -- base emoji size (actual size varies ±)
@@ -206,6 +242,8 @@ function startSeasonTransition()
     local count = 80
     for i = 1, count do
         local ch = pool[(i - 1) % #pool + 1]
+        local depthLayer = math.random(1, 3)
+        local tier = CONFETTI_DEPTH_TIERS[depthLayer]
         confetti[i] = {
             x    = math.random() * WIDTH,
             y    = HEIGHT + math.random(0, maxYOffset),
@@ -213,7 +251,9 @@ function startSeasonTransition()
             vy   = - (70 + math.random() * 100),
             rot  = math.random() * 360,
             vrot = (math.random() - 0.5) * 180,
-            size = 24 + math.random() * 12,
+            size = tier.sizeMin + math.random() * (tier.sizeMax - tier.sizeMin),
+            blur = tier.blur,
+            depthLayer = depthLayer,
             char = ch,
             life = 0,
         }
@@ -294,20 +334,25 @@ end
 
 function drawConfetti()
     if not confettiActive then return end
-    
+
     pushStyle()
     textMode(CENTER)
-    
-    for i = 1, #confetti do
-        local p = confetti[i]
-        pushMatrix()
-        translate(p.x, p.y)
-        rotate(p.rot)
-        fontSize(p.size)
-        fill(255, 255, 255, 255)
-        text(p.char, 0, 0)
-        popMatrix()
+
+    -- Drawn back-to-front by depth layer (1=background, 3=foreground) so
+    -- closer/larger/blurrier pieces correctly overlap farther ones, rather
+    -- than in spawn order.
+    for layer = 1, 3 do
+        for i = 1, #confetti do
+            local p = confetti[i]
+            if (p.depthLayer or 1) == layer then
+                pushMatrix()
+                translate(p.x, p.y)
+                rotate(p.rot)
+                drawDepthEmoji(p.char, p.size, p.blur, 255)
+                popMatrix()
+            end
+        end
     end
-    
+
     popStyle()
 end
