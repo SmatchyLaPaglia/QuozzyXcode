@@ -239,6 +239,13 @@ end
 function recordMatchSnapshot(m)
   if not m or not m.id or not m.oppId then return false end
 
+  -- Being recorded at all means the end screen is showing this match right
+  -- now (this function's only caller, buildEndScreenModel, fires exactly
+  -- then) -- clear both badges immediately rather than waiting on the next
+  -- GameKit poll (refreshMatchStoryBadges, Badges.lua) to notice.
+  if endedMatchBadgeIds then endedMatchBadgeIds[m.id] = nil end
+  if commentMatchBadgeIds then commentMatchBadgeIds[m.id] = nil end
+
   local list = matchHistoryByOpponent[m.oppId]
   if not list then list = {}; matchHistoryByOpponent[m.oppId] = list end
 
@@ -270,4 +277,63 @@ function matchesForOpponent(oppId)
   if not oppId then return {} end
   local list = matchHistoryByOpponent[oppId]
   return (type(list) == "table") and list or {}
+end
+
+--####################################################################
+-- BADGES: "game ended" and "opponent commented" (two distinct badges, not
+-- one graduated indicator — see MULTIPLAYER_TEST_PLAN.md §4).
+--
+-- matchHistoryByOpponent only ever gains/updates an entry for a match when
+-- its end screen has actually been shown (recordMatchSnapshot's only caller
+-- is buildEndScreenModel) — so a stored entry's mere presence, and the
+-- comment text it holds, doubles as "what the player has already seen".
+-- Comparing that against the freshest known live state (from an ended
+-- GameKit match's decoded data, not from anything requiring an active view)
+-- is what "unseen" actually means here.
+--####################################################################
+
+function findMatchHistoryEntry(oppId, matchId)
+  local list = matchHistoryByOpponent[oppId]
+  if type(list) ~= "table" then return nil end
+  for _, e in ipairs(list) do
+    if e.id == matchId then return e end
+  end
+  return nil
+end
+
+-- Pure: does this match deserve a "game ended" badge right now?
+function matchNeedsEndedBadge(bothPlayed, historyEntry)
+  if not bothPlayed then return false end
+  return not (historyEntry and historyEntry.complete == true)
+end
+
+-- Pure: does this match deserve an "opponent commented" badge right now?
+-- Keyed on the comment TEXT rather than a timestamp/boolean so a second,
+-- different comment after an earlier one was already seen still counts as
+-- new, without needing to track when anything was viewed.
+function matchNeedsCommentBadge(liveOppComment, historyEntry)
+  liveOppComment = liveOppComment or ""
+  if liveOppComment == "" then return false end
+  if not historyEntry then return true end
+  return (historyEntry.oppComment or "") ~= liveOppComment
+end
+
+-- Given a list of {id, oppId, bothPlayed, oppComment} entries decoded from
+-- live GameKit matches (the actual decoding/enumeration is Badges.lua's job
+-- — this function has no objc/GK dependency, only matchHistoryByOpponent),
+-- returns which match ids currently need each badge.
+function computeMatchBadges(liveMatches)
+  local ended, commented = {}, {}
+  for _, lm in ipairs(liveMatches or {}) do
+    if lm and lm.id and lm.oppId then
+      local entry = findMatchHistoryEntry(lm.oppId, lm.id)
+      if matchNeedsEndedBadge(lm.bothPlayed, entry) then
+        ended[#ended+1] = lm.id
+      end
+      if matchNeedsCommentBadge(lm.oppComment, entry) then
+        commented[#commented+1] = lm.id
+      end
+    end
+  end
+  return ended, commented
 end

@@ -305,6 +305,41 @@ local function _drawRowCard(cx, cy, w, h, r, borderCol, t)
         color(pc.r, pc.g, pc.b, 255), color(pc.r, pc.g, pc.b, 255))
 end
 
+-- Two distinct badge dots (not one graduated indicator — see
+-- MULTIPLAYER_TEST_PLAN.md §4): "game ended" (a plain accent dot) and
+-- "opponent commented" (a contrasting dot, drawn further in so both can show
+-- at once). Both are pure presence checks against the sets
+-- refreshMatchStoryBadges (Badges.lua) last populated — no polling here.
+local function _drawMatchStoryBadgeDots(cx, cy, hasEnded, hasCommented)
+    if not (hasEnded or hasCommented) then return end
+    pushStyle()
+    ellipseMode(CENTER)
+    noStroke()
+    local r = 7
+    if hasEnded then
+        fill(Color.uiAccent)
+        ellipse(cx, cy, r * 2, r * 2)
+    end
+    if hasCommented then
+        fill(255, 90, 90)
+        ellipse(cx - (hasEnded and (r * 2 + 4) or 0), cy, r * 2, r * 2)
+    end
+    popStyle()
+end
+
+-- Aggregate: does ANY of this opponent's recorded matches currently need
+-- either badge? Used for the opponents-list row, before drilling in.
+local function _opponentHasMatchStoryBadge(oppId)
+    local list = matchesForOpponent and matchesForOpponent(oppId) or nil
+    if type(list) ~= "table" then return false, false end
+    local hasEnded, hasCommented = false, false
+    for _, m in ipairs(list) do
+        if endedMatchBadgeIds and endedMatchBadgeIds[m.id] then hasEnded = true end
+        if commentMatchBadgeIds and commentMatchBadgeIds[m.id] then hasCommented = true end
+    end
+    return hasEnded, hasCommented
+end
+
 local function _formatMatchDateShort(t)
     t = tonumber(t) or 0
     if t <= 0 then return "" end
@@ -460,6 +495,10 @@ function drawRecordsOpponentsList(b)
             -- avatar (left), thin margin
             local avCx = b.innerLeft + 8 + avSize * 0.5
             drawAvatarCircle(entryAvatars[i], avCx, cardCy, avSize, "O")
+            do
+                local hasEnded, hasCommented = _opponentHasMatchStoryBadge(e.id)
+                _drawMatchStoryBadgeDots(avCx + avSize * 0.32, cardCy - avSize * 0.32, hasEnded, hasCommented)
+            end
 
             -- text block: name (top, larger) + stats (bottom, smaller/dimmer)
             local textX = avCx + avSize * 0.5 + 12
@@ -564,6 +603,8 @@ function drawRecordsMatchesList(b)
         if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
             local cardCx = b.innerLeft + b.listWidth * 0.5
             _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
+            _drawMatchStoryBadgeDots(cardCx + b.listWidth * 0.5 - 16, cardCy + cardH * 0.5 - 16,
+                endedMatchBadgeIds and endedMatchBadgeIds[m.id], commentMatchBadgeIds and commentMatchBadgeIds[m.id])
 
             -- board preview: nearly the full card height (square), hard against the left
             local boardPx = cardH - BOARD_MARGIN * 2

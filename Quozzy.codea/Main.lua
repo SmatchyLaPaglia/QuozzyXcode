@@ -614,7 +614,18 @@ local function maybeAutoOpenMostRecentFinishedMatch(reason)
 end
 
 function retryPendingHandshakeSends(reason)
-  if not next(pendingTurnSendsByMatchId) then return end
+  -- Self-enforced comment timeout: sweep every finished-but-undecided match
+  -- and lock in a blank decision wherever the window has expired. Whatever
+  -- just got decided here needs the exact same "find the live GK match,
+  -- confirm I hold the turn, then send" treatment below as an
+  -- already-queued pending send — it just doesn't have a frozen payload yet.
+  local justTimedOut = checkFinishedMatchesForCommentTimeout and checkFinishedMatchesForCommentTimeout(os.time()) or {}
+
+  local candidates = {}
+  for pendingId, _ in pairs(pendingTurnSendsByMatchId) do candidates[pendingId] = true end
+  for _, mid in ipairs(justTimedOut) do candidates[mid] = true end
+  if not next(candidates) then return end
+
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   if not (tbm and GKTurnBasedMatch) then return end
 
@@ -629,15 +640,25 @@ function retryPendingHandshakeSends(reason)
           end
           local matches = o__matches
           local matchCount = _safeArrayCount(matches)
-          for pendingId, _ in pairs(pendingTurnSendsByMatchId) do
+          for candidateId, _ in pairs(candidates) do
             for i = 1, matchCount do
               local m = _safeArrayGet(matches, i)
               local mid = m and _safeObjCString(m.matchID)
-              if mid and mid == pendingId then
+              if mid and mid == candidateId then
                 tbm:_setCurrentMatch(m, "handshake-resend")
                 if tbm.isMyTurn == true then
-                  devLog("retryPendingHandshakeSends: resending", "matchId=", pendingId, "reason=", reason)
-                  attemptHandshakeSend(pendingId)
+                  devLog("retryPendingHandshakeSends: resending", "matchId=", candidateId, "reason=", reason)
+                  if pendingTurnSendsByMatchId[candidateId] then
+                    attemptPendingLegSend(candidateId)
+                  else
+                    -- A comment-timeout candidate with no pending entry yet:
+                    -- computeNextOwedLeg hasn't run for it, so go through
+                    -- attemptLegSend (which will) rather than
+                    -- attemptPendingLegSend (which assumes it already has).
+                    local q = (currentQMatch and currentQMatch.id == candidateId) and currentQMatch
+                      or finishedAwaitingDecisionByMatchId[candidateId]
+                    if q then attemptLegSend(q) end
+                  end
                 end
                 break
               end
@@ -1115,12 +1136,8 @@ function setup()
   tbm:onTurnEnded(function(gkMatch, dataTable)
     refreshHomeScreenBadgeFromGCMatches("turnEnded")
     local mid = gkMatch and gkMatch.matchID
-    if mid and pendingTurnSendsByMatchId[mid] then
-      pendingTurnSendsByMatchId[mid] = nil
-      persistPendingTurnSends()
-      if awaitingHandshakeSend and currentQMatch and currentQMatch.id == mid then
-        awaitingHandshakeSend = false
-      end
+    if mid then
+      onLegSendSucceeded(mid)
     end
   end)
 
@@ -1136,6 +1153,7 @@ function setup()
   end)
 
   loadPendingTurnSends()
+  loadFinishedAwaitingDecision()
   requestPendingHandshakeResendCheck("setup")
   setupGCDebugParameters()
   if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then

@@ -283,6 +283,82 @@ function refreshPendingMatchesForBadge(reason)
   end
 end
 
+--####################################################################
+-- "Game ended" / "opponent commented" badges (opponentRecords.lua's
+-- computeMatchBadges). Separate from the "come play your turn" badge above:
+-- a match can be fully finished (both players' scores known) while
+-- GameKit still lists it as open, waiting only on the comment/finalize
+-- leg — so this polls EVERY match, not just ones where it's currently my
+-- turn, and cross-references matchHistoryByOpponent (whether/what the
+-- player has already viewed) rather than raw turn ownership.
+--####################################################################
+
+endedMatchBadgeIds = endedMatchBadgeIds or {}
+commentMatchBadgeIds = commentMatchBadgeIds or {}
+matchStoryBadgeRefreshInFlight = matchStoryBadgeRefreshInFlight or false
+
+function refreshMatchStoryBadges(reason)
+  if matchStoryBadgeRefreshInFlight then return end
+  if SAFE_BOOT then return end
+  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then return end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  if not GKTurnBasedMatch then return end
+
+  matchStoryBadgeRefreshInFlight = true
+  local ok = pcall(function()
+    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+      objc.async(function()
+        local okInner, errInner = pcall(function()
+          matchStoryBadgeRefreshInFlight = false
+          if o__err then
+            devLog("Match story badge refresh GC load error", _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "?")
+            return
+          end
+
+          local myId = localPID()
+          local liveMatches = {}
+          local cnt = _safeArrayCount(o__matches)
+          for i = 1, cnt do
+            local m = _safeArrayGet(o__matches, i)
+            local dataTable = tbm and tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
+            local pl = firstNonLocalParticipant and firstNonLocalParticipant(m) or nil
+            local oppId = pl and (pl.gamePlayerID or pl.playerID) or nil
+            if oppId and dataTable and type(dataTable.players) == "table" then
+              local mePatch  = dataTable.players[myId]
+              local oppPatch = dataTable.players[oppId]
+              liveMatches[#liveMatches + 1] = {
+                id = _safeObjCString(m and m.matchID),
+                oppId = oppId,
+                bothPlayed = ((mePatch and mePatch.didPlay == true) and (oppPatch and oppPatch.didPlay == true)) or false,
+                oppComment = (oppPatch and oppPatch.comment) or "",
+              }
+            end
+          end
+
+          local ended, commented = {}, {}
+          if computeMatchBadges then
+            ended, commented = computeMatchBadges(liveMatches)
+          end
+          local endedSet, commentedSet = {}, {}
+          for _, id in ipairs(ended or {}) do endedSet[id] = true end
+          for _, id in ipairs(commented or {}) do commentedSet[id] = true end
+          endedMatchBadgeIds = endedSet
+          commentMatchBadgeIds = commentedSet
+
+          devLog("Match story badge refresh", "ended=", #(ended or {}), "commented=", #(commented or {}), "reason=", reason or "?")
+        end)
+        if not okInner then
+          matchStoryBadgeRefreshInFlight = false
+          devLog("Match story badge refresh crashed safely", tostring(errInner))
+        end
+      end)
+    end)
+  end)
+  if not ok then
+    matchStoryBadgeRefreshInFlight = false
+  end
+end
+
 local function _openPendingMatchEntry(entry)
   if not entry or not entry.gkMatch then return false end
   local gkMatch = entry.gkMatch
@@ -331,11 +407,13 @@ function updateMatchBadge(dt)
   if not matchBadgeWasMenuLastFrame then
     matchBadgeWasMenuLastFrame = true
     refreshPendingMatchesForBadge("menuEntry")
+    if refreshMatchStoryBadges then refreshMatchStoryBadges("menuEntry") end
   end
-  
+
   local now = ElapsedTime or 0
   if (now - (matchBadgeLastPollAt or 0)) >= (matchBadgePollInterval or 8.0) then
     refreshPendingMatchesForBadge("menuPeriodic")
+    if refreshMatchStoryBadges then refreshMatchStoryBadges("menuPeriodic") end
   end
   
   -- See if there are any pending matches

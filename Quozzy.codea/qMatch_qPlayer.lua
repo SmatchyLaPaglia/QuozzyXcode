@@ -13,6 +13,49 @@ function loadPendingTurnSends()
     pendingTurnSendsByMatchId = (ok and type(t)=="table") and t or {}
 end
 
+-- A match I've locally finished playing but haven't yet decided a comment
+-- for (see COMMENT_WINDOW_SECONDS / computeNextOwedLeg). Written to disk the
+-- instant a round finishes (endGameRound), not just once a decision is
+-- eventually made -- otherwise a kill between finishing and deciding loses
+-- the whole result, not just the send. Kept in sync by decideComment while a
+-- decision is pending, and removed once onLegSendSucceeded confirms the
+-- resulting send actually went through.
+FINISHED_AWAITING_DECISION_KEY = FINISHED_AWAITING_DECISION_KEY or "Q_FinishedAwaitingDecision"
+finishedAwaitingDecisionByMatchId = finishedAwaitingDecisionByMatchId or {}
+
+function persistFinishedAwaitingDecision()
+    local ok, s = pcall(json.encode, finishedAwaitingDecisionByMatchId)
+    if ok and s then saveProjectData(FINISHED_AWAITING_DECISION_KEY, s) end
+end
+
+function loadFinishedAwaitingDecision()
+    local s = readProjectData(FINISHED_AWAITING_DECISION_KEY)
+    if not s or s=="" then finishedAwaitingDecisionByMatchId = {}; return end
+    local ok, t = pcall(json.decode, s)
+    finishedAwaitingDecisionByMatchId = (ok and type(t)=="table") and t or {}
+end
+
+-- Sweeps every locally-known finished-but-undecided match and applies the
+-- comment timeout where it has expired. Pure aside from the persistence
+-- calls -- no tbm/objc access -- so the caller (Main.lua, on foreground/
+-- launch) is responsible for then attempting to actually send anything this
+-- unblocks, the same way it already does for pendingTurnSendsByMatchId.
+-- Returns a list of match ids that just became decided.
+function checkFinishedMatchesForCommentTimeout(now)
+  now = now or os.time()
+  local justDecided = {}
+  local dirty = false
+  for matchId, q in pairs(finishedAwaitingDecisionByMatchId) do
+    local myId = localPID()
+    if applyCommentTimeoutIfExpired(q, myId, now) then
+      dirty = true
+      justDecided[#justDecided+1] = matchId
+    end
+  end
+  if dirty then persistFinishedAwaitingDecision() end
+  return justDecided
+end
+
 function newQMatch(id, source, localId, opponentId, opponentName, bSize, minLen)
   local q = {
     id = id,
@@ -96,15 +139,97 @@ function ensureQMatchPlayers(q, localId, opponentId)
     p.comment   = p.comment   or ""
     p.commentSentAt = p.commentSentAt or nil
     if p.didPlay == nil then p.didPlay = false end
+    -- commentDecided: true once THIS player has locked in their comment
+    -- decision (blank or not) — screen closed, backgrounded, or timed out.
+    -- Distinct from `comment == ""`, which is ambiguous between "declined"
+    -- and "hasn't looked yet". commentWindowStartedAt is stamped the moment
+    -- didPlay becomes true, and is what a timeout check measures against.
+    -- resultSent is local bookkeeping only (has THIS device already
+    -- transmitted its own score+comment for this match).
+    if p.commentDecided == nil then p.commentDecided = false end
+    p.commentWindowStartedAt = p.commentWindowStartedAt or nil
+    if p.resultSent == nil then p.resultSent = false end
     return p
   end
   
   ensureSlot(localId)
   ensureSlot(opponentId)
-  
+
   return q
 end
 
+-- How long a player has, after finishing their round, to decide on a
+-- comment (typed or explicitly blank) before their own device treats the
+-- decision as timed-out-blank. Self-enforced only: whichever device is
+-- sitting on the undecided comment is the one that resolves it, on its own
+-- next foreground/launch — never the other player's device on their behalf.
+COMMENT_WINDOW_SECONDS = COMMENT_WINDOW_SECONDS or 24 * 60 * 60
+
+-- Pure decision function: given the current local view of a match, what (if
+-- anything) does THIS device still owe the other side? No tbm/objc/network
+-- access here — callers decide separately whether they currently hold the
+-- turn to actually act on the answer. Returns one of:
+--   "handshake" — the board has never gone out for this match.
+--   "result"    — I've finished and decided my comment, but haven't sent
+--                 that combined score+comment yet; opponent isn't fully
+--                 resolved yet, so this is a plain relay (not the final one).
+--   "finalize"  — same as above, except the opponent's result already
+--                 arrived fully resolved too, so this leg also closes the
+--                 match out for GameKit's purposes.
+--   nil         — nothing to send right now (includes: I've finished but
+--                 haven't decided my comment yet — deliberately wait for
+--                 that, never send a bare score ahead of it).
+function computeNextOwedLeg(q, myId, now)
+  if not (q and q.players) then return nil end
+  myId = myId or localPID()
+  local me = q.players[myId]
+  if not me then return nil end
+
+  if q.needsInitialHandshake then
+    return "handshake"
+  end
+
+  if not (me.didPlay and me.commentDecided) then
+    return nil
+  end
+  if me.resultSent then
+    return nil
+  end
+
+  local opp = nil
+  for pid, pdata in pairs(q.players) do
+    if pid ~= myId then opp = pdata end
+  end
+
+  if opp and opp.didPlay and opp.commentDecided then
+    return "finalize"
+  end
+  return "result"
+end
+
+-- Pure timeout check: if I finished this match's round and never decided on
+-- a comment within COMMENT_WINDOW_SECONDS, lock it in as blank now. Meant to
+-- run against every locally-known open match on app foreground/launch,
+-- before computeNextOwedLeg is consulted — mutates `me` in place and returns
+-- true if it changed anything.
+function applyCommentTimeoutIfExpired(q, myId, now, windowSeconds)
+  if not (q and q.players) then return false end
+  myId = myId or localPID()
+  local me = q.players[myId]
+  if not me then return false end
+  now = now or os.time()
+  windowSeconds = windowSeconds or COMMENT_WINDOW_SECONDS
+
+  if me.didPlay and not me.commentDecided
+     and me.commentWindowStartedAt
+     and (now - me.commentWindowStartedAt) >= windowSeconds then
+    me.commentDecided = true
+    -- me.comment stays whatever draft (if any) was already there — an
+    -- untouched draft field defaults to "" from ensureQMatchPlayers.
+    return true
+  end
+  return false
+end
 
 -- was localPlayerId()
 function localPID()
