@@ -10,6 +10,9 @@ endScreenNativeCommentField = endScreenNativeCommentField or nil
 endScreenNativeCommentDelegate = endScreenNativeCommentDelegate or nil
 endScreenNativeCommentHandler = endScreenNativeCommentHandler or nil
 endScreenCommentFieldActivated = endScreenCommentFieldActivated or false
+endScreenKeyboardHeight = endScreenKeyboardHeight or 0
+endScreenKBObserver = endScreenKBObserver or nil
+endScreenCommentLastShift = endScreenCommentLastShift or -1
 
 speechBalloonPOCShader = speechBalloonPOCShader or {
 vert = [[
@@ -172,6 +175,8 @@ local function syncEndScreenCommentState(model)
     endScreenSpeechBalloonsVisible = true
     endScreenCommentFocused = false
     endScreenCommentFieldActivated = false
+    endScreenKeyboardHeight = 0
+    endScreenCommentLastShift = -1
   end
 
   local shouldActivate = model and model.commentUI and model.commentUI.canCompose or false
@@ -226,8 +231,10 @@ local function ensureEndScreenNativeCommentField()
   tf.tintColor = Color.uiAccent or color(40, 80, 60, 255)
   tf.layer.cornerRadius = 22
   tf.layer.masksToBounds = true
-  tf.layer.borderWidth = 1.5
-  tf.layer.borderColor = (Color.uiAccent or color(40, 80, 60, 255)).obj
+  tf.layer.borderWidth = 3
+  local _a = Color.uiAccent or color(40, 80, 60, 255)
+  local _uiAccent = objc.UIColor:colorWithRed_green_blue_alpha_(_a.r/255, _a.g/255, _a.b/255, (_a.a or 255)/255)
+  tf.layer.borderColor = _uiAccent.CGColor
   -- Add left padding since borderStyle = none removes default text inset
   local leftPad = objc.UIView:alloc():initWithFrame_(objc.rect(0, 0, 14, 44))
   tf.leftView = leftPad
@@ -262,6 +269,33 @@ local function ensureEndScreenNativeCommentField()
   )
   
   endScreenNativeCommentField = tf
+
+  -- Install keyboard height observers once
+  if not endScreenKBObserver then
+    local KBObs = objc.class("EndScreenKBNotifObserver")
+    function KBObs:keyboardWillShow_(oN)
+      local h = 0
+      if oN and oN.userInfo then
+        local v = oN.userInfo["UIKeyboardFrameEndUserInfoKey"]
+        if v and v.CGRectValue then
+          local r = v:CGRectValue_()
+          if type(r.size.height) == "number" then h = r.size.height end
+        end
+      end
+      endScreenKeyboardHeight = h
+    end
+    function KBObs:keyboardWillHide_(_)
+      endScreenKeyboardHeight = 0
+    end
+    endScreenKBObserver = KBObs()
+    local nc = objc.NSNotificationCenter.defaultCenter
+    nc:addObserver_selector_name_object_(
+      endScreenKBObserver, objc.selector("keyboardWillShow:"),
+      "UIKeyboardWillShowNotification", nil)
+    nc:addObserver_selector_name_object_(
+      endScreenKBObserver, objc.selector("keyboardWillHide:"),
+      "UIKeyboardWillHideNotification", nil)
+  end
 end
 
 local function updateEndScreenNativeCommentField(rect, ui)
@@ -280,13 +314,38 @@ local function updateEndScreenNativeCommentField(rect, ui)
     return
   end
 
-  local raisedY = rect.y + (endScreenCommentFocused and 220 or 0)
   tf.hidden = false
   tf.placeholder = ui.placeholder or ""
-  if (not endScreenCommentFocused) and tostring(tf.text or "") ~= tostring(endScreenCommentDraft or "") then
+  if tostring(tf.text or "") ~= tostring(endScreenCommentDraft or "") then
     tf.text = endScreenCommentDraft or ""
   end
-  tf.frame = codeaToUIKitRect(rect.x, raisedY, rect.w, rect.h)
+
+  -- Compute base UIKit frame (field at bottom button position)
+  local baseX = rect.x
+  local baseY = HEIGHT - rect.y - rect.h  -- convert Codea y-from-bottom → UIKit y-from-top
+  local fW, fH = rect.w, rect.h
+
+  -- Shift up by however much the keyboard overlaps the field (matches KeyboardAvoider logic)
+  local kh = endScreenKeyboardHeight or 0
+  local shiftY = 0
+  if kh > 0 then
+    local fieldBottom = baseY + fH
+    local kbTop = HEIGHT - kh
+    local overlap = fieldBottom - kbTop
+    if overlap > 0 then
+      shiftY = math.ceil(overlap + 12)
+    end
+  end
+
+  -- Only update frame (with animation) when the shift amount changes
+  if shiftY ~= endScreenCommentLastShift then
+    endScreenCommentLastShift = shiftY
+    local targetY = baseY - shiftY
+    objc.UIView:animateWithDuration_animations_(0.25, function()
+      tf.frame = objc.rect(baseX, targetY, fW, fH)
+    end)
+  end
+
   if tf.superview and tf.superview.bringSubviewToFront_ then
     tf.superview:bringSubviewToFront_(tf)
   end
@@ -572,7 +631,6 @@ local function drawEndScreenSpeechBalloons(model, layout)
 
   local balloonFontSize = layout.cardHeaderH * 0.44
   local lineHeight      = balloonFontSize * 1.12
-  local topInset        = 8
   local balloonGap      = 8
   local bLeft           = layout.panelX - layout.panelW * 0.5 + 6
   local bRight          = layout.panelX + layout.panelW * 0.5 - 28
@@ -580,17 +638,18 @@ local function drawEndScreenSpeechBalloons(model, layout)
   local bFill           = Color.uiAccent or color(40, 80, 60, 255)
   local bStroke         = color(255, 255, 255, 170)
   local bText           = Color.panelBG or color(245, 242, 232, 255)
+  local minBalloonH     = math.max(36, layout.boardSide * 0.16)
 
-  -- Opponent balloon — anchored to panel top, tail points down-right to opponent avatar
+  -- Stack balloons from innerTop downward
+  local cursor = layout.innerTop  -- top anchor (Codea y, high value = near screen top)
+
+  -- Opponent balloon — top of stack, tail points down-right to opponent avatar
   local oppRect = nil
   if ui.opponentComment and ui.opponentComment ~= "" then
     local measured = measureSpeechBalloonText(ui.opponentComment, bubbleW - 8, balloonFontSize, lineHeight, 4, 4)
-    local bH = math.max(layout.boardSide * 0.16, measured.height)
-    oppRect = {
-      x = bLeft,
-      y = layout.panelY + layout.panelH * 0.5 - topInset - bH,
-      w = bubbleW, h = bH,
-    }
+    local bH = math.max(minBalloonH, measured.height)
+    oppRect = { x = bLeft, y = cursor - bH, w = bubbleW, h = bH }
+    cursor = oppRect.y - balloonGap
     drawSpeechBalloon(oppRect, ui.opponentComment,
       avatarLayout.opponentX, avatarLayout.opponentY, "down",
       bFill, bStroke, {
@@ -604,15 +663,11 @@ local function drawEndScreenSpeechBalloons(model, layout)
       })
   end
 
-  -- Local balloon — stacked just below opponent balloon, tail points down-left to local avatar
+  -- Local balloon — stacked below opponent, tail points down-left to local avatar
   if ui.localComment and ui.localComment ~= "" then
     local measured = measureSpeechBalloonText(ui.localComment, bubbleW - 8, balloonFontSize, lineHeight, 4, 4)
-    local bH = math.max(layout.boardSide * 0.15, measured.height)
-    local topY2 = oppRect and (oppRect.y - balloonGap) or (layout.panelY + layout.panelH * 0.5 - topInset)
-    local localRect = {
-      x = bLeft, y = topY2 - bH,
-      w = bubbleW, h = bH,
-    }
+    local bH = math.max(minBalloonH, measured.height)
+    local localRect = { x = bLeft, y = cursor - bH, w = bubbleW, h = bH }
     drawSpeechBalloon(localRect, ui.localComment,
       avatarLayout.localX, avatarLayout.localY, "down",
       bFill, bStroke, {

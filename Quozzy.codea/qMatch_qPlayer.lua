@@ -397,31 +397,25 @@ function openDebugCommentPhasePreview()
 
     currentQMatch = ensureQMatchPlayers(q, myId, oppId)
     if tbm then
-        tbm.currentMatch = {
-            matchID = q.id,
-            participants = {}
-        }
+        tbm.currentMatch = { matchID = q.id, participants = {} }
         tbm.isMyTurn = true
     end
 
-    if enterQMatch then
-        enterQMatch(currentQMatch)
-    else
-        useTurnBased = true
-        currentMatchID = q.id
-        currentOpponentID = oppId
-        opponentAlias = q.otherName or q.opponentName or "Opponent"
-        score = tonumber(q.players[myId].score) or 0
-        opponentScore = tonumber(q.players[oppId].score) or 0
-        foundWords = q.players[myId].words or {}
-        foundWordsSet = {}
-        for _, w in ipairs(foundWords) do
-            if type(w) == "string" then
-                foundWordsSet[w] = true
-            end
-        end
-        state = STATE_END
+    -- enterQMatch has no path to STATE_END when opponent hasn't played yet and isMyTurn=true,
+    -- so bypass it and set up the end screen directly.
+    useTurnBased      = true
+    currentMatchID    = q.id
+    currentOpponentID = oppId
+    opponentAlias     = q.otherName or q.opponentName or "Opponent"
+    score             = tonumber(q.players[myId].score) or 0
+    opponentScore     = tonumber(q.players[oppId].score) or 0
+    foundWords        = q.players[myId].words or {}
+    foundWordsSet     = {}
+    for _, w in ipairs(foundWords) do
+        if type(w) == "string" then foundWordsSet[w] = true end
     end
+    if defineAvatarsAfterMicrodelay then defineAvatarsAfterMicrodelay() end
+    state = STATE_END
 
     endScreenSpeechBalloonsVisible = true
     endScreenCommentDraft = ""

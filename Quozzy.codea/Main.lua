@@ -65,8 +65,7 @@ end
 
 viewer.mode = FULLSCREEN
 FORCE_RED_BOOT_SCREEN = false
-FORCE_COMMENT_PHASE_BOOT_PREVIEW = true
-_debugSequenceStep = 0
+FORCE_COMMENT_PHASE_BOOT_PREVIEW = false
 -- AFTER
 MIN_WORD_LEN = 3
 SOWPODS_URL = "https://people.sc.fsu.edu/~jburkardt/datasets/words/sowpods.txt"
@@ -892,39 +891,6 @@ function setup()
   loadPendingTurnSends()
   setupGCDebugParameters()
 
-  if FORCE_COMMENT_PHASE_BOOT_PREVIEW then
-    -- Patch startSeasonTransition to intercept "close" actions during the debug sequence
-    _debugBaseTransition = startSeasonTransition
-    startSeasonTransition = function()
-      if _debugSequenceStep and _debugSequenceStep > 0 then
-        _debugSequenceNext()
-      else
-        _debugBaseTransition()
-      end
-    end
-    _debugSequenceStep = 1
-    _debugSequenceNext()
-  end
-end
-
-function _debugSequenceNext()
-  if _debugSequenceStep == 1 then
-    -- Screen 1: Player A's end screen (first to play, no opponent balloon, comment field)
-    _debugSequenceStep = 2
-    if openDebugCommentPhasePreview then openDebugCommentPhasePreview() end
-  elseif _debugSequenceStep == 2 then
-    -- Screen 2: Player B's end screen (opponent balloon + comment field)
-    _debugSequenceStep = 3
-    if openDebugBothBalloonsPreview then openDebugBothBalloonsPreview() end
-  elseif _debugSequenceStep == 3 then
-    -- Screen 3: Post-match review (both balloons, no field)
-    _debugSequenceStep = 4
-    if openDebugPostMatchReview then openDebugPostMatchReview() end
-  else
-    -- Done — resume normal flow
-    _debugSequenceStep = 0
-    _debugBaseTransition()
-  end
 end
 
 function setupSparklerParameters()

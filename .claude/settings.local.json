@@ -4,7 +4,15 @@
       "Bash(grep -r \"DFS\\\\|backtrack\\\\|dfs\\\\|search\" /Users/jesse_macbook_clark/Documents/Xcode/QuozzyXcode/Quozzy.codea/*.lua)",
       "Bash(grep -l \"findWord\\\\|validatePath\\\\|checkWord\\\\|solveBoard\" /Users/jesse_macbook_clark/Documents/Xcode/QuozzyXcode/Quozzy.codea/*.lua)",
       "Bash(grep -r \"SOWPODS\\\\|DICT\\\\|dictionary\" /Users/jesse_macbook_clark/Documents/Xcode/QuozzyXcode/Quozzy.codea/*.lua)",
-      "Bash(grep -E \"\\(README|CLAUDE|\\\\.cursor|\\\\.md|\\\\.txt\\)$\")"
+      "Bash(grep -E \"\\(README|CLAUDE|\\\\.cursor|\\\\.md|\\\\.txt\\)$\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "WebSearch",
+      "WebFetch(domain:basberg.com)",
+      "WebFetch(domain:codea.io)",
+      "WebFetch(domain:twolivesleft.github.io)",
+      "WebFetch(domain:sarunw.com)",
+      "WebFetch(domain:gist.github.com)"
     ]
   }
 }
