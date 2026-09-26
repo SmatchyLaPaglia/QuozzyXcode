@@ -481,6 +481,20 @@ TWO GOTCHAS fixed here (both easy to reintroduce):
     which produces GPU garbage if called while a clip() scissor is active. Both lists
     PRE-GENERATE all thumbnails/avatars BEFORE clip() (cached), then the clipped loop is a
     pure draw; drawAvatarCircle is passed a non-nil image so it never creates one in-clip.
+    Because unknownAvatarImageCache is keyed by size|color, ONE in-clip render poisons that
+    size app-wide (vs friends list 56px == Records 56px). MatchSelection.lua vs game/friends
+    lists regressed this in the laptop-work merge; fixed 2026-09-26 with the same
+    pre-generate-before-clip pattern (entryAvatars/entryThumbs, friendAvatars).
+  - ALL-BLACK AVATARS (2026-09-26): NOT the clip issue and NOT the CircleS shader.
+    readImage() inside an objc.async / GameKit callback returns a BLANK image (right size,
+    zero pixels — verified on device via DevRemote, same main thread as draw()). The vs list
+    refresh (and makeQMatchFromGK → ensureAvatarForOpponent) called getOpponentRecordAvatar
+    from those callbacks, cached the blank image in OpponentRecordAvatarCache → black circles.
+    Fix: Main.lua sets CODEA_RENDER_PASS only during draw()/touched() (real bodies are now
+    drawFrame()/touchedFrame()); getOpponentRecordAvatar returns nil (uncached) outside it,
+    and _drawVsMatchesList resolves e.avatar pre-clip. This was a violation of the existing
+    "NEVER call UIKit/Codea from inside an objc callback" rule (ObjC bridge section) —
+    readImage counts, and it fails SILENTLY (blank image) rather than crashing.
   - UTF-8 TRUNCATION: _truncateWithEllipsis must not cut mid-multibyte-char (an em dash split
     across the cut = invalid UTF-8 that textSize mis-measures and text() renders as nothing —
     it silently ate the in-progress row's "waiting" line). It now backs the cut off any
@@ -1409,3 +1423,14 @@ end screen, not just the menu.
 | deferred rematch trigger | ConfettiEffectsEtc.lua | updateSeasonTransition() — pendingRematchAfterEndScreenExit |
 | generic alert touch (state-independent) | HaikuMenu.lua | handleGenericAlertTouch() |
 | balloon visibility toggle (tap above/on balloon) | EndScreen.lua | endScreenHasVisibleBalloons(), handleEndScreenTouch() |
+
+## DevRemote: run Lua on a device from the Mac (DevRemote.lua, tools/dbg.sh, 2026-09-26)
+  tools/dbg.sh '<lua>'        push Documents/dbg_cmd.txt ("--id N" first line); app's
+                              devRemotePoll() (top of drawFrame, every 0.5s) runs it once and
+                              writes print()/return values/errors to Documents/dbg_out.txt
+  tools/dbg.sh -f file.lua    same, from a file
+  tools/dbg.sh --pull NAME    copy Documents/NAME off the device into ./dbg_pull/
+  tools/dbg.sh --shot [name]  screenshot (pymobiledevice3; needs `sudo pymobiledevice3 remote tunneld` running)
+  In-app helpers: dbgDump(v[,depth]), dbgTap(x,y) (fake touch via touchedFrame), dbgImage(img,name)
+  First poll after launch only records the existing cmd id (stale commands don't re-run).
+  DEV_REMOTE_ENABLED = false to disable. DBG_DEVICE env overrides target device id.

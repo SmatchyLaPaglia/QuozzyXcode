@@ -256,6 +256,10 @@ function getOpponentRecordAvatar(oppId)
   local key = rec and rec.avatarKey
   if not key then return nil end
   
+  -- readImage outside draw()/touched() (e.g. in a GameKit objc.async callback) returns a
+  -- blank image; caching that made every opponent avatar black. Defer to the next frame.
+  if not CODEA_RENDER_PASS then return nil end
+  
   local img = _readAvatarFromDisk(key)
   if img then
     OpponentRecordAvatarCache[oppId] = img

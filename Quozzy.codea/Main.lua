@@ -1149,7 +1149,19 @@ function drawReplayMatchmakingOverlay()
   popStyle()
 end
 
+-- CODEA_RENDER_PASS is true only while draw()/touched() run. Image I/O (readImage) inside
+-- objc.async / GameKit callbacks silently yields a BLANK image, so code that loads images
+-- from disk checks this flag and defers to the next frame (see getOpponentRecordAvatar).
+CODEA_RENDER_PASS = false
+
 function draw()
+  CODEA_RENDER_PASS = true
+  drawFrame()
+  CODEA_RENDER_PASS = false
+end
+
+function drawFrame()
+  devRemotePoll()
   if FORCE_RED_BOOT_SCREEN then
     background(255, 0, 0)
     return
@@ -1329,6 +1341,12 @@ function handlePreviewTouch(t)
 end
 
 function touched(t)
+  CODEA_RENDER_PASS = true
+  touchedFrame(t)
+  CODEA_RENDER_PASS = false
+end
+
+function touchedFrame(t)
   if FORCE_RED_BOOT_SCREEN then
     return
   end

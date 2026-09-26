@@ -152,9 +152,8 @@ function refreshVsMatchesList(reason)
                   }
                   entry.needsAction = (not ended and not entry.localDidPlay) or (ended and not viewed)
                   list[#list + 1] = entry
-                  if oppId and getOpponentRecordAvatar then
-                    entry.avatar = getOpponentRecordAvatar(oppId)
-                  end
+                  -- entry.avatar is resolved in _drawVsMatchesList, NOT here: readImage inside
+                  -- this GameKit callback returns a blank image (and caches it for good).
                 end
               end
             end
@@ -431,6 +430,16 @@ function _drawVsMatchesList(g)
   if vsScrollY < 0 then vsScrollY = 0 end
   if vsScrollY > maxScroll then vsScrollY = maxScroll end
 
+  -- Pre-generate avatars + board thumbs BEFORE clip(): both render via setContext, which
+  -- produces GPU garbage under an active clip scissor — and both are cached,
+  -- so one bad render sticks for every later draw at that size (see RecordsUI, STRUCTURE.md).
+  local entryAvatars, entryThumbs = {}, {}
+  for i, e in ipairs(vsListEntries) do
+    if not e.avatar and e.oppId then e.avatar = getOpponentRecordAvatar(e.oppId) end
+    entryAvatars[i] = e.avatar or unknownPlayerAvatar(rowH - 16, Color.uiAccent)
+    entryThumbs[i] = getRecordsBoardThumb(e.q, 64)
+  end
+
   clip(g.innerLeft, g.listBottom, g.listWidth, g.listHeight)
   local cursorY = g.listTop + vsScrollY
 
@@ -464,7 +473,7 @@ function _drawVsMatchesList(g)
     text("No open games right now.", g.panelX, (g.listTop + g.listBottom) * 0.5 - 40)
   end
 
-  for _, e in ipairs(vsListEntries) do
+  for i, e in ipairs(vsListEntries) do
     local cardCy = cursorY - rowH * 0.5
     if cardCy + rowH*0.5 > g.listBottom and cardCy - rowH*0.5 < g.listTop then
       local cardCx = g.innerLeft + g.listWidth * 0.5
@@ -473,9 +482,9 @@ function _drawVsMatchesList(g)
 
       local avatarSize = rowH - 16
       local avatarCx = g.innerLeft + 8 + avatarSize * 0.5
-      drawAvatarCircle(e.avatar, avatarCx, cardCy, avatarSize)
+      drawAvatarCircle(entryAvatars[i], avatarCx, cardCy, avatarSize)
 
-      local thumb = getRecordsBoardThumb(e.q, 64)
+      local thumb = entryThumbs[i]
       local textLeft = avatarCx + avatarSize * 0.5 + 12
       local textRight = g.innerRight - 8 - (thumb and 72 or 0)
       if thumb then
@@ -548,6 +557,12 @@ function _drawVsFriendsList(g)
   if vsScrollY < 0 then vsScrollY = 0 end
   if vsScrollY > maxScroll then vsScrollY = maxScroll end
 
+  -- Pre-generate placeholder avatars before clip() (setContext under clip = black texture).
+  local friendAvatars = {}
+  for i, e in ipairs(vsFriendsEntries) do
+    friendAvatars[i] = e.avatar or unknownPlayerAvatar(rowH - 16, Color.uiAccent)
+  end
+
   clip(g.innerLeft, listBottom, g.listWidth, listHeight)
   local cursorY = listTop + vsScrollY
 
@@ -567,7 +582,7 @@ function _drawVsFriendsList(g)
     textWrapWidth(0)
   end
 
-  for _, e in ipairs(vsFriendsEntries) do
+  for i, e in ipairs(vsFriendsEntries) do
     local cardCy = cursorY - rowH * 0.5
     if cardCy + rowH*0.5 > listBottom and cardCy - rowH*0.5 < listTop then
       local cardCx = g.innerLeft + g.listWidth * 0.5
@@ -575,7 +590,7 @@ function _drawVsFriendsList(g)
 
       local avatarSize = rowH - 16
       local avatarCx = g.innerLeft + 8 + avatarSize * 0.5
-      drawAvatarCircle(e.avatar, avatarCx, cardCy, avatarSize)
+      drawAvatarCircle(friendAvatars[i], avatarCx, cardCy, avatarSize)
 
       textAlign(LEFT)
       font("HelveticaNeue-Bold")
