@@ -1448,3 +1448,11 @@ end screen, not just the menu.
 - Verified OK: momentum decay + clamping (vs, friends, records, about), friend picker (23 GC
   friends, raw UIImage avatars draw fine), vs-button dot, no Lua errors in DEV_LOG_BUFFER.
 - Open question: Records shows ChandraPa and sprugman twice each (different ids, same alias).
+
+## Records consolidation + recency sort (opponentRecords.lua / RecordsUI.lua, 2026-09-26)
+- consolidateDuplicateOpponentRecords() runs at load (after loadMatchHistory): groups
+  opponentRecords by alias; keeps modern "A:"/"G:" id (else newest updatedAt); sums W/L/T;
+  keeps newest avatarKey; moves matchHistoryByOpponent entries (oppId rewritten). Idempotent.
+  One-time backup of the pre-merge table: readLocalData("OpponentRecords_preConsolidate").
+- opponentLastActivity(oppId) = max(rec.updatedAt, newest history endedAt). Records opponents
+  list sorts by it (desc, alias tiebreak); recordsMatchesForOpponent sorts in place by endedAt desc.

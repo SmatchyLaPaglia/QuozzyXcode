@@ -56,6 +56,13 @@ function recordsMatchesForOpponent(oppKey)
     local store = matchHistoryByOpponent
     local list = store and store[oppKey]
     if type(list) ~= "table" then return {} end
+    -- Enforce newest-first on read (in place, so tap handlers indexing this list see the
+    -- same order the draw pass did); id breaks ties so the order is deterministic.
+    table.sort(list, function(a, b)
+        local ea, eb = a.endedAt or 0, b.endedAt or 0
+        if ea ~= eb then return ea > eb end
+        return tostring(a.id) < tostring(b.id)
+    end)
     return list
 end
 
@@ -470,9 +477,14 @@ function drawRecordsOpponentsList(b)
             wins = rec.wins or 0,
             losses = rec.losses or 0,
             ties = rec.ties or 0,
+            lastActivity = opponentLastActivity and opponentLastActivity(id) or 0,
         }
     end
-    table.sort(entries, function(a, b2) return (a.alias or "") < (b2.alias or "") end)
+    -- Most recently played first; alias breaks ties (e.g. records with no timestamps).
+    table.sort(entries, function(a, b2)
+        if a.lastActivity ~= b2.lastActivity then return a.lastActivity > b2.lastActivity end
+        return (a.alias or "") < (b2.alias or "")
+    end)
 
     recordsRowRects = {}
 

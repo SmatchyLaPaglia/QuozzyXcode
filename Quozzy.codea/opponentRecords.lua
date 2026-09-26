@@ -280,6 +280,107 @@ function matchesForOpponent(oppId)
 end
 
 --####################################################################
+-- DUPLICATE CONSOLIDATION (2026-09-26)
+--####################################################################
+-- The same opponent could end up with several records under different id formats
+-- (legacy 64-hex ids vs modern "A:_..."/"G:..." gamePlayerIDs) — e.g. sprugman had 5.
+-- Records sharing an alias are merged into one: the modern id wins (else the most
+-- recently updated), W/L/T are summed, the newest avatar is kept, and match history
+-- is moved over. Runs on every load, so it's idempotent and also catches future dupes.
+-- The pre-merge table is backed up once under OPPONENT_RECORDS_BACKUP_KEY.
+
+OPPONENT_RECORDS_BACKUP_KEY = "OpponentRecords_preConsolidate"
+
+local function _isModernPlayerId(id)
+  return type(id) == "string" and (id:sub(1, 2) == "A:" or id:sub(1, 2) == "G:")
+end
+
+function consolidateDuplicateOpponentRecords()
+  local byAlias = {}
+  for id, rec in pairs(opponentRecords) do
+    local alias = type(rec) == "table" and rec.alias or nil
+    if alias and alias ~= "" then
+      byAlias[alias] = byAlias[alias] or {}
+      table.insert(byAlias[alias], id)
+    end
+  end
+
+  local merged = 0
+  for alias, ids in pairs(byAlias) do
+    if #ids > 1 then
+      if merged == 0 and not readLocalData(OPPONENT_RECORDS_BACKUP_KEY) then
+        saveLocalData(OPPONENT_RECORDS_BACKUP_KEY, json.encode(opponentRecords))
+      end
+      table.sort(ids, function(a, b)
+        local am, bm = _isModernPlayerId(a), _isModernPlayerId(b)
+        if am ~= bm then return am end
+        local au, bu = _int0(opponentRecords[a].updatedAt), _int0(opponentRecords[b].updatedAt)
+        if au ~= bu then return au > bu end
+        return a < b
+      end)
+
+      local keepId = ids[1]
+      local keep = opponentRecords[keepId]
+      keep.wins, keep.losses, keep.ties = _int0(keep.wins), _int0(keep.losses), _int0(keep.ties)
+      local keepHist = matchHistoryByOpponent[keepId] or {}
+
+      for i = 2, #ids do
+        local id = ids[i]
+        local r = opponentRecords[id]
+        keep.wins   = keep.wins   + _int0(r.wins)
+        keep.losses = keep.losses + _int0(r.losses)
+        keep.ties   = keep.ties   + _int0(r.ties)
+        if _int0(r.updatedAt) > _int0(keep.updatedAt) then keep.updatedAt = _int0(r.updatedAt) end
+        if r.avatarKey and (not keep.avatarKey or _int0(r.avatarUpdatedAt) > _int0(keep.avatarUpdatedAt)) then
+          keep.avatarKey, keep.avatarUpdatedAt = r.avatarKey, r.avatarUpdatedAt
+        end
+
+        for _, m in ipairs(matchHistoryByOpponent[id] or {}) do
+          local dup = false
+          for _, e in ipairs(keepHist) do if e.id == m.id then dup = true break end end
+          if not dup then m.oppId = keepId; keepHist[#keepHist + 1] = m end
+        end
+        matchHistoryByOpponent[id] = nil
+        opponentRecords[id] = nil
+        if OpponentRecordAvatarCache then OpponentRecordAvatarCache[id] = nil end
+      end
+
+      if #keepHist > 0 then
+        table.sort(keepHist, function(a, b) return (a.endedAt or 0) > (b.endedAt or 0) end)
+        while #keepHist > MATCH_HISTORY_CAP_PER_OPP do table.remove(keepHist) end
+        matchHistoryByOpponent[keepId] = keepHist
+      end
+      if OpponentRecordAvatarCache then OpponentRecordAvatarCache[keepId] = nil end
+      devLog("records: merged " .. (#ids - 1) .. " duplicate(s) of " .. alias .. " into " .. keepId)
+      merged = merged + 1
+    end
+  end
+
+  if merged > 0 then
+    saveOpponentRecords()
+    saveMatchHistory()
+  end
+  return merged
+end
+
+consolidateDuplicateOpponentRecords()
+
+-- Most recent activity with an opponent: the later of the record's last W/L update and
+-- their newest match snapshot. Used to sort the Records list newest-first.
+function opponentLastActivity(oppId)
+  local rec = opponentRecords[oppId]
+  local t = rec and _int0(rec.updatedAt) or 0
+  local list = matchHistoryByOpponent[oppId]
+  if type(list) == "table" then
+    for _, m in ipairs(list) do
+      local e = _int0(m.endedAt)
+      if e > t then t = e end
+    end
+  end
+  return t
+end
+
+--####################################################################
 -- BADGES: "game ended" and "opponent commented" (two distinct badges, not
 -- one graduated indicator — see MULTIPLAYER_TEST_PLAN.md §4).
 --
