@@ -14,8 +14,10 @@ recordsRowRects      = recordsRowRects      or {}   -- opponents list (grid mode
 recordsMatchRowRects = recordsMatchRowRects or {}   -- matches list (detail mode): {..., matchIndex}
 
 -- Momentum scrolling (applyScrollInertia, Helpers.lua): recordsScrollVel is tracked as
--- -dy/dt while dragging (matching this file's `recordsScrollY = recordsScrollY - dy`
--- convention) and decayed each draw frame the touch isn't active.
+-- dy/dt while dragging. Convention (same as the vs list): recordsScrollY in [0, maxScroll]
+-- = how far the content has moved UP; rows draw at listTop + recordsScrollY, and dragging
+-- up (dy > 0) adds. (Fixed 2026-09-26: draw and drag had opposite signs, so the [0,max]
+-- clamp snapped every upward drag back to 0 and downward drags pushed rows off-screen.)
 recordsScrollVel  = recordsScrollVel  or 0
 recordsScrollPrevT = recordsScrollPrevT or 0
 
@@ -493,7 +495,7 @@ function drawRecordsOpponentsList(b)
     clip(b.innerLeft, b.listBottom, b.listWidth, b.listHeight)
 
     for i, e in ipairs(entries) do
-        local rowTopY = b.listTop - recordsScrollY - (i - 1) * rowH
+        local rowTopY = b.listTop + recordsScrollY - (i - 1) * rowH
         local cardCy  = rowTopY - cardH * 0.5
         if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
             local cardCx = b.innerLeft + b.listWidth * 0.5
@@ -608,7 +610,7 @@ function drawRecordsMatchesList(b)
     clip(b.innerLeft, b.listBottom, b.listWidth, b.listHeight)
 
     for i, m in ipairs(matches) do
-        local rowTopY = b.listTop - recordsScrollY - (i - 1) * rowH
+        local rowTopY = b.listTop + recordsScrollY - (i - 1) * rowH
         local cardCy  = rowTopY - cardH * 0.5
         if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
             local cardCx = b.innerLeft + b.listWidth * 0.5
@@ -846,10 +848,10 @@ function handleRecordsTouch(t)
         if recordsScrollTouchId and t.id == recordsScrollTouchId then
             local dy = t.y - recordsScrollPrevY
             recordsScrollPrevY = t.y
-            recordsScrollY = recordsScrollY - dy
+            recordsScrollY = recordsScrollY + dy
             local now = ElapsedTime
             local dt = now - (recordsScrollPrevT or now)
-            if dt > 0 then recordsScrollVel = -dy / dt end
+            if dt > 0 then recordsScrollVel = dy / dt end
             recordsScrollPrevT = now
             if math.abs(t.y - (recordsTouchStartY or t.y)) > _RECORDS_TAP_SLOP or
                math.abs(t.x - (recordsTouchStartX or t.x)) > _RECORDS_TAP_SLOP then

@@ -221,7 +221,7 @@ function drawInfoOverlay()
   fontSize(28)
   textMode(CORNER)
   textAlign(CENTER)
-  text("About", panelX, innerTop - 30)
+  text("About", panelX - textSize("About") * 0.5, innerTop - 30)  -- CORNER: x is left edge, so offset by half width
 
   -- Close button (fixed, bottom of panel)
   local btnW, btnH = 200, 48

@@ -16,6 +16,21 @@ Codea uses OpenGL-style **y-up** coordinates. Origin (0,0) is **bottom-left**.
 
 **Before any `rect(`, `text(`, `ellipse(`, `sprite(` call, ask yourself: "Am I assuming top-left right now?"** If yes, stop and flip your Y.
 
+## Hard Rules — apply everywhere, regardless of what you're working on
+
+Each was learned from a real bug. Details live where noted; these one-liners are here because topic-based searches of STRUCTURE.md kept missing them.
+
+- **No Codea or UIKit work inside objc callbacks** (GameKit completion handlers, `objc.async`, delegates). Only set Lua data/flags there; do the work in `draw()`. `readImage` in a callback silently returns a *blank* image; other calls can crash. `CODEA_RENDER_PASS` is true only inside `draw()`/`touched()`. → STRUCTURE.md "ObjC Bridge: Key Patterns"
+- **objc callback params need type prefixes** (`bSuccess`, `oError`, `sName`, `iCount`, `fValue`) — unprefixed params arrive as nil. → STRUCTURE.md "ObjC Bridge"
+- **No `setContext` (render-to-texture) while a `clip()` is active** — produces a garbage texture, and cached images (`unknownPlayerAvatar`, `getRecordsBoardThumb`) keep it forever. Pre-generate images before `clip()`. → STRUCTURE.md "RENDER-TO-TEXTURE UNDER CLIP"
+- **`textAlign` does nothing under `textMode(CENTER)`** — (x,y) stays the block center. Use `textMode(CORNER)` for left-anchored text.
+- **`text()` drops the en dash `–`** — use em dash `—` or `-`. Truncating strings must not cut mid-UTF-8 character. → XCODE_CODEA.md
+- **`readText("Documents:name")` needs a `.txt` extension** or silently returns nil. → XCODE_CODEA.md
+- **Scroll offsets: test with a forced non-zero scroll value** — sign errors are invisible at scroll 0. → STRUCTURE.md "SCROLL MATH GOTCHA"
+- **Anything that sets `replayMatchmakingBusy = true` must guarantee it gets cleared** — it blocks all touches.
+- **Don't start async GC work that sets `state` until `updateSeasonTransition()` has settled** (see State Transition Timing Trap below).
+- **Verify UI changes on the device** with `tools/dbg.sh` (run Lua, `dbgTap`, `--shot` screenshots) instead of guessing. → STRUCTURE.md "DevRemote"
+
 ## Project Overview
 
 **Vivaldi-ku** is a Boggle-style word game for iOS written in **Lua for the [Codea](https://codea.io) iPad environment**. It supports single-player timed rounds and asynchronous turn-based multiplayer via GameCenter. The current build is `#11 (version 1)` (`CURRENT_PROJECT_VERSION` / `MARKETING_VERSION` in `Quozzy.xcodeproj/project.pbxproj`).
@@ -158,3 +173,10 @@ During those 0.7 seconds, `draw()` continues calling `drawEndScreenFP()` every f
 
 In comments for git commits, use the language 'Excecuted by <Claude model>' to credit yourself instead of 'Co-authored-by <Claude model>.
 
+
+## Before an App Store / TestFlight Build
+
+Dev-only switches that must be off in shipped builds:
+
+- `DEV_REMOTE_ENABLED = false` — `DevRemote.lua` (remote Lua runner used by `tools/dbg.sh`)
+- `SHOW_DEBUG_BUTTON = false`, `BALLOON_MOCKUP_DEV = false`, `FORCE_RED_BOOT_SCREEN = false`, `AUTO_SHOW_DEBUG_ALERT = false` — top of `Main.lua`

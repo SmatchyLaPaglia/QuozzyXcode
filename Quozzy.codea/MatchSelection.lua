@@ -405,6 +405,22 @@ function drawVsOverlay()
   vsOverlayGeom = g
 end
 
+-- textMode(CORNER) makes x the LEFT edge even with textAlign(CENTER); center by measuring.
+local function _vsTextCentered(str, cx, y)
+  local w = textSize(str)
+  text(str, cx - w * 0.5, y)
+end
+
+-- Row hit rects are trimmed to the visible list viewport so a row scrolled out of view
+-- (under the title or the bottom button) can't be tapped through.
+local function _vsPushRowRect(r, viewBottom, viewTop)
+  local y0 = math.max(r.y, viewBottom)
+  local y1 = math.min(r.y + r.h, viewTop)
+  if y1 <= y0 then return end
+  r.y, r.h = y0, y1 - y0
+  vsRowRects[#vsRowRects+1] = r
+end
+
 function _drawVsMatchesList(g)
   vsRowRects = {}
   pushStyle()
@@ -415,7 +431,7 @@ function _drawVsMatchesList(g)
   fill(tileText)
   font("Georgia-Bold")
   fontSize(24)
-  text("Games", g.panelX, g.innerTop - 26)
+  _vsTextCentered("Games", g.panelX, g.innerTop - 26)
 
   local rowH = 84
   local gap = 10
@@ -453,9 +469,9 @@ function _drawVsMatchesList(g)
       fill(Color.uiAccent)
       font("HelveticaNeue-Bold")
       fontSize(22)
-      text("+ New Game", cardCx, cardCy - 8)
+      _vsTextCentered("+ New Game", cardCx, cardCy - 8)
     end
-    vsRowRects[#vsRowRects+1] = { x = g.innerLeft, y = cardCy - newGameH*0.5, w = g.listWidth, h = newGameH, kind = "newGame" }
+    _vsPushRowRect({ x = g.innerLeft, y = cardCy - newGameH*0.5, w = g.listWidth, h = newGameH, kind = "newGame" }, g.listBottom, g.listTop)
     cursorY = cursorY - newGameH - gap
   end
 
@@ -464,13 +480,13 @@ function _drawVsMatchesList(g)
     font("Georgia-Italic")
     fontSize(18)
     textAlign(CENTER)
-    text("Loading games…", g.panelX, (g.listTop + g.listBottom) * 0.5)
+    _vsTextCentered("Loading games…", g.panelX, (g.listTop + g.listBottom) * 0.5)
   elseif #vsListEntries == 0 then
     fill(tileText.r, tileText.g, tileText.b, 160)
     font("Georgia-Italic")
     fontSize(18)
     textAlign(CENTER)
-    text("No open games right now.", g.panelX, (g.listTop + g.listBottom) * 0.5 - 40)
+    _vsTextCentered("No open games right now.", g.panelX, (g.listTop + g.listBottom) * 0.5 - 40)
   end
 
   for i, e in ipairs(vsListEntries) do
@@ -505,7 +521,7 @@ function _drawVsMatchesList(g)
       fill(e.needsAction and Color.uiAccent2 or color(tileText.r, tileText.g, tileText.b, 160))
       text(_truncateWithEllipsis(vsStatusTextForEntry(e), textRight - textLeft), textLeft, cardCy - 14)
     end
-    vsRowRects[#vsRowRects+1] = { x = g.innerLeft, y = cardCy - rowH*0.5, w = g.listWidth, h = rowH, kind = "match", entry = e }
+    _vsPushRowRect({ x = g.innerLeft, y = cardCy - rowH*0.5, w = g.listWidth, h = rowH, kind = "match", entry = e }, g.listBottom, g.listTop)
     cursorY = cursorY - rowH - gap
   end
   clip()
@@ -525,7 +541,7 @@ function _drawVsFriendsList(g)
   fill(tileText)
   font("Georgia-Bold")
   fontSize(24)
-  text("New Game", g.panelX, g.innerTop - 26)
+  _vsTextCentered("New Game", g.panelX, g.innerTop - 26)
 
   -- Disclaimer, wrapped, just under the title
   font("Georgia-Italic")
@@ -571,14 +587,14 @@ function _drawVsFriendsList(g)
     font("Georgia-Italic")
     fontSize(18)
     textAlign(CENTER)
-    text("Loading friends…", g.panelX, (listTop + listBottom) * 0.5)
+    _vsTextCentered("Loading friends…", g.panelX, (listTop + listBottom) * 0.5)
   elseif vsFriendsLoadError then
     fill(tileText.r, tileText.g, tileText.b, 190)
     font("Georgia-Italic")
     fontSize(16)
     textAlign(CENTER)
     textWrapWidth(g.listWidth - 40)
-    text(vsFriendsLoadError, g.panelX, (listTop + listBottom) * 0.5)
+    text(vsFriendsLoadError, g.panelX - (g.listWidth - 40) * 0.5, (listTop + listBottom) * 0.5)
     textWrapWidth(0)
   end
 
@@ -598,7 +614,7 @@ function _drawVsFriendsList(g)
       fill(tileText)
       text(_truncateWithEllipsis(e.name, g.innerRight - 8 - (avatarCx + avatarSize*0.5 + 12)), avatarCx + avatarSize*0.5 + 12, cardCy - 6)
     end
-    vsRowRects[#vsRowRects+1] = { x = g.innerLeft, y = cardCy - rowH*0.5, w = g.listWidth, h = rowH, kind = "friend", entry = e }
+    _vsPushRowRect({ x = g.innerLeft, y = cardCy - rowH*0.5, w = g.listWidth, h = rowH, kind = "friend", entry = e }, listBottom, listTop)
     cursorY = cursorY - rowH - gap
   end
   clip()

@@ -94,8 +94,22 @@ local function _quickStartInsideAvoidRect(px, py)
   local o  = quickStart.avoidOrigin
   local hw = (quickStart.avoidW or 0) * 0.5
   local hh = (quickStart.avoidH or 0) * 0.5
-  return (px >= o.x - hw and px <= o.x + hw
-      and py >= o.y - hh and py <= o.y + hh)
+  if px >= o.x - hw and px <= o.x + hw and py >= o.y - hh and py <= o.y + hh then
+    return true
+  end
+  -- Also keep the whole circle (+ margin) off every live menu button. handleQuickStartTouch
+  -- gets touches first, so a hop onto solo/vs/replay/records/info hijacked that button's tap.
+  -- (Measured 2026-09-26 via DevRemote: 4 of 7 hops overlapped a button.)
+  local clear = (quickStart.radius or 0) * (quickStart.maxScale or 1.25) + 8
+  for _, b in pairs(menuHitRects or {}) do
+    local bx, by = b.cx or b.x, b.cy or b.y
+    if bx and by and b.w and b.h then
+      local nx = math.max(bx - b.w * 0.5, math.min(px, bx + b.w * 0.5))
+      local ny = math.max(by - b.h * 0.5, math.min(py, by + b.h * 0.5))
+      if (px - nx)^2 + (py - ny)^2 < clear * clear then return true end
+    end
+  end
+  return false
 end
 
 local function _pickQuickStartPosition()
@@ -298,9 +312,15 @@ function drawQuickStart()
   fill(255, 255, 255, alpha)
   textMode(CENTER)
   textAlign(CENTER)
-  fontSize(12 * scale)
+  fontSize(14 * scale)
   font("Baskerville-SemiBold")
-  text("QUICK START\nNEXT MATCH", 0, 0)
+  -- One text() per line so each word is centered on its own (textAlign is unreliable
+  -- inside a textMode(CENTER) multi-line block).
+  local lines = { "QUICK", "START", "NEXT", "MATCH" }
+  local lineH = 14 * scale * 1.05
+  for i, line in ipairs(lines) do
+    text(line, 0, (#lines + 1) * 0.5 * lineH - i * lineH)
+  end
 
   popMatrix()
   popStyle()

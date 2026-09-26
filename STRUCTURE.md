@@ -1434,3 +1434,17 @@ end screen, not just the menu.
   In-app helpers: dbgDump(v[,depth]), dbgTap(x,y) (fake touch via touchedFrame), dbgImage(img,name)
   First poll after launch only records the existing cmd id (stale commands don't re-run).
   DEV_REMOTE_ENABLED = false to disable. DBG_DEVICE env overrides target device id.
+
+## New-UI device pass (2026-09-26, via DevRemote) — fixes
+- vs overlay (MatchSelection.lua): titles/"+ New Game"/empty-state text were textMode(CORNER)+
+  textAlign(CENTER) → drawn starting AT center. Now _vsTextCentered(). Row hit rects are
+  trimmed to the visible list via _vsPushRowRect (a row scrolled under the title was tappable).
+- Records (RecordsUI.lua): scroll convention now matches vs list — recordsScrollY ∈ [0,max] =
+  content moved UP; rows at listTop + recordsScrollY; drag adds dy; vel = dy/dt. Draw and drag
+  had opposite signs since at least 88eebfc, so the list could never scroll down.
+- Quick Start (Badges.lua _quickStartInsideAvoidRect): also avoids every menuHitRects button
+  (radius*maxScale+8). Still allowed over the full-width board/min-length bands (design call).
+- About title (OverlayPanels.lua) had the same CORNER-centering bug.
+- Verified OK: momentum decay + clamping (vs, friends, records, about), friend picker (23 GC
+  friends, raw UIImage avatars draw fine), vs-button dot, no Lua errors in DEV_LOG_BUFFER.
+- Open question: Records shows ChandraPa and sprugman twice each (different ids, same alias).
