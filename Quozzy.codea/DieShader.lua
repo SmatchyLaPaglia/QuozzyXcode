@@ -11,7 +11,7 @@
 -- just inside it. Tune the DIE_* constants below; nothing else needs to change.
 -- If the shader fails to build, drawDie falls back to the old flat drawRoundedRect look.
 
-DIE_EDGE_DARKNESS      = 0.48   -- outline rgb = fill rgb * this (0 = black, 1 = same as fill)
+DIE_EDGE_DARKNESS      = 0.62   -- outline rgb = fill rgb * this (0 = black, 1 = same as fill)
 DIE_EDGE_WIDTH_FRAC    = 0.045  -- outline width as a fraction of the die's shorter side
 DIE_EDGE_WIDTH_MIN     = 1.5    -- ... but never thinner than this many points
 DIE_RIM_WIDTH          = 1.0    -- hairline just inside the outline, in points
