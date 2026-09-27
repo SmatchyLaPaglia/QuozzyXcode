@@ -19,6 +19,17 @@ function badgeSuppressed()
      or vsOverlay
 end
 
+-- Small solid red dot, radius r, centered at (cx, cy). Shared by the vs-button badge and
+-- the per-row "unseen result" badges in the vs list (MatchSelection.lua _drawVsMatchesList).
+function drawRedBadgeDot(cx, cy, r)
+  pushStyle()
+  noStroke()
+  ellipseMode(CENTER)
+  fill(230, 40, 40, 255)
+  ellipse(cx, cy, r * 2)
+  popStyle()
+end
+
 -- rect = {cx, cy, w, h} of the vs button (menuHitRects.vs)
 function drawVsButtonBadge(rect)
   if not rect then return end
@@ -29,13 +40,7 @@ function drawVsButtonBadge(rect)
   local r = math.max(8, math.min(rect.w, rect.h) * 0.12)
   local x = rect.cx + rect.w * 0.5 - r * 0.6
   local y = rect.cy + rect.h * 0.5 - r * 0.6
-
-  pushStyle()
-  noStroke()
-  ellipseMode(CENTER)
-  fill(230, 40, 40, 255)
-  ellipse(x, y, r * 2)
-  popStyle()
+  drawRedBadgeDot(x, y, r)
 end
 
 --############################################################

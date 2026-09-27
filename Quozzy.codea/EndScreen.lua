@@ -651,8 +651,12 @@ end
 
 
 -- Submits any in-progress comment draft (if the local player is currently
--- composing one) then tears down the end screen and hands off to the
--- season-transition fade, which flips state to STATE_MENU 0.7s later.
+-- composing one) then tears down the end screen and returns to the menu — via the
+-- season-transition fade (state flips to STATE_MENU 0.7s later) ONLY when the end screen
+-- being closed is showing a round the local player just actually finished playing
+-- (justFinishedLiveGame, set by endGameRound(), GameCenter.lua); otherwise this was just
+-- browsing an already-decided match (vs list, a stale reopen, etc.) and returns to the menu
+-- immediately, same as the endScreenReturnToRecords path below already did.
 -- Shared by the close (×) button and the rematch button's confirm callback.
 function disposeEndScreenAndReturnToMenu()
   if commitEndScreenCommentAndExit and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
@@ -681,7 +685,12 @@ function disposeEndScreenAndReturnToMenu()
     recordsSavedLiveState = nil
   end
 
-  startSeasonTransition()
+  if justFinishedLiveGame then
+    justFinishedLiveGame = false
+    startSeasonTransition()
+  else
+    state = STATE_MENU
+  end
   return true
 end
 

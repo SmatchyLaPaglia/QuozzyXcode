@@ -782,6 +782,7 @@ function openHistoricalMatchEndScreen(m)
     recordsOverlay = false
     recordsScrollTouchId = nil
     endScreenLastMatchId = nil   -- force end-screen model/layout rebuild for this match
+    justFinishedLiveGame = false  -- browsing history, not a fresh finish — see GameCenter.lua
 
     state = STATE_END
 end

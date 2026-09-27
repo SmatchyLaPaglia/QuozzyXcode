@@ -25,12 +25,45 @@ CONFETTI_DEPTH_TIERS = {
     { sizeMin = 72, sizeMax = 144, blur = 0.9  }, -- foreground, blurriest
 }
 
--- Cheap "poor-man's blur": Codea has no real-time blur filter for text, so
--- this fakes one with a few copies staggered around a small ring at reduced
--- alpha, plus a faint sharp core so it doesn't read as a hollow ring.
--- Cheap enough for a burst of ~80 short-lived particles; a real
--- render-to-texture blur pass would be overkill here. blurAmount 0 draws a
--- single normal, fully-sharp copy.
+-- Real 2D blur via a dense gaussian-weighted sample grid, not the old single ring (which
+-- read as a hollow flower shape — a ring only samples the PERIMETER of the blur disc,
+-- leaving its center empty). A precomputed grid of offsets + weights (see
+-- _buildBlurKernel) is reused across all particles/frames — only the per-draw text() calls
+-- are new work. blurAmount 0 draws a single normal, fully-sharp copy, same as before.
+--
+-- A real render-to-texture shader blur was tried first (two-pass separable gaussian,
+-- baked+cached per emoji). It was DROPPED 2026-09-27: it intermittently produced fully
+-- blank (alpha-0) textures for some emoji/timing combinations with no error, and an early
+-- version of it froze the app for 90+ seconds (both in the iOS Simulator and on a real
+-- device) by triggering dozens of render-to-texture passes in a single frame. Given a
+-- confetti burst is ~80 short-lived particles, this per-draw sample-grid approach has no
+-- offscreen render target, no shader, and nothing that can silently fail — it was verified
+-- working via DevRemote screenshots (STRUCTURE.md).
+local function _buildBlurKernel()
+    -- n=2 -> 13 samples (circular-masked 5x5 grid) reads just as convincingly blurred as
+    -- n=4's 49 samples (compared side by side via DevRemote) at a quarter of the per-draw
+    -- cost — worth keeping low since a burst can have ~50 blurred particles on screen at
+    -- once, each needing its own set of text() draws every frame.
+    local n = 2                -- samples per axis half-width -> up to (2n+1)^2 = 25 samples
+    local sigma = 0.42        -- gaussian sigma, in units of "radius" (tuned by eye)
+    local pts = {}
+    local total = 0
+    for iy = -n, n do
+        for ix = -n, n do
+            local fx, fy = ix / n, iy / n            -- -1..1
+            local d2 = fx * fx + fy * fy
+            if d2 <= 1.0 then                         -- circular kernel, not square
+                local w = math.exp(-d2 / (2 * sigma * sigma))
+                pts[#pts + 1] = { x = fx, y = fy, w = w }
+                total = total + w
+            end
+        end
+    end
+    for _, p in ipairs(pts) do p.w = p.w / total end   -- normalize: weights sum to 1
+    return pts
+end
+local _blurKernel = _buildBlurKernel()
+
 local function drawDepthEmoji(ch, size, blurAmount, baseAlpha)
     fontSize(size)
     if not blurAmount or blurAmount <= 0 then
@@ -38,15 +71,17 @@ local function drawDepthEmoji(ch, size, blurAmount, baseAlpha)
         text(ch, 0, 0)
         return
     end
-    local samples = 5
-    local radius = size * 0.14 * blurAmount
-    local sampleAlpha = baseAlpha * 0.8 / samples
-    for i = 1, samples do
-        local a = (i - 1) / samples * math.pi * 2
-        fill(255, 255, 255, sampleAlpha)
-        text(ch, math.cos(a) * radius, math.sin(a) * radius)
+    local radius = size * 0.22 * blurAmount
+    -- Each sample is a full-glyph copy weighted by the kernel; alpha compositing ("over")
+    -- isn't a true weighted average, so scale down overall and let overlap in the dense
+    -- center naturally rebuild most of the coverage there — same per-particle alpha budget
+    -- as the old ring hack (baseAlpha*0.8 total), just spread over a real 2D disc instead
+    -- of a 1D ring.
+    for _, p in ipairs(_blurKernel) do
+        fill(255, 255, 255, baseAlpha * p.w * 0.8)
+        text(ch, p.x * radius, p.y * radius)
     end
-    fill(255, 255, 255, baseAlpha * 0.4)
+    fill(255, 255, 255, baseAlpha * 0.15)
     text(ch, 0, 0)
 end
 

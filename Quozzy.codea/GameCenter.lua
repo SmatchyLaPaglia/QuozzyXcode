@@ -254,6 +254,14 @@ end
 -- final fallthrough — gets a chance to check "is there something I can now
 -- send?" (e.g. a merge just brought in the opponent's resolution, making a
 -- previously-queued local decision sendable per computeNextOwedLeg).
+-- True only while the end screen up right now is showing the result of a round the local
+-- player just actually finished PLAYING this session (set by endGameRound() below). Every
+-- other way to land on STATE_END — opening an already-decided match from the vs list,
+-- Records, or a background sync — leaves it false. disposeEndScreenAndReturnToMenu /
+-- commitEndScreenCommentAndExit (EndScreen.lua / EndScreenFP.lua) gate startSeasonTransition()
+-- on this, so browsing old results no longer advances the season.
+justFinishedLiveGame = justFinishedLiveGame or false
+
 local function enterQMatch_inner(q)
   if not q or not q.id then
     print("enterQMatch: nil q or id")
@@ -298,6 +306,11 @@ local function enterQMatch_inner(q)
       return
     end
   end
+
+  -- A real entry into a match context (as opposed to the protective background merge just
+  -- above, which returns early and must NOT reach here): whatever justFinishedLiveGame was
+  -- claiming is no longer applicable until/unless endGameRound() sets it again below.
+  justFinishedLiveGame = false
 
   if endReplayMatchmakingBusy then
     endReplayMatchmakingBusy()
@@ -604,6 +617,7 @@ function endGameRound()
   print("DEBUG:endGameRound: currentFoundWords():", json.encode(currentFoundWords()))
   
   state = STATE_END
+  justFinishedLiveGame = true  -- the ONLY place this becomes true; see declaration above
   rotatePlayAgainLabel()
   
   local q   = currentQMatch

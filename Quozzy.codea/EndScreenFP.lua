@@ -194,7 +194,15 @@ function commitEndScreenCommentAndExit()
   if not submitted then return false end
   endScreenCommentDraft = ""
   teardownEndScreenCommentField()
-  startSeasonTransition()
+  -- Only a just-finished-live round advances the season; see disposeEndScreenAndReturnToMenu
+  -- (EndScreen.lua) for the full rationale — this composer can also appear when reopening an
+  -- already-decided match that just hasn't had a comment exchanged yet.
+  if justFinishedLiveGame then
+    justFinishedLiveGame = false
+    startSeasonTransition()
+  else
+    state = STATE_MENU
+  end
   return true
 end
 

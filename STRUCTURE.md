@@ -1478,3 +1478,18 @@ end screen, not just the menu.
   color as the die color to keep every die's hue unchanged.
 - Simulator workflow: DBG_SIM=<udid> tools/dbg.sh ... works without a phone/tunneld
   (simctl install + launch; dbg.sh reads/writes the sim data container directly).
+
+## Confetti depth-blur: dense sample-grid, not a shader (ConfettiEffectsEtc.lua, 2026-09-27)
+drawDepthEmoji's blurAmount>0 path draws a precomputed circular grid of offset text() copies
+(_buildBlurKernel: n=2 -> 13 samples, gaussian-weighted, normalized, radius = size*0.22*
+blurAmount) instead of a single ring. The old 5-copy ring (STRUCTURE.md history) read as a
+hollow "flower" — a ring only samples the blur disc's PERIMETER, leaving the center empty; a
+filled 2D grid doesn't have that hole. Verified via DevRemote: baked a sharp vs. blurred
+copy of the same emoji side by side into one image and pulled it to inspect pixel-for-pixel.
+  TRIED AND REJECTED: a real render-to-texture two-pass separable gaussian shader (baked once
+  per (char, blurAmount), same "bake once, draw scaled" idea as DieShader). Dropped because it
+  intermittently produced fully blank (alpha-0) output for some emoji/timing combinations with
+  no error — and an early version (which also keyed the cache by size, needing dozens of
+  distinct bakes for one 80-particle burst) froze the app for 90+ seconds, reproduced on BOTH
+  the iOS Simulator and a real device. If revisiting a shader approach, budget serious time to
+  chase that flakiness before trusting it.

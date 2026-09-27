@@ -500,6 +500,16 @@ function _drawVsMatchesList(g)
       local avatarCx = g.innerLeft + 8 + avatarSize * 0.5
       drawAvatarCircle(entryAvatars[i], avatarCx, cardCy, avatarSize)
 
+      -- Unseen result badge: every row still in this list with e.ended==true is, by
+      -- construction, not yet viewed (an ended+viewed match is filtered out above) — so
+      -- this is exactly the set of "unseen results" the vs-button's own red dot is warning
+      -- about (vsHasActionable). "Your turn" rows (not ended) get their own accent border/
+      -- text instead — a different signal, so no dot there.
+      if e.ended and drawRedBadgeDot then
+        local br = math.max(7, avatarSize * 0.14)
+        drawRedBadgeDot(avatarCx + avatarSize * 0.5 - br * 0.6, cardCy + avatarSize * 0.5 - br * 0.6, br)
+      end
+
       local thumb = entryThumbs[i]
       local textLeft = avatarCx + avatarSize * 0.5 + 12
       local textRight = g.innerRight - 8 - (thumb and 72 or 0)
