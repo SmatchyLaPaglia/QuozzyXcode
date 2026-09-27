@@ -127,7 +127,7 @@ colorInspectorOverlay = false
 GLOBAL_UI_FONT      = "HelveticaNeue-BoldItalic"
 GLOBAL_UI_FONT_DICE = "Helvetica"  -- what dice/tile letters rendered as before this change (no font() was ever set for them)
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal).
-SHOW_DEBUG_BUTTON = false  -- dev-only: true shows the 🐛 button on the main menu (opens the balloon mockup). FALSE for shipped builds.
+SHOW_DEBUG_BUTTON = true  -- dev-only: true shows the 🐛 button on the main menu (opens the Ripple Picker, HaikuMenu.lua debugDialog). FALSE for shipped builds.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
 mockupScenarioIndex = mockupScenarioIndex or 1  -- which of the 7 BALLOON_MOCKUP_STATES is showing
 mockupChipRects = nil           -- hit rects for the 7 scenario chips, set each frame
@@ -1261,6 +1261,7 @@ function drawFrame()
     drawQuickStart()
     drawVsOverlay()
     drawInfoOverlay()
+    drawRipplePickerOverlay()
     drawColorInspectorOverlay()
     drawGCSignInOverlay()
     drawBalloonMockupOverlay()
@@ -1375,6 +1376,10 @@ function touchedFrame(t)
   end
 
   if showInfoOverlay and handleInfoOverlayTouch(t) then
+    return
+  end
+
+  if ripplePickerOverlay and handleRipplePickerTouch(t) then
     return
   end
 

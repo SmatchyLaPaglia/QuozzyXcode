@@ -1594,3 +1594,30 @@ drawShaderRipple ever returns false (shader unavailable). Verified working throu
 unforced activation path (a fake actionable vs match, not manually poking quickStart fields)
 and over multiple ripple phases via DevRemote screenshots, with no hang over an extended
 poll. This is what ships.
+
+## Ripple Picker debug overlay (RipplePicker.lua, 2026-09-27)
+SHOW_DEBUG_BUTTON (Main.lua) is back on, and the 🐛 button (HaikuMenu.lua debugDialog) now
+opens RipplePicker.lua's overlay instead of the balloon mockup (still reachable — see the
+comment at that call site). Shows 6 candidate "droplet hits still water" entrance animations
+for the match-ready badge side by side, all driven by one shared clock (RIPPLE_PICKER_LOOP,
+so they animate in lockstep for a fair comparison) and restarting together every loop.
+
+Concept, per feedback: the badge currently just appears at full size and THEN ripples start.
+Preferred instead: start as a small point (like a droplet impact), grow into the full badge
+(the growth itself reads as the first wave), and once full size, ripples continue spreading
+outward exactly as before. drawGrowingRipple() implements this: while t < growDuration, the
+disc radius eases from 0 to r (no separate ring — the growing disc edge IS the first wave);
+once grown, it switches into the same continuous mod-wrapped ring loop the shipped ripple
+already uses, with the phase clock starting fresh at 0 so ring 0 begins exactly at the disc's
+settled edge.
+
+The 6 variants vary the growth easing curve, duration, and two optional flourishes (a tiny
+pre-impact flash pulse before growth starts; a soft glow ring hugging the disc's edge WHILE
+it's still growing) — see RIPPLE_PICKER_VARIANTS for exact parameters. CPU-drawn (the
+RIPPLE_PICKER_SOFT_LAYERS layered-stroke technique, same idea as Badges.lua drawWaterRipple)
+since this is a fast-iteration comparison tool, not committed production code.
+
+Once a favorite is picked, port its growDuration/ease/prePulse/edgeGlow into the real badge
+(Badges.lua drawQuickStart) — either as a new CPU function alongside drawWaterRipple, or into
+RippleShader.lua's drawShaderRipple (would need a uGrowRadius-style uniform added, since the
+shader currently assumes the badge is already at full size before any ripple math runs).

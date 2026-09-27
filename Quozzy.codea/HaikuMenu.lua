@@ -1138,12 +1138,12 @@ function handleMenuTouch(t)
     openInfoOverlay()
 
   elseif key == "debugDialog" then
-    -- Open the balloon mockup overlay, always starting on scenario 1. (The
-    -- 10-scheme color picker used to pick the permanent "Grid Wash" balloon
-    -- colors on 2026-08-11 is still available — see drawBalloonColorPickerOverlay,
-    -- EndScreenFP.lua — just not wired to this button by default anymore.)
-    balloonMockupOverlay = true
-    mockupScenarioIndex = 1
+    -- Opens the Ripple Picker (RipplePicker.lua) — 6 candidate "droplet hits still water"
+    -- entrance animations for the match-ready badge, compared side by side. The balloon
+    -- mockup that used to live here is still available — see drawBalloonMockupOverlay,
+    -- EndScreenFP.lua — just not wired to this button by default anymore; set
+    -- balloonMockupOverlay = true directly (e.g. from here) to reopen it.
+    openRipplePickerOverlay()
   end
 end
 

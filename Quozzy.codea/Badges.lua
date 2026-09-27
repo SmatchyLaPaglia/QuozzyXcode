@@ -16,7 +16,7 @@ pendingTurnMatches = pendingTurnMatches or {}  -- legacy store; kept only for th
 function badgeSuppressed()
   return colorInspectorOverlay or showInfoOverlay or recordsOverlay or balloonMockupOverlay
      or balloonColorPickerOverlay or gcSignInOverlay or gcMatchmakerErrorOverlay or genericAlertActive
-     or vsOverlay
+     or vsOverlay or ripplePickerOverlay
 end
 
 -- Small solid red dot, radius r, centered at (cx, cy). Shared by the vs-button badge and
