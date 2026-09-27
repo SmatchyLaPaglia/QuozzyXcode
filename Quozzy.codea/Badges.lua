@@ -229,6 +229,54 @@ function updateQuickStart(dt)
   end
 end
 
+-- Water-ripple wavefronts for the quick-start badge: continuously-emanating, fading rings
+-- (mod-wrapped, so new ones keep appearing for as long as the badge is shown, rather than
+-- one burst that goes flat), each drawn as 3 layered strokes for a soft gaussian-ish band
+-- instead of one hard line — reads as a water surface, not sonar rings.
+--
+-- A live-shader version of this (RippleShader.lua) was tried and reverted 2026-09-27: its
+-- math checked out perfectly in isolation (verified pixel-by-pixel via DevRemote, an
+-- offscreen render, a fresh mesh+shader built the same way), but the app's own persistent,
+-- cached copy of that exact mesh — built once and reused every frame, same pattern
+-- DieShader.lua uses successfully — never rendered anything visible once wired into the
+-- real draw path, for a reason that didn't isolate down to any single line despite
+-- extensive bisection. Given TWO other shader attempts today (confetti's blur, tried twice)
+-- also turned out unreliable in this environment, this plain 2D version is the one that
+-- ships — reliable beats fancy here. See STRUCTURE.md "match-ready ripple" for the full
+-- account if revisiting this.
+RIPPLE_RING_SPEED   = 130   -- points/second each wavefront's radius grows
+RIPPLE_RING_SPACING = 34    -- points between successive staggered wavefronts
+RIPPLE_RING_COUNT   = 4     -- how many staggered wavefronts are in flight at once
+local RIPPLE_SOFT_LAYERS = {  -- {radius offset, stroke width, alpha fraction} per band
+  { -6, 3, 0.30 },
+  {  0, 4, 1.00 },
+  {  6, 3, 0.30 },
+}
+
+local function drawWaterRipple(cx, cy, t, maxRadius, ripColor)
+  local cycle = maxRadius + RIPPLE_RING_SPACING * RIPPLE_RING_COUNT
+  pushStyle()
+  noFill()
+  lineCapMode(ROUND)
+  ellipseMode(CENTER)
+  for i = 0, RIPPLE_RING_COUNT - 1 do
+    local phase = (t * RIPPLE_RING_SPEED - i * RIPPLE_RING_SPACING) % cycle
+    local fade = math.max(0, 1 - phase / maxRadius)
+    fade = fade * fade   -- ease-out: rings visibly weaken as they spread, like real ripples losing energy
+    if fade > 0.01 then
+      for _, layer in ipairs(RIPPLE_SOFT_LAYERS) do
+        local radius = phase + layer[1]
+        if radius > 0 then
+          strokeWidth(layer[2])
+          stroke(ripColor.r, ripColor.g, ripColor.b, ripColor.a * fade * layer[3])
+          ellipse(cx, cy, radius * 2, radius * 2)
+        end
+      end
+    end
+  end
+  popStyle()
+end
+
 function drawQuickStart()
   if state ~= STATE_MENU then return end
   if badgeSuppressed() then return end
@@ -275,39 +323,12 @@ function drawQuickStart()
   translate(x, y)
   rotate(qs.rotation or 0)
 
-  do
-    if t < visibleDur - disappear then
-      local rippleCount = qs.rippleCount or 0
-      local duration    = qs.rippleDuration or 0.6
-      local rWidth      = qs.rippleWidth or 3
-      local speed       = qs.rippleSpeed or 90.0
-
-      if rippleCount > 0 then
-        local stepDelay = duration / math.max(rippleCount, 1)
-        for i = 1, rippleCount do
-          local startTime = (i - 1) * stepDelay
-          local age       = t - startTime
-          if age > 0 and age < duration then
-            local rr   = r + age * speed
-            local fade = 1.0 - (age / duration)
-            local aRip = 220 * fade
-            noFill()
-            stroke(230, 40, 40, aRip)
-            strokeWidth(rWidth)
-            ellipse(0, 0, rr * 2, rr * 2)
-          end
-        end
-      end
-    end
-  end
-
-  do
-    local off   = qs.permanentRippleOffset or 12
-    local width = qs.permanentRippleWidth or 1.0
-    noFill()
-    stroke(230, 40, 40, alpha * 0.55)
-    strokeWidth(width)
-    ellipse(0, 0, (r + off) * 2 * scale, (r + off) * 2 * scale)
+  -- Water-ripple wavefronts (drawWaterRipple above) — replaces the old evenly-spaced
+  -- stroked-circle rings (a fixed one-shot burst, plus a separate static "permanent" ring)
+  -- with continuously-emanating, softer, fading wavefronts. t resets to 0 each time the
+  -- badge pops in, so every appearance reads as a fresh drop.
+  if t < visibleDur - disappear then
+    drawWaterRipple(0, 0, t, r * 3.2, color(230, 40, 40, alpha))
   end
 
   noStroke()

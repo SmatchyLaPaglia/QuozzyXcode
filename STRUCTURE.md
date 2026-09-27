@@ -1553,3 +1553,27 @@ copy of the same emoji side by side into one image and pulled it to inspect pixe
   pool across the whole path so the band isn't empty-then-filling on first load. Call sites
   changed from initFlecks/updateFlecks(cx, cy, ...) to (bandCy, bandH, ...) — cx no longer
   needed since spawn x is edge-relative, not word-relative.
+
+## Match-ready badge ripple: CPU rings, not a shader (Badges.lua, 2026-09-27)
+drawWaterRipple() (Badges.lua) replaces the old evenly-spaced stroked-circle rings (fixed
+one-shot burst + a separate static "permanent" ring) with continuously mod-wrapped,
+ease-out-fading rings, each drawn as 3 layered strokes (a soft gaussian-ish band instead of
+one hard line) — reads as water, not sonar.
+
+A live-shader version (RippleShader.lua) was tried first and reverted. Its math was
+confirmed CORRECT in isolation — verified pixel-by-pixel via DevRemote (offscreen renders,
+sampling raw pixel colors at expected ring radii) — including finding and fixing one real
+bug along the way: a uniform literally named `uTime` is silently ignored by Codea (no
+error, shader "compiles", the value just never updates — reads as 0 forever). Renamed to
+`uRippleTime`, confirmed fixed via the same pixel-sampling method. Despite that, and despite
+using the exact same "persistent mesh+shader, redrawn every frame" pattern DieShader.lua
+uses successfully, the app's own long-lived cached copy of the mesh — built once via
+_getRippleMesh(), reused every frame — never rendered anything visible once wired into the
+real drawQuickStart() call path, even though a byte-for-byte identical shader built fresh
+in an isolated test (same session, same process) worked correctly every time. Bisection
+(fresh mesh vs cached mesh, offscreen vs on-screen, correct vs incorrect draw-order hooking)
+never isolated a single cause. Given TWO other shader attempts this session (confetti's
+blur) were also abandoned for reliability problems, this is now a pattern, not one unlucky
+shader — treat any NEW shader idea in this codebase as unproven until verified working from
+inside the actual call site it will ship in, not just in an isolated DevRemote test, before
+writing more than a prototype's worth of code around it.
