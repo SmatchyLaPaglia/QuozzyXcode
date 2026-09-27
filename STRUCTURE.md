@@ -1459,9 +1459,10 @@ end screen, not just the menu.
 
 ## Dice look: DieShader.lua drawDie() (2026-09-26)
 - drawDie(x, y, w, h, r, fillCol, angleDeg) — center-based like drawRoundedRect. One shared
-  mesh + fragment shader (DieS): rounded-rect SDF, dark outline (fill * DIE_EDGE_DARKNESS,
-  width max(DIE_EDGE_WIDTH_MIN, 4.5% of size)), soft white highlight centered toward the
-  upper-right (DIE_HIGHLIGHT_*). angleDeg = rotation the caller already applied via rotate();
+  mesh + fragment shader (DieS): rounded-rect SDF, dark outline (fill * DIE_EDGE_DARKNESS =
+  0.48, width max(DIE_EDGE_WIDTH_MIN, 4.5% of size)), a 1pt lighter hairline just inside it
+  (DIE_RIM_*), and a soft white highlight centered toward the upper-right (DIE_HIGHLIGHT_*,
+  strength 0.24). angleDeg = rotation the caller already applied via rotate();
   the light is counter-rotated so it stays upper-right on screen for tilted dice.
   Falls back to flat drawRoundedRect if the shader fails to build (prints once).
 - Used by every DIE: Board.lua drawBoard, HaikuMenu.lua (menu board preview + min-length dice),

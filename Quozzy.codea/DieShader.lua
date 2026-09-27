@@ -6,14 +6,17 @@
 --             rotate(); the highlight is counter-rotated so the light stays upper-right on
 --             screen even when the die is tilted (menu dice, ready-screen jitter).
 --
--- The outline is derived from the fill (fill * DIE_EDGE_DARKNESS) so it stays dark in every
--- season theme. Tune the DIE_* constants below; nothing else needs to change.
+-- The outline is derived from the fill (fill * DIE_EDGE_DARKNESS) so it stays darker than the
+-- die in every season theme, with a 1pt lighter hairline (fill lightened by DIE_RIM_LIGHTEN)
+-- just inside it. Tune the DIE_* constants below; nothing else needs to change.
 -- If the shader fails to build, drawDie falls back to the old flat drawRoundedRect look.
 
-DIE_EDGE_DARKNESS      = 0.30   -- outline rgb = fill rgb * this (0 = black, 1 = same as fill)
+DIE_EDGE_DARKNESS      = 0.48   -- outline rgb = fill rgb * this (0 = black, 1 = same as fill)
 DIE_EDGE_WIDTH_FRAC    = 0.045  -- outline width as a fraction of the die's shorter side
 DIE_EDGE_WIDTH_MIN     = 1.5    -- ... but never thinner than this many points
-DIE_HIGHLIGHT_STRENGTH = 0.42   -- peak white mixed in at the highlight center (0..1)
+DIE_RIM_WIDTH          = 1.0    -- hairline just inside the outline, in points
+DIE_RIM_LIGHTEN        = 0.40   -- hairline color = fill lightened this much toward white (0..1)
+DIE_HIGHLIGHT_STRENGTH = 0.24   -- peak white mixed in at the highlight center (0..1)
 DIE_HIGHLIGHT_RADIUS   = 0.95   -- highlight falloff radius, fraction of die size
 DIE_HIGHLIGHT_OFFSET   = 0.36   -- highlight center, fraction of die size from die center
 
@@ -40,6 +43,8 @@ DieS = {
   uniform highp vec2 sizePx;
   uniform highp float radiusPx;
   uniform highp float edgePx;
+  uniform highp vec4 rimColor;
+  uniform highp float rimPx;
   uniform highp float lightAngle;
   uniform highp float hlStrength;
   uniform highp float hlRadius;
@@ -57,6 +62,12 @@ DieS = {
     float cover   = 1.0 - smoothstep(-0.75, 0.75, d);
     float edgeMix = smoothstep(-edgePx - 0.75, -edgePx + 0.75, d);
     vec3 base = mix(fillColor.rgb, edgeColor.rgb, edgeMix);
+
+    // Light hairline just inside the dark outline: a rimPx-wide band ending at the outline's
+    // inner boundary (d = -edgePx), leaving ~0.5pt so it doesn't blur into the dark edge.
+    float rimD = abs(d + edgePx + 0.5 + rimPx * 0.5);
+    float rim  = (1.0 - smoothstep(rimPx * 0.5 - 0.3, rimPx * 0.5 + 0.4, rimD)) * (1.0 - edgeMix);
+    base = mix(base, rimColor.rgb, rim);
 
     // Highlight center: upper-right of the die in SCREEN space. The die is rotated by
     // lightAngle, so express that direction in the die's local frame (rotate by -angle).
@@ -114,6 +125,10 @@ function drawDie(x, y, w, h, r, fillCol, angleDeg)
   sh.sizePx       = vec2(w, h)
   sh.radiusPx     = math.min(r or 0, math.min(w, h) * 0.5)
   sh.edgePx       = math.max(DIE_EDGE_WIDTH_MIN, math.min(w, h) * DIE_EDGE_WIDTH_FRAC)
+  local k = DIE_RIM_LIGHTEN
+  sh.rimColor     = color(fillCol.r + (255 - fillCol.r) * k, fillCol.g + (255 - fillCol.g) * k,
+                          fillCol.b + (255 - fillCol.b) * k, fillCol.a or 255)
+  sh.rimPx        = DIE_RIM_WIDTH
   sh.lightAngle   = math.rad(angleDeg or 0)
   sh.hlStrength   = DIE_HIGHLIGHT_STRENGTH
   sh.hlRadius     = DIE_HIGHLIGHT_RADIUS
