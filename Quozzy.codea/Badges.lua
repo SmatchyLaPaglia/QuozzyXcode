@@ -323,12 +323,16 @@ function drawQuickStart()
   translate(x, y)
   rotate(qs.rotation or 0)
 
-  -- Water-ripple wavefronts (drawWaterRipple above) — replaces the old evenly-spaced
-  -- stroked-circle rings (a fixed one-shot burst, plus a separate static "permanent" ring)
-  -- with continuously-emanating, softer, fading wavefronts. t resets to 0 each time the
-  -- badge pops in, so every appearance reads as a fresh drop.
+  -- Water-ripple wavefronts: the real shader (RippleShader.lua drawShaderRipple), promoted
+  -- from its standalone RippleDemo.lua proof once confirmed working (see STRUCTURE.md
+  -- "Match-ready badge ripple" / "RippleShader.lua reinstated"). Falls back to the CPU
+  -- version (drawWaterRipple, above) if the shader isn't available for any reason. t resets
+  -- to 0 each time the badge pops in, so every appearance reads as a fresh drop.
   if t < visibleDur - disappear then
-    drawWaterRipple(0, 0, t, r * 3.2, color(230, 40, 40, alpha))
+    local ripColor = color(230, 40, 40, alpha)
+    if not (drawShaderRipple and drawShaderRipple(0, 0, t, r * 3.2, ripColor)) then
+      drawWaterRipple(0, 0, t, r * 3.2, ripColor)
+    end
   end
 
   noStroke()

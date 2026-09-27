@@ -1578,20 +1578,19 @@ shader — treat any NEW shader idea in this codebase as unproven until verified
 inside the actual call site it will ship in, not just in an isolated DevRemote test, before
 writing more than a prototype's worth of code around it.
 
-## RippleDemo.lua: standalone shader-ripple proof, running concurrently (2026-09-27)
-A completely independent rebuild of the reverted RippleShader.lua (own mesh, own shader
-object, own draw call — no connection to quickStart/Badges.lua at all), called directly from
-Main.lua's draw() (drawRippleDemo(), right after drawQuickStart()) whenever state==STATE_MENU.
-Draws continuously in the menu's top-right corner, always on, not gated on any match state.
+## RippleShader.lua reinstated: the real badge now uses the shader (2026-09-27)
+The standalone RippleDemo.lua proof (a completely independent rebuild of the reverted
+RippleShader.lua — own mesh, own shader, own draw call, no connection to quickStart) ran
+correctly in the menu's top-right corner across multiple verified frames, confirming the
+shader itself works fine when built fresh with no history in the session. That narrowed the
+earlier mystery (see "Match-ready badge ripple" above): whatever broke the OLD cached mesh
+was specific to that particular build/session, not the shader or the general live-shader
+pattern.
 
-Working, verified over multiple frames via DevRemote screenshots: soft glowing blue rings,
-correctly animating. This directly narrows the earlier mystery (see "Match-ready badge
-ripple" above) — a byte-for-byte-equivalent shader, rebuilt fresh with no history in this
-session, just works when wired straight into the draw loop. Whatever broke the old
-RippleShader.lua's cached mesh was specific to that build/session, not the shader or the
-general pattern. Still unexplained, but no longer blocking: this file is the live reference
-if the CPU-based drawWaterRipple (Badges.lua, currently shipped on the real badge) is ever
-swapped back for a shader.
-
-Not wired to any button or game state — delete this file + its one Main.lua call site
-whenever it's no longer wanted.
+RippleDemo.lua has been removed (its job was done) and its proven code promoted back into
+RippleShader.lua (drawShaderRipple), now called from the REAL drawQuickStart (Badges.lua) as
+the primary ripple, with the CPU version (drawWaterRipple) kept as an automatic fallback if
+drawShaderRipple ever returns false (shader unavailable). Verified working through the real,
+unforced activation path (a fake actionable vs match, not manually poking quickStart fields)
+and over multiple ripple phases via DevRemote screenshots, with no hang over an extended
+poll. This is what ships.
