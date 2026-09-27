@@ -225,17 +225,10 @@ function drawBoardPreview(cx, cy, side, tiles, n)
             local y = gridBot  + (row - 0.5) * tileSize
 
             local inPath    = highlightSet and highlightSet[row .. "_" .. col]
-            local fillCol   = inPath and (Color.uiAccent2 or Color.uiAccent) or Color.tileFill
-            local strokeCol = inPath and (Color.uiAccent   or Color.tileStroke) or Color.tileStroke
+            -- visible die color was always the old STROKE color (see Board.lua drawBoard)
+            local fillCol   = inPath and (Color.uiAccent or Color.tileStroke) or Color.tileStroke
 
-            drawRoundedRect(
-            x, y,
-            tileSize * 0.9,
-            tileSize * 0.9,
-            tileSize * 0.25,
-            fillCol,
-            strokeCol
-            )
+            drawDie(x, y, tileSize * 0.9, tileSize * 0.9, tileSize * 0.25, fillCol, 0)
 
             fill(Color.tileLetter or color(255, 255, 255, 255))
             text(label, x, y)

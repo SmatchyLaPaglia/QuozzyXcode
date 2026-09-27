@@ -7,6 +7,8 @@
 #   tools/dbg.sh --shot [name]                 # screenshot via pymobiledevice3 (needs tunneld)
 #
 # Env: DBG_DEVICE (default: Wes 16e's CoreDevice id), DBG_TIMEOUT seconds (default 10).
+#      DBG_SIM=<simulator udid>  target an iOS Simulator instead of a device (no tunneld needed;
+#      files are read/written directly in the sim's data container, --shot uses simctl).
 set -euo pipefail
 
 DEVICE="${DBG_DEVICE:-5DD72C91-34E6-5481-923E-00A13C2BD042}"
@@ -16,8 +18,20 @@ WORK="${TMPDIR:-/tmp}/quozzy_dbg"
 PMD3="${PMD3:-$HOME/Library/Python/3.9/bin/pymobiledevice3}"
 mkdir -p "$WORK"
 
+SIM_DATA=""
+if [[ -n "${DBG_SIM:-}" ]]; then
+  SIM_DATA="$(xcrun simctl get_app_container "$DBG_SIM" "$BUNDLE" data)"
+fi
+
 copy_from() {  # <Documents/relpath> <local dest>
+  if [[ -n "$SIM_DATA" ]]; then cp "$SIM_DATA/$1" "$2" 2>/dev/null; return; fi
   xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
+    --domain-identifier "$BUNDLE" --source "$1" --destination "$2" >/dev/null 2>&1
+}
+
+copy_to() {  # <local src> <Documents/relpath>
+  if [[ -n "$SIM_DATA" ]]; then cp "$1" "$SIM_DATA/$2"; return; fi
+  xcrun devicectl device copy to --device "$DEVICE" --domain-type appDataContainer \
     --domain-identifier "$BUNDLE" --source "$1" --destination "$2" >/dev/null 2>&1
 }
 
@@ -28,7 +42,8 @@ case "${1:-}" in
     exit ;;
   --shot)
     out="$WORK/${2:-shot}.png"
-    "$PMD3" developer dvt screenshot --tunnel '' "$out" 2>&1 | grep -v -i warn || true
+    if [[ -n "$SIM_DATA" ]]; then xcrun simctl io "$DBG_SIM" screenshot "$out" >/dev/null 2>&1
+    else "$PMD3" developer dvt screenshot --tunnel '' "$out" 2>&1 | grep -v -i warn || true; fi
     echo "$out"
     exit ;;
   -f)
@@ -41,8 +56,7 @@ esac
 
 id="$(date +%s)$RANDOM"
 printf -- '--id %s\n%s\n' "$id" "$code" > "$WORK/dbg_cmd.txt"
-xcrun devicectl device copy to --device "$DEVICE" --domain-type appDataContainer \
-  --domain-identifier "$BUNDLE" --source "$WORK/dbg_cmd.txt" --destination Documents/dbg_cmd.txt >/dev/null 2>&1
+copy_to "$WORK/dbg_cmd.txt" Documents/dbg_cmd.txt
 
 deadline=$((SECONDS + TIMEOUT))
 while (( SECONDS < deadline )); do

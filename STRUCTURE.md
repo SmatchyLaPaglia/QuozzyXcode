@@ -1456,3 +1456,20 @@ end screen, not just the menu.
   One-time backup of the pre-merge table: readLocalData("OpponentRecords_preConsolidate").
 - opponentLastActivity(oppId) = max(rec.updatedAt, newest history endedAt). Records opponents
   list sorts by it (desc, alias tiebreak); recordsMatchesForOpponent sorts in place by endedAt desc.
+
+## Dice look: DieShader.lua drawDie() (2026-09-26)
+- drawDie(x, y, w, h, r, fillCol, angleDeg) — center-based like drawRoundedRect. One shared
+  mesh + fragment shader (DieS): rounded-rect SDF, dark outline (fill * DIE_EDGE_DARKNESS,
+  width max(DIE_EDGE_WIDTH_MIN, 4.5% of size)), soft white highlight centered toward the
+  upper-right (DIE_HIGHLIGHT_*). angleDeg = rotation the caller already applied via rotate();
+  the light is counter-rotated so it stays upper-right on screen for tilted dice.
+  Falls back to flat drawRoundedRect if the shader fails to build (prints once).
+- Used by every DIE: Board.lua drawBoard, HaikuMenu.lua (menu board preview + min-length dice),
+  Helpers.lua drawBoardPreview, RecordsUI.lua drawBoardThumbnailFromTiles. NOT used for
+  buttons/panels/cards (still drawRoundedRect).
+- GOTCHA found while doing this: drawRoundedRect's 4 stroke lines (width 2r, r = 25% of tile)
+  cover the ENTIRE tile, so the fillCol argument is never visible — the die always rendered in
+  the STROKE color (Color.tileStroke, brown). drawDie call sites therefore pass the old stroke
+  color as the die color to keep every die's hue unchanged.
+- Simulator workflow: DBG_SIM=<udid> tools/dbg.sh ... works without a phone/tunneld
+  (simctl install + launch; dbg.sh reads/writes the sim data container directly).

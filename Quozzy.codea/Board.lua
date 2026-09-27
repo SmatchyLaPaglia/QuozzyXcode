@@ -470,8 +470,9 @@ function drawBoard()
                 end
             end
 
-            local fillCol   = inPath and Color.uiAccent2 or Color.tileFill
-            local strokeCol = inPath and Color.selectLineAlsoWeirdlyTileHighlight or Color.tileStroke
+            -- drawRoundedRect's stroke lines (width 2r) cover the whole tile, so the color that
+            -- was ever visible was the STROKE color; keep that as the die color.
+            local fillCol   = inPath and Color.selectLineAlsoWeirdlyTileHighlight or Color.tileStroke
 
             local label
             if state == STATE_READY then
@@ -491,12 +492,12 @@ function drawBoard()
                 pushMatrix()
                 translate(x + jx, y + jy)
                 rotate(angle)
-                drawRoundedRect(0, 0, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
+                drawDie(0, 0, w * 0.95, h * 0.95, w * 0.25, fillCol, angle)
                 fill(letterFill)
                 text(label, 0, 0)
                 popMatrix()
             else
-                drawRoundedRect(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, strokeCol)
+                drawDie(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, 0)
                 fill(letterFill)
                 text(label, x + jx, y + jy)
             end

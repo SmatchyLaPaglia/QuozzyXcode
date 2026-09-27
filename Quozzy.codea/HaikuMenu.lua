@@ -531,7 +531,7 @@ function drawMenu()
       local ty   = gridBot  + (row - 0.5) * (cellPx + GRID_GAP)
       local r    = cellPx * 0.15
 
-      drawRoundedRect(tx, ty, cellPx, cellPx, r, Color.uiAccent, Color.uiAccent)
+      drawDie(tx, ty, cellPx, cellPx, r, Color.uiAccent, -boardAngle)
 
       -- Decorative letter
       local ltrIdx = math.floor(seededRand(previewSeed, idx) * 26) + 1
@@ -628,7 +628,7 @@ function drawMenu()
     local dx = dieRowLeft + (i - 0.5) * (dicePx + DICE_GAP)
     local r  = dicePx * 0.15
 
-    drawRoundedRect(dx, 0, dicePx, dicePx, r, Color.uiAccent, Color.uiAccent)
+    drawDie(dx, 0, dicePx, dicePx, r, Color.uiAccent, diceAngle)
 
     -- Letter from current SOWPODS word
     local letter = string.sub(menuDiceDisplayWord or string.rep("?", MIN_WORD_LEN), i, i)
