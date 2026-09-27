@@ -25,20 +25,25 @@ CONFETTI_DEPTH_TIERS = {
     { sizeMin = 72, sizeMax = 144, blur = 0.9  }, -- foreground, blurriest
 }
 
--- Real 2D blur via a dense gaussian-weighted sample grid, not the old single ring (which
--- read as a hollow flower shape — a ring only samples the PERIMETER of the blur disc,
--- leaving its center empty). A precomputed grid of offsets + weights (see
--- _buildBlurKernel) is reused across all particles/frames — only the per-draw text() calls
--- are new work. blurAmount 0 draws a single normal, fully-sharp copy, same as before.
+-- Real 2D blur via a dense gaussian-weighted sample grid of plain text() copies — no
+-- shader, no render target, nothing that can fail silently. blurAmount 0 draws a single
+-- normal, fully-sharp copy via text(), same as before.
 --
--- A real render-to-texture shader blur was tried first (two-pass separable gaussian,
--- baked+cached per emoji). It was DROPPED 2026-09-27: it intermittently produced fully
--- blank (alpha-0) textures for some emoji/timing combinations with no error, and an early
--- version of it froze the app for 90+ seconds (both in the iOS Simulator and on a real
--- device) by triggering dozens of render-to-texture passes in a single frame. Given a
--- confetti burst is ~80 short-lived particles, this per-draw sample-grid approach has no
--- offscreen render target, no shader, and nothing that can silently fail — it was verified
--- working via DevRemote screenshots (STRUCTURE.md).
+-- TWO different render-to-texture shader blurs were tried and dropped 2026-09-27 (see
+-- STRUCTURE.md "Confetti depth-blur" for both, with comparison images):
+--   1. A from-scratch two-pass separable gaussian shader — intermittently rendered fully
+--      blank for some emoji/timing combinations with no error, and an early version froze
+--      the app for 90+ seconds on both the Simulator and a real device.
+--   2. The user's own proven "Double Choose" panel-blur shader (downsample-via-sprite()
+--      then blur) — reliable for its actual job (blurring an OPAQUE full-screen
+--      background), but produces visible colored fringing/noise around a small
+--      transparent-edged glyph: confirmed via DevRemote that the artifacts are already
+--      present in the plain sprite()-downsample step, before the blur shader even runs —
+--      i.e. Codea's GPU minification of alpha-edged content on a freshly-baked texture,
+--      not a bug in either shader's math.
+-- Given TWO independent render-to-texture approaches both misbehaved in this environment,
+-- treat "bake a small transient texture, then GPU-minify or shader it" as unreliable here
+-- generally, not just unlucky — this per-draw sample-grid approach has no such step.
 local function _buildBlurKernel()
     -- n=2 -> 13 samples (circular-masked 5x5 grid) reads just as convincingly blurred as
     -- n=4's 49 samples (compared side by side via DevRemote) at a quarter of the per-draw

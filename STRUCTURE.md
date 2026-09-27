@@ -1486,10 +1486,24 @@ blurAmount) instead of a single ring. The old 5-copy ring (STRUCTURE.md history)
 hollow "flower" — a ring only samples the blur disc's PERIMETER, leaving the center empty; a
 filled 2D grid doesn't have that hole. Verified via DevRemote: baked a sharp vs. blurred
 copy of the same emoji side by side into one image and pulled it to inspect pixel-for-pixel.
-  TRIED AND REJECTED: a real render-to-texture two-pass separable gaussian shader (baked once
-  per (char, blurAmount), same "bake once, draw scaled" idea as DieShader). Dropped because it
-  intermittently produced fully blank (alpha-0) output for some emoji/timing combinations with
-  no error — and an early version (which also keyed the cache by size, needing dozens of
-  distinct bakes for one 80-particle burst) froze the app for 90+ seconds, reproduced on BOTH
-  the iOS Simulator and a real device. If revisiting a shader approach, budget serious time to
-  chase that flakiness before trusting it.
+  TRIED AND REJECTED, TWICE:
+  1. A from-scratch render-to-texture two-pass separable gaussian shader (baked once per
+     (char, blurAmount), same "bake once, draw scaled" idea as DieShader). Intermittently
+     produced fully blank (alpha-0) output for some emoji/timing combinations with no error —
+     and an early version (which also keyed the cache by size, needing dozens of distinct
+     bakes for one 80-particle burst) froze the app for 90+ seconds, reproduced on BOTH the
+     iOS Simulator and a real device.
+  2. The user's own proven "Double Choose" panel-blur (downsample via sprite() to a tiny
+     image, then a 14-tap shader blur, two passes) — reliable in its actual shipped use (a
+     translucent panel blurring an OPAQUE full-screen background behind it). Applied here to
+     a small transparent-edged emoji glyph, it produced visible colored fringing/noise
+     scattered around the blur. Confirmed via DevRemote (dbgImage of the intermediate) that
+     the noise is already present after the PLAIN sprite()-downsample step, before the blur
+     shader runs at all, and that noSmooth() makes it WORSE, not better — this is Codea's GPU
+     minification of alpha-edged content on a freshly-baked texture, not a bug in either
+     shader's math, and not fixable by tuning the blur kernel.
+  Two independent render-to-texture techniques both misbehaved on this content in this
+  environment — treat "bake a small transient texture, then GPU-minify or shader it" as
+  unreliable here generally (not bad luck) before trying a third. The Double Choose blur
+  is still good code — worth keeping in mind for a future OPAQUE full-screen blur-behind
+  effect (e.g. a frosted panel over the board), just not for individual small glyphs.
