@@ -1534,3 +1534,22 @@ copy of the same emoji side by side into one image and pulled it to inspect pixe
 - MatchSelection.lua: vsLoadFriends sorts vsFriendsEntries by opponentLastActivity (same
   helper Records uses) descending, alias ascending tiebreak; friends never played sort to
   the bottom alphabetically.
+
+## Menu polish: faster button rock, slot-machine dice letters, wind-across flecks (2026-09-27)
+- HaikuMenu.lua: solo/vs/replay rock periods shortened ~20% (3.7/4.9/5.5 -> 3.0/4.0/4.4).
+- HaikuMenu.lua: menuSpinCycleClock()/menuSpinLetter() — shared slot-machine reveal used by
+  BOTH the board preview (Section 2, random per-tile target) and the min-word-length dice
+  (Section 3, target = randomMenuDiceWord's real word, unchanged). One shared clock
+  (MENU_SPIN_CYCLE=2.6s) keeps both in sync: tiles spin through random letters, then resolve
+  left-to-right/index-order over MENU_SPIN_RESOLVE_START..+SPAN, hold for the rest of the
+  cycle, then respin. Was: instant swap to a new random target once per whole second, no
+  animation. Verified on-device via DevRemote (queried menuSpinCycleClock() + immediately
+  screenshotted to correlate exact phase against the rendered tiles).
+- SeasonFlecks.lua: particles now enter from one SCREEN edge and drift the full WIDTH before
+  exiting the other (direction re-rolled each initFlecks call), instead of spawning in a
+  radial "poof" around the season word's center and drifting locally — meant to read as
+  snow/leaves/sand/pollen blowing in wind, not an explosion. Fade in/out is now based on
+  position along the travel path (near each edge), not particle age; initFlecks seeds the
+  pool across the whole path so the band isn't empty-then-filling on first load. Call sites
+  changed from initFlecks/updateFlecks(cx, cy, ...) to (bandCy, bandH, ...) — cx no longer
+  needed since spawn x is edge-relative, not word-relative.

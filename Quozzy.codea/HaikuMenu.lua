@@ -408,6 +408,54 @@ function drawGenericAlert()
 end
 
 ------------------------------------------------------------
+-- MENU DICE LETTER SPIN — slot-machine / departure-board reveal used by both the
+-- decorative board preview (Section 2) and the min-word-length dice (Section 3). Every
+-- tile spins through random letters fast, then resolves to its real letter one at a time
+-- in index order (left-to-right / bottom-to-top, matching each grid's own indexing), holds
+-- there, then spins again — one shared clock (MENU_SPIN_CYCLE) drives every tile in both
+-- rows so they're all in sync. (2026-09-27, replacing an instant once-per-second swap.)
+------------------------------------------------------------
+
+MENU_SPIN_CYCLE         = 2.6   -- total seconds per spin -> resolve -> hold -> respin loop
+MENU_SPIN_RESOLVE_START = 0.55  -- seconds into the cycle when tile #1 locks in
+MENU_SPIN_RESOLVE_SPAN  = 0.55  -- seconds over which the LAST tile locks in, after RESOLVE_START
+MENU_SPIN_FLIP_INTERVAL = 0.045 -- how often a still-spinning tile's shown glyph changes
+
+local MENU_SPIN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+local function _menuSpinRand(a, b)
+  local v = math.sin(a * 12.9898 + b * 78.233 + 37.719) * 43758.5453
+  return v - math.floor(v)
+end
+
+-- Which cycle we're in (decides the target letters) and how far into it we are (decides
+-- what's still spinning vs. already resolved). Pure function of ElapsedTime, so the board
+-- preview and dice row call this independently yet stay perfectly in sync.
+function menuSpinCycleClock()
+  local cycleIndex = math.floor(ElapsedTime / MENU_SPIN_CYCLE)
+  local cycleT = ElapsedTime - cycleIndex * MENU_SPIN_CYCLE
+  return cycleIndex, cycleT
+end
+
+-- tileIndex/tileCount: this tile's 1-based position in the reveal order. targetLetter:
+-- this tile's already-decided final letter for the current cycle. Returns the letter to
+-- actually draw this frame — a fast-changing random glyph before this tile's resolve time,
+-- targetLetter from then on.
+function menuSpinLetter(cycleIndex, cycleT, tileIndex, tileCount, targetLetter)
+  local resolveT = MENU_SPIN_RESOLVE_START
+  if tileCount > 1 then
+    resolveT = resolveT + (tileIndex - 1) / (tileCount - 1) * MENU_SPIN_RESOLVE_SPAN
+  end
+  if cycleT >= resolveT then
+    return targetLetter
+  end
+  local flipIndex = math.floor(cycleT / MENU_SPIN_FLIP_INTERVAL)
+  local v = _menuSpinRand(cycleIndex * 97 + tileIndex * 31, flipIndex)
+  local idx = math.floor(v * 26) + 1
+  return MENU_SPIN_ALPHABET:sub(idx, idx)
+end
+
+------------------------------------------------------------
 -- NEW MENU — 6-SECTION PROPORTIONAL LAYOUT
 ------------------------------------------------------------
 
@@ -465,11 +513,11 @@ function drawMenu()
   -- Ambient season flecks, drifting around the word (behind it).
   -- Init lazily and rebuild whenever the season changes.
   if seasonFlecksSeason ~= seasonIndex or #seasonFlecks == 0 then
-    initFlecks(seasonRect.cx, seasonRect.cy)
+    initFlecks(seasonRect.cy, seasonRect.h)
     seasonFlecksSeason = seasonIndex
   end
   local fleckRecycle = (TextGoPoof_state() == "A")
-  updateFlecks(seasonRect.cx, seasonRect.cy, fleckRecycle)
+  updateFlecks(seasonRect.cy, seasonRect.h, fleckRecycle)
   drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
 
   drawMenuSeasonPoof(seasonRect)
@@ -514,8 +562,10 @@ function drawMenu()
     rotate(-boardAngle)  -- Codea rotate is CCW positive; negate for CW
   end
 
-  -- Preview letters seeded by boardSize + elapsed seconds
-  local previewSeed = boardSize * 1000 + math.floor(ElapsedTime)
+  -- Preview letters: a new random target per spin cycle (was: per whole second), revealed
+  -- via the slot-machine spin (menuSpinLetter) instead of swapping instantly.
+  local spinCycleIndex, spinCycleT = menuSpinCycleClock()
+  local previewSeed = boardSize * 1000 + spinCycleIndex
   local function seededRand(s, i)
     local v = math.sin((s or 0) * 12.9898 + i * 78.233 + 37.719) * 43758.5453
     return v - math.floor(v)
@@ -523,6 +573,7 @@ function drawMenu()
 
   local gridLeft = -gridW * 0.5
   local gridBot  = -gridH * 0.5
+  local gridTileCount = boardSize * boardSize
 
   for row = 1, boardSize do
     for col = 1, boardSize do
@@ -533,9 +584,11 @@ function drawMenu()
 
       drawDie(tx, ty, cellPx, cellPx, r, Color.uiAccent, -boardAngle)
 
-      -- Decorative letter
+      -- Decorative letter: random target for this cycle (board letters don't need to spell
+      -- anything), revealed tile-by-tile as the cycle's spin resolves.
       local ltrIdx = math.floor(seededRand(previewSeed, idx) * 26) + 1
-      local letter = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", ltrIdx, ltrIdx)
+      local target = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", ltrIdx, ltrIdx)
+      local letter = menuSpinLetter(spinCycleIndex, spinCycleT, idx, gridTileCount, target)
 
       font("Georgia-Bold")
       fontSize(cellPx * 0.55)
@@ -615,11 +668,11 @@ function drawMenu()
   translate(diceRowCx, cy3)
   rotate(diceAngle)  -- negative base means CW tilt in Codea coordinates
 
-  -- Cycle to a new SOWPODS word in sync with the board preview letters
-  -- (both reseed on each whole second of ElapsedTime).
-  local diceWordSec = math.floor(ElapsedTime)
-  if menuDiceWordSec ~= diceWordSec or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
-    menuDiceWordSec = diceWordSec
+  -- Cycle to a new SOWPODS word once per spin cycle (was: once per whole second) — in sync
+  -- with the board preview, since both derive from the same menuSpinCycleClock().
+  local diceSpinCycleIndex, diceSpinCycleT = menuSpinCycleClock()
+  if menuDiceWordSec ~= diceSpinCycleIndex or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
+    menuDiceWordSec = diceSpinCycleIndex
     menuDiceDisplayWord = randomMenuDiceWord(MIN_WORD_LEN)
   end
 
@@ -630,8 +683,10 @@ function drawMenu()
 
     drawDie(dx, 0, dicePx, dicePx, r, Color.uiAccent, diceAngle)
 
-    -- Letter from current SOWPODS word
-    local letter = string.sub(menuDiceDisplayWord or string.rep("?", MIN_WORD_LEN), i, i)
+    -- Letter from current SOWPODS word — the word itself is already decided (real word,
+    -- unchanged logic above); the spin only affects how each letter is REVEALED.
+    local target = string.sub(menuDiceDisplayWord or string.rep("?", MIN_WORD_LEN), i, i)
+    local letter = menuSpinLetter(diceSpinCycleIndex, diceSpinCycleT, i, MIN_WORD_LEN, target)
     font("Georgia-Bold")
     fontSize(dicePx * 0.5)
     fill(255, 255, 255, 255)
@@ -696,9 +751,10 @@ function drawMenu()
   local btn4Cy   = midY(4)
 
   -- Rocking angles
-  local soloAngle   = -8.0 + 2.5 * math.sin((ElapsedTime / 3.7) * math.pi * 2)
-  local vsAngle     =  4.0 + 2.5 * math.sin((ElapsedTime / 4.9) * math.pi * 2)
-  local replayAngle = -5.0 + 2.5 * math.sin((ElapsedTime / 5.5) * math.pi * 2)
+  -- Rock periods shortened ~20% (were 3.7/4.9/5.5) per feedback: "slightly faster".
+  local soloAngle   = -8.0 + 2.5 * math.sin((ElapsedTime / 3.0) * math.pi * 2)
+  local vsAngle     =  4.0 + 2.5 * math.sin((ElapsedTime / 4.0) * math.pi * 2)
+  local replayAngle = -5.0 + 2.5 * math.sin((ElapsedTime / 4.4) * math.pi * 2)
 
   local labelFontSize = math.min(btnH * 0.28, 30)
 
