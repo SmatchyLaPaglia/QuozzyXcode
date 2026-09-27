@@ -14,79 +14,23 @@ SeasonConfettiEmoji = {
     Winter = { "❄️", "⛄️", "🎄", "🧣" },
 }
 
--- Fake depth-of-field for the season-change confetti burst: small+slightly-
--- blurred background, larger sharp midground (the nominal focal plane),
--- largest+most-blurred foreground. Sizes are today's original 24-36 range
--- for the background tier, doubled for midground, and 1.5x-2x of midground
--- for foreground.
-CONFETTI_DEPTH_TIERS = {
-    { sizeMin = 24, sizeMax = 36,  blur = 0.35 }, -- background
-    { sizeMin = 48, sizeMax = 72,  blur = 0.0  }, -- midground, in focus
-    { sizeMin = 72, sizeMax = 144, blur = 0.9  }, -- foreground, blurriest
-}
+-- Depth illusion for the season-change confetti burst, WITHOUT blur (dropped 2026-09-27 —
+-- see STRUCTURE.md "Confetti depth-blur": two independent render-to-texture blur attempts
+-- both misbehaved in this environment, one freezing the app for 90+ seconds). Depth reads
+-- instead through size + fall speed varying together and continuously (not three fixed
+-- tiers): each particle gets one random depth in [0,1], biased toward 0 (far) so a burst
+-- has more small distant pieces than huge near ones, same way real depth scatter looks.
+-- Bigger == nearer == falls (and drifts, spins) faster, a simple parallax cue. Particles
+-- are sorted by depth once at spawn (never re-sorted; removal preserves relative order) so
+-- nearer/bigger ones draw on top of farther/smaller ones without a per-frame sort.
+CONFETTI_SIZE_MIN = 20
+CONFETTI_SIZE_MAX = 150
+CONFETTI_FALL_SPEED_MIN_SCALE = 0.55  -- far particles fall at this fraction of the base speed
+CONFETTI_FALL_SPEED_MAX_SCALE = 2.0   -- near particles fall up to this many times as fast
 
--- Real 2D blur via a dense gaussian-weighted sample grid of plain text() copies — no
--- shader, no render target, nothing that can fail silently. blurAmount 0 draws a single
--- normal, fully-sharp copy via text(), same as before.
---
--- TWO different render-to-texture shader blurs were tried and dropped 2026-09-27 (see
--- STRUCTURE.md "Confetti depth-blur" for both, with comparison images):
---   1. A from-scratch two-pass separable gaussian shader — intermittently rendered fully
---      blank for some emoji/timing combinations with no error, and an early version froze
---      the app for 90+ seconds on both the Simulator and a real device.
---   2. The user's own proven "Double Choose" panel-blur shader (downsample-via-sprite()
---      then blur) — reliable for its actual job (blurring an OPAQUE full-screen
---      background), but produces visible colored fringing/noise around a small
---      transparent-edged glyph: confirmed via DevRemote that the artifacts are already
---      present in the plain sprite()-downsample step, before the blur shader even runs —
---      i.e. Codea's GPU minification of alpha-edged content on a freshly-baked texture,
---      not a bug in either shader's math.
--- Given TWO independent render-to-texture approaches both misbehaved in this environment,
--- treat "bake a small transient texture, then GPU-minify or shader it" as unreliable here
--- generally, not just unlucky — this per-draw sample-grid approach has no such step.
-local function _buildBlurKernel()
-    -- n=2 -> 13 samples (circular-masked 5x5 grid) reads just as convincingly blurred as
-    -- n=4's 49 samples (compared side by side via DevRemote) at a quarter of the per-draw
-    -- cost — worth keeping low since a burst can have ~50 blurred particles on screen at
-    -- once, each needing its own set of text() draws every frame.
-    local n = 2                -- samples per axis half-width -> up to (2n+1)^2 = 25 samples
-    local sigma = 0.42        -- gaussian sigma, in units of "radius" (tuned by eye)
-    local pts = {}
-    local total = 0
-    for iy = -n, n do
-        for ix = -n, n do
-            local fx, fy = ix / n, iy / n            -- -1..1
-            local d2 = fx * fx + fy * fy
-            if d2 <= 1.0 then                         -- circular kernel, not square
-                local w = math.exp(-d2 / (2 * sigma * sigma))
-                pts[#pts + 1] = { x = fx, y = fy, w = w }
-                total = total + w
-            end
-        end
-    end
-    for _, p in ipairs(pts) do p.w = p.w / total end   -- normalize: weights sum to 1
-    return pts
-end
-local _blurKernel = _buildBlurKernel()
-
-local function drawDepthEmoji(ch, size, blurAmount, baseAlpha)
+local function drawDepthEmoji(ch, size, baseAlpha)
     fontSize(size)
-    if not blurAmount or blurAmount <= 0 then
-        fill(255, 255, 255, baseAlpha)
-        text(ch, 0, 0)
-        return
-    end
-    local radius = size * 0.22 * blurAmount
-    -- Each sample is a full-glyph copy weighted by the kernel; alpha compositing ("over")
-    -- isn't a true weighted average, so scale down overall and let overlap in the dense
-    -- center naturally rebuild most of the coverage there — same per-particle alpha budget
-    -- as the old ring hack (baseAlpha*0.8 total), just spread over a real 2D disc instead
-    -- of a 1D ring.
-    for _, p in ipairs(_blurKernel) do
-        fill(255, 255, 255, baseAlpha * p.w * 0.8)
-        text(ch, p.x * radius, p.y * radius)
-    end
-    fill(255, 255, 255, baseAlpha * 0.15)
+    fill(255, 255, 255, baseAlpha)
     text(ch, 0, 0)
 end
 
@@ -279,26 +223,30 @@ function startSeasonTransition()
     local count = 80
     local maxYOffset = math.floor(HEIGHT * 0.4)
     if maxYOffset < 0 then maxYOffset = 0 end
-    local count = 80
     for i = 1, count do
         local ch = pool[(i - 1) % #pool + 1]
-        local depthLayer = math.random(1, 3)
-        local tier = CONFETTI_DEPTH_TIERS[depthLayer]
+        local depth = math.random() ^ 1.4  -- biased toward 0 (far/small) — see comment above
+        local speedScale = CONFETTI_FALL_SPEED_MIN_SCALE
+            + (CONFETTI_FALL_SPEED_MAX_SCALE - CONFETTI_FALL_SPEED_MIN_SCALE) * depth
         confetti[i] = {
-            x    = math.random() * WIDTH,
-            y    = HEIGHT + math.random(0, maxYOffset),
-            vx   = (math.random() - 0.5) * 60,
-            vy   = - (70 + math.random() * 100),
-            rot  = math.random() * 360,
-            vrot = (math.random() - 0.5) * 180,
-            size = tier.sizeMin + math.random() * (tier.sizeMax - tier.sizeMin),
-            blur = tier.blur,
-            depthLayer = depthLayer,
-            char = ch,
-            life = 0,
+            x     = math.random() * WIDTH,
+            y     = HEIGHT + math.random(0, maxYOffset),
+            vx    = (math.random() - 0.5) * 60 * speedScale,
+            vy    = - (70 + math.random() * 100) * speedScale,
+            rot   = math.random() * 360,
+            vrot  = (math.random() - 0.5) * 180 * (0.7 + 0.6 * depth),
+            size  = CONFETTI_SIZE_MIN + (CONFETTI_SIZE_MAX - CONFETTI_SIZE_MIN) * depth,
+            depth = depth,
+            char  = ch,
+            life  = 0,
         }
-  end
-  resetPoofingText()
+    end
+    -- Sort once, far-to-near, so drawConfetti can draw in table order (nearer/bigger pieces
+    -- correctly overlap farther/smaller ones) with no per-frame sort. table.remove in
+    -- updateConfetti shifts survivors down without reordering them, so this sort holds for
+    -- the burst's whole life.
+    table.sort(confetti, function(a, b) return a.depth < b.depth end)
+    resetPoofingText()
 end
 
 function updateSeasonTransition(dt)
@@ -378,20 +326,15 @@ function drawConfetti()
     pushStyle()
     textMode(CENTER)
 
-    -- Drawn back-to-front by depth layer (1=background, 3=foreground) so
-    -- closer/larger/blurrier pieces correctly overlap farther ones, rather
-    -- than in spawn order.
-    for layer = 1, 3 do
-        for i = 1, #confetti do
-            local p = confetti[i]
-            if (p.depthLayer or 1) == layer then
-                pushMatrix()
-                translate(p.x, p.y)
-                rotate(p.rot)
-                drawDepthEmoji(p.char, p.size, p.blur, 255)
-                popMatrix()
-            end
-        end
+    -- Table order is already far-to-near (sorted once at spawn — see startSeasonTransition),
+    -- so nearer/bigger pieces draw on top of farther/smaller ones with no per-frame sort.
+    for i = 1, #confetti do
+        local p = confetti[i]
+        pushMatrix()
+        translate(p.x, p.y)
+        rotate(p.rot)
+        drawDepthEmoji(p.char, p.size, 255)
+        popMatrix()
     end
 
     popStyle()

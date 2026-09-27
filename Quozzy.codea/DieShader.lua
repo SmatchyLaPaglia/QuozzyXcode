@@ -11,7 +11,7 @@
 -- just inside it. Tune the DIE_* constants below; nothing else needs to change.
 -- If the shader fails to build, drawDie falls back to the old flat drawRoundedRect look.
 
-DIE_EDGE_DARKNESS      = 0.62   -- outline rgb = fill rgb * this (0 = black, 1 = same as fill)
+DIE_EDGE_DARKNESS      = 0.48   -- outline rgb = fill rgb * this (0 = black, 1 = same as fill)
 DIE_EDGE_WIDTH_FRAC    = 0.045  -- outline width as a fraction of the die's shorter side
 DIE_EDGE_WIDTH_MIN     = 1.5    -- ... but never thinner than this many points
 DIE_RIM_WIDTH          = 1.0    -- hairline just inside the outline, in points
@@ -131,6 +131,36 @@ function drawDie(x, y, w, h, r, fillCol, angleDeg)
   sh.rimPx        = DIE_RIM_WIDTH
   sh.lightAngle   = math.rad(angleDeg or 0)
   sh.hlStrength   = DIE_HIGHLIGHT_STRENGTH
+  sh.hlRadius     = DIE_HIGHLIGHT_RADIUS
+  sh.hlOffset     = DIE_HIGHLIGHT_OFFSET
+
+  m:setRect(1, x, y, w, h)
+  m:draw()
+end
+
+-- Flat variant for small board-preview thumbnails (Records / vs list board icons): a real
+-- 1px outline and NO highlight/rim gradient at all. At thumbnail scale (tiles a few px
+-- across) drawDie's highlight sheen and light inner rim overwhelmed the letters and made
+-- them hard to read (2026-09-27) — same rounded-rect mesh, just with those effects zeroed
+-- and a genuinely thin, size-independent border instead of one scaled to the die's size.
+function drawDieFlat(x, y, w, h, r, fillCol)
+  fillCol = fillCol or color(255)
+  local m = _getDieMesh()
+  if not m then
+    drawRoundedRect(x, y, w, h, r, fillCol, _dieEdgeColor(fillCol))
+    return
+  end
+
+  local sh = m.shader
+  sh.fillColor    = fillCol
+  sh.edgeColor    = _dieEdgeColor(fillCol)
+  sh.sizePx       = vec2(w, h)
+  sh.radiusPx     = math.min(r or 0, math.min(w, h) * 0.5)
+  sh.edgePx       = 1
+  sh.rimColor     = fillCol
+  sh.rimPx        = 0
+  sh.lightAngle   = 0
+  sh.hlStrength   = 0
   sh.hlRadius     = DIE_HIGHLIGHT_RADIUS
   sh.hlOffset     = DIE_HIGHLIGHT_OFFSET
 

@@ -1507,3 +1507,30 @@ copy of the same emoji side by side into one image and pulled it to inspect pixe
   unreliable here generally (not bad luck) before trying a third. The Double Choose blur
   is still good code — worth keeping in mind for a future OPAQUE full-screen blur-behind
   effect (e.g. a frosted panel over the board), just not for individual small glyphs.
+
+## Confetti depth without blur; thumbnail dice; vs-list viewed tracking (2026-09-27)
+- ConfettiEffectsEtc.lua: blur removed entirely (see prior entries above — both shader
+  attempts and the sample-grid fallback are gone). Depth now reads through continuous
+  size+speed variation instead: each particle gets depth=math.random()^1.4 (biased toward
+  0/far), size = lerp(CONFETTI_SIZE_MIN, CONFETTI_SIZE_MAX, depth), and vx/vy/vrot all scale
+  by a depth-derived speedScale (CONFETTI_FALL_SPEED_MIN/MAX_SCALE) — bigger falls faster,
+  a simple parallax cue. Particles are table.sort'd by depth ONCE at spawn (far-to-near);
+  table.remove in updateConfetti preserves order, so drawConfetti needs no per-frame sort.
+- DieShader.lua: drawDieFlat(x,y,w,h,r,fillCol) — flat variant for small board-preview
+  thumbnails (Records + vs list board icons, both via RecordsUI.lua's
+  drawBoardThumbnailFromTiles). Same rounded-rect SDF mesh as drawDie, but edgePx forced to
+  1 (a real thin border, not scaled to tile size) and hlStrength/rimPx forced to 0 (no
+  highlight sheen, no light inner rim) — at thumbnail scale those effects overwhelmed the
+  small letters. drawDie itself (real board, menu dice/buttons) is unchanged.
+  DIE_EDGE_DARKNESS reverted 0.62 -> 0.48 (one step lighter than the original 0.30, per
+  earlier feedback; the following day's "go a step lighter" 0.62 was itself reverted).
+- MatchSelection.lua: vsMatchAlreadyViewed now checks a dedicated persisted marker
+  (vsViewedMatchIds, set by vsOpenMatchEntry the moment an ended entry is opened) before
+  falling back to the old Records-snapshot check. The snapshot check alone could never fire
+  for a match GameKit considers ended (tbm._getEndStateFromMatch) where the local player
+  never actually submitted a turn (buildEndScreenModel only snapshots when pLocal.didPlay),
+  so that match could never clear from the vs list no matter how many times it was opened —
+  reported and fixed 2026-09-27.
+- MatchSelection.lua: vsLoadFriends sorts vsFriendsEntries by opponentLastActivity (same
+  helper Records uses) descending, alias ascending tiebreak; friends never played sort to
+  the bottom alphabetically.

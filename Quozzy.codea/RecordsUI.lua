@@ -113,7 +113,7 @@ function drawBoardThumbnailFromTiles(tiles, n, cx, cy, side)
             local label = tiles[idx] or "?"
             idx = idx + 1
 
-            drawDie(x, y, tileSize * 0.9, tileSize * 0.9, tileSize * 0.25, Color.tileStroke, 0)
+            drawDieFlat(x, y, tileSize * 0.9, tileSize * 0.9, tileSize * 0.25, Color.tileStroke)
             fill(Color.tileLetter or color(255))
             text(label, x, y)
         end

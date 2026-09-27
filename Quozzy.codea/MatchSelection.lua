@@ -70,18 +70,65 @@ local function _vsSafeArrayGet(arr, i)
 end
 
 ------------------------------------------------------------
--- "Already viewed" check — a finished match only counts as viewed once its
--- COMPLETE snapshot has been captured into Records (recordMatchSnapshot,
--- opponentRecords.lua), which only happens when its end screen is actually
--- built (buildEndScreenModel, EndScreenFP.lua). No separate viewed-flag
--- needed: presence there IS "the user looked at it".
+-- "Already viewed" check.
 ------------------------------------------------------------
+-- Was: presence of a COMPLETE snapshot in Records (recordMatchSnapshot,
+-- opponentRecords.lua) — captured whenever the end screen actually builds. That snapshot
+-- is only taken when the LOCAL player has played (pLocal.didPlay — see buildEndScreenModel,
+-- EndScreenFP.lua), and its `complete` flag only tracks the OPPONENT's didPlay
+-- (currentEndScreenState, EndScreen.lua) — neither matches what the vs list means by
+-- "ended" (tbm._getEndStateFromMatch: GameKit considers the turn-based session itself
+-- over, e.g. via resignation or time expiry, independent of either player's didPlay flag).
+-- A match that GameKit ended without the local player ever submitting a turn would never
+-- get a snapshot at all, so it could never clear from the list no matter how many times it
+-- was opened. (2026-09-27: this was reported as finished matches never clearing.)
+--
+-- Now: a dedicated, directly-set marker (vsViewedMatchIds) — vsOpenMatchEntry marks a
+-- match's id the moment an ended entry is opened, independent of what its snapshot ends up
+-- looking like. The old snapshot check remains as a fallback, so matches already recorded
+-- as complete under the old scheme (or viewed via Records instead of the vs list) still
+-- count too.
+------------------------------------------------------------
+
+VS_VIEWED_MATCHES_KEY = VS_VIEWED_MATCHES_KEY or "QB_VS_VIEWED_MATCHES_V1"
+vsViewedMatchIds = vsViewedMatchIds or nil   -- loaded dict: [matchId] = true
+
+function loadVsViewedMatches()
+  if vsViewedMatchIds ~= nil then return end
+  local raw = readProjectData(VS_VIEWED_MATCHES_KEY)
+  if raw and raw ~= "" then
+    local ok, t = pcall(json.decode, raw)
+    if ok and type(t) == "table" then vsViewedMatchIds = t; return end
+  end
+  vsViewedMatchIds = {}
+end
+
+function persistVsViewedMatches()
+  if not vsViewedMatchIds then return end
+  local ok, s = pcall(json.encode, vsViewedMatchIds)
+  if ok and s then saveProjectData(VS_VIEWED_MATCHES_KEY, s) end
+end
+
+function markVsMatchViewed(matchId)
+  if not matchId then return end
+  loadVsViewedMatches()
+  if vsViewedMatchIds[matchId] then return end
+  vsViewedMatchIds[matchId] = true
+  persistVsViewedMatches()
+end
+
 function vsMatchAlreadyViewed(matchId, oppId)
-  if not (matchId and oppId and matchHistoryByOpponent) then return false end
-  local list = matchHistoryByOpponent[oppId]
-  if type(list) ~= "table" then return false end
-  for _, m in ipairs(list) do
-    if m.id == matchId and m.complete then return true end
+  if not matchId then return false end
+  loadVsViewedMatches()
+  if vsViewedMatchIds[matchId] then return true end
+
+  if oppId and matchHistoryByOpponent then
+    local list = matchHistoryByOpponent[oppId]
+    if type(list) == "table" then
+      for _, m in ipairs(list) do
+        if m.id == matchId and m.complete then return true end
+      end
+    end
   end
   return false
 end
@@ -204,6 +251,9 @@ end
 function vsOpenMatchEntry(entry)
   if not entry or not entry.gkMatch then return end
   closeVsOverlay()
+  -- Mark it viewed the moment it's opened, independent of anything that happens after —
+  -- see vsMatchAlreadyViewed above for why this can't just rely on a Records snapshot.
+  if entry.ended and markVsMatchViewed then markVsMatchViewed(entry.id) end
   if tbm and tbm._setCurrentMatch then
     tbm:_setCurrentMatch(entry.gkMatch, "vs-list-open")
   end
@@ -252,6 +302,7 @@ function vsLoadFriends()
             if p then
               local entry = {
                 player = p,
+                oppId = p.gamePlayerID or p.playerID or nil,
                 name = _vsSafeObjCString(p.alias) or _vsSafeObjCString(p.displayName) or "Player",
                 avatar = nil,
               }
@@ -261,6 +312,14 @@ function vsLoadFriends()
               end
             end
           end
+          -- Most-recently-played first (same opponentLastActivity used to sort Records —
+          -- opponentRecords.lua). Friends never played fall to the bottom, alphabetically.
+          table.sort(list, function(a, b)
+            local ta = (a.oppId and opponentLastActivity and opponentLastActivity(a.oppId)) or 0
+            local tb = (b.oppId and opponentLastActivity and opponentLastActivity(b.oppId)) or 0
+            if ta ~= tb then return ta > tb end
+            return (a.name or "") < (b.name or "")
+          end)
           vsFriendsEntries = list
           if #list == 0 then
             vsFriendsLoadError = "No Game Center friends found yet."
