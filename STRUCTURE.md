@@ -1466,8 +1466,12 @@ end screen, not just the menu.
   the light is counter-rotated so it stays upper-right on screen for tilted dice.
   Falls back to flat drawRoundedRect if the shader fails to build (prints once).
 - Used by every DIE: Board.lua drawBoard, HaikuMenu.lua (menu board preview + min-length dice),
-  Helpers.lua drawBoardPreview, RecordsUI.lua drawBoardThumbnailFromTiles. NOT used for
-  buttons/panels/cards (still drawRoundedRect).
+  Helpers.lua drawBoardPreview, RecordsUI.lua drawBoardThumbnailFromTiles.
+- Also used for the 5 main-menu buttons (HaikuMenu.lua: solo/vs/replay via drawModeButton +
+  the replay button's own draw, plus the circular records/info/debug buttons — same drawDie
+  call, r = diameter/2 makes the SDF a circle). Rotating buttons (solo/vs/replay rock; debug/
+  records/info don't) pass their own angle so the highlight follows the tilt. Still plain
+  drawRoundedRect elsewhere (panels/cards/other buttons) — ask before extending further.
 - GOTCHA found while doing this: drawRoundedRect's 4 stroke lines (width 2r, r = 25% of tile)
   cover the ENTIRE tile, so the fillCol argument is never visible — the die always rendered in
   the STROKE color (Color.tileStroke, brown). drawDie call sites therefore pass the old stroke

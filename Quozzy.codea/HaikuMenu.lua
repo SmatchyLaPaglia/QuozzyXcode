@@ -708,7 +708,7 @@ function drawMenu()
     translate(cx, cy)
     rotate(angle)
     local fillCol = (pressedButton == key) and Color.uiAccent2 or Color.uiAccent
-    drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
+    drawDie(0, 0, btnW, btnH, btnR, fillCol, angle)
     font("Georgia-Bold")
     fontSize(labelFontSize)
     fill(255, 255, 255, 255)
@@ -731,7 +731,7 @@ function drawMenu()
     rotate(replayAngle)
 
     local fillCol = (pressedButton == "playAgain") and Color.uiAccent2 or Color.uiAccent
-    drawRoundedRect(0, 0, btnW, btnH, btnR, fillCol, fillCol)
+    drawDie(0, 0, btnW, btnH, btnR, fillCol, replayAngle)
 
     -- Avatar + win/loss row as one vertically-centered group. Both Y offsets
     -- below are the ORIGINAL hand-tuned positions (avatar high, record row
@@ -819,10 +819,7 @@ function drawMenu()
     local debugBtnCx = HPAD + debugBtnD * 0.6
     local debugBtnCy = btn5Cy
     local debugFill = (pressedButton == "debugDialog") and Color.uiAccent2 or Color.uiAccent
-    ellipseMode(CENTER)
-    fill(debugFill)
-    noStroke()
-    ellipse(debugBtnCx, btn5Cy, debugBtnD, debugBtnD)
+    drawDie(debugBtnCx, btn5Cy, debugBtnD, debugBtnD, debugBtnD * 0.5, debugFill, 0)  -- r = D/2 -> circle
     -- Bug emoji as icon
     fill(255, 255, 255, 255)
     font("Georgia-Bold")
@@ -836,10 +833,7 @@ function drawMenu()
 
   -- Left button (records) — circular
   local recordsFill = (pressedButton == "records") and Color.uiAccent2 or Color.uiAccent
-  ellipseMode(CENTER)
-  fill(recordsFill)
-  noStroke()
-  ellipse(leftBtnCx, btn5Cy, btnD, btnD)
+  drawDie(leftBtnCx, btn5Cy, btnD, btnD, btnD * 0.5, recordsFill, 0)  -- r = D/2 -> circle
 
   -- Notebook icon inside left button
   pushMatrix()
@@ -860,8 +854,7 @@ function drawMenu()
 
   -- Right button (info) — circular
   local infoFill = (pressedButton == "info") and Color.uiAccent2 or Color.uiAccent
-  fill(infoFill)
-  ellipse(rightBtnCx, btn5Cy, btnD, btnD)
+  drawDie(rightBtnCx, btn5Cy, btnD, btnD, btnD * 0.5, infoFill, 0)
 
   -- "i" label
   fill(255, 255, 255, 255)
