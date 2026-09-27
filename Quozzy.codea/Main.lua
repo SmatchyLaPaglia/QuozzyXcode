@@ -1259,6 +1259,7 @@ function drawFrame()
     drawRecordsOverlay()
     drawVsButtonBadge(menuHitRects and menuHitRects.vs)
     drawQuickStart()
+    drawRippleDemo()  -- standalone shader-ripple proof, runs alongside the real (CPU) badge — see RippleDemo.lua
     drawVsOverlay()
     drawInfoOverlay()
     drawColorInspectorOverlay()

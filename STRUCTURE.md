@@ -1577,3 +1577,21 @@ blur) were also abandoned for reliability problems, this is now a pattern, not o
 shader — treat any NEW shader idea in this codebase as unproven until verified working from
 inside the actual call site it will ship in, not just in an isolated DevRemote test, before
 writing more than a prototype's worth of code around it.
+
+## RippleDemo.lua: standalone shader-ripple proof, running concurrently (2026-09-27)
+A completely independent rebuild of the reverted RippleShader.lua (own mesh, own shader
+object, own draw call — no connection to quickStart/Badges.lua at all), called directly from
+Main.lua's draw() (drawRippleDemo(), right after drawQuickStart()) whenever state==STATE_MENU.
+Draws continuously in the menu's top-right corner, always on, not gated on any match state.
+
+Working, verified over multiple frames via DevRemote screenshots: soft glowing blue rings,
+correctly animating. This directly narrows the earlier mystery (see "Match-ready badge
+ripple" above) — a byte-for-byte-equivalent shader, rebuilt fresh with no history in this
+session, just works when wired straight into the draw loop. Whatever broke the old
+RippleShader.lua's cached mesh was specific to that build/session, not the shader or the
+general pattern. Still unexplained, but no longer blocking: this file is the live reference
+if the CPU-based drawWaterRipple (Badges.lua, currently shipped on the real badge) is ever
+swapped back for a shader.
+
+Not wired to any button or game state — delete this file + its one Main.lua call site
+whenever it's no longer wanted.
