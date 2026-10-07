@@ -303,6 +303,9 @@ Reconciliation (verified unchanged, no code needed): submitFinalCommentFromEndSc
 
 ## Turn-send relay — all outgoing turns (GameCenter.lua + qMatch_qPlayer.lua, merged 2026-09-24)
 
+> **Diverges from the agreed design** — code bundles score+comment into one send and only
+> self-enforces the comment timeout. Spec: `MULTIPLAYER_DESIGN.md` ("Current code vs. this design").
+
 ```
 One path for every outgoing turn. Replaces the separate handshake send + inline comment/
 finalize sends.

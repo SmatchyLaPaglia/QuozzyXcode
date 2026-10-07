@@ -1,5 +1,9 @@
 # Simultaneous-Play Relay/Comment/Badge — Test Plan
 
+> **Out of date (2026-10-07):** this plan and its design recap describe the
+> bundled score+comment version that was built, not the agreed design. The spec
+> is `MULTIPLAYER_DESIGN.md`; update this plan to match before using it.
+
 Covers the redesign discussed for: match sending (handshake + relay legs), match
 ending (two-gate model), commenting (window + timeout), badging, and notification
 (badge-count) suppression. Write this alongside the implementation — check items
