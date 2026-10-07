@@ -1,5 +1,13 @@
 When I ask a question without a clear task, discuss it conversationally before proposing any plan or action.
 
+## Git Workflow (two machines)
+
+This repo is actively worked on from two machines (a laptop and a desktop), each running its own Claude Code session, with no other coordination between them. To avoid divergence:
+
+- **Work directly on `main`.** Don't create or push to a side branch (`merge-laptop-work`, `laptop-work`, or similar) for routine work, even if one already exists from a prior session. At the start of a session, check `git branch --show-current`; if it's not `main`, switch to `main` first.
+- **Fetch and fast-forward before starting work.** `git fetch`, then fast-forward local `main` to `origin/main` if it's behind, before making new changes.
+- **Push promptly after committing**, with the user's normal confirmation for the push itself — the other machine can't see local commits, only what's on `origin/main`.
+
 ## Code Analysis
 `STRUCTURE.md` (repo root) — use as first stop before searching. Contains: auth/GC flow, state machine transitions, key function→file index. Read it before grepping.
 Before searching or asking about code structure, architecture, or file locations, read STRUCTURE.md first. It is a living index of the codebase written to save you analysis time. Treat it as ground truth until you find evidence it's outdated, then update it. When you discover architectural facts through investigation, add them to STRUCTURE.md immediately, in the same terse format.
