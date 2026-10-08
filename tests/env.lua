@@ -176,6 +176,12 @@ end
 
 function FakeTBM:_getEndStateFromMatch(m) return nil end
 function FakeTBM:_setCurrentMatch(m, reason) self.currentMatch = m end
+
+-- Mirrors CTBM:ensureCurrentMatch -- tests don't model a real reload, so this
+-- just proceeds immediately regardless of currentMatch's state. The
+-- dispatch logic calling it (attemptPendingLegSend) is what's under test,
+-- not GameKit's own reload semantics.
+function FakeTBM:ensureCurrentMatch(matchId, onReady) onReady() end
 function FakeTBM:localPlayerWon(t) self.wonCalls[#self.wonCalls+1] = t end
 function FakeTBM:localPlayerLost(t) self.lostCalls[#self.lostCalls+1] = t end
 function FakeTBM:localPlayerTied(t) self.tiedCalls[#self.tiedCalls+1] = t end

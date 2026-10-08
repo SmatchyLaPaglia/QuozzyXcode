@@ -782,7 +782,32 @@ function CTBM:_setCurrentMatch(o__match, setterString)
   -- notify "match found"
   self:_logMatchmakingEvent("CALLBACK_onSettingCurrentMatch reached", o__match)
   self._onSettingCurrentMatch(o__match, dataTable)
-  
+
+end
+
+-- Ensures self.currentMatch actually refers to matchId before onReady runs.
+-- endTurnWithDataTable's success path deliberately nils out currentMatch
+-- entirely (other code reads that as a signal) -- but an exchange can be
+-- owed at any time independent of turn-pass state, so a stale/nil
+-- currentMatch left over from an unrelated earlier send is a real risk,
+-- confirmed live (see MULTIPLAYER_DESIGN.md "GameKit exchange trial").
+-- Reloads fresh from GameKit when needed rather than trusting it.
+function CTBM:ensureCurrentMatch(matchId, onReady)
+  if self.currentMatch and self.currentMatch.matchID == matchId then
+    onReady()
+    return
+  end
+  objc.GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(matchId, function(o__match, o__err)
+    objc.async(function()
+      if o__err or not o__match then
+        self:log("CTBM:ensureCurrentMatch load failed:", o__err and o__err.localizedDescription or "nil match")
+        return
+      end
+      self.currentMatch = o__match
+      self.isMyTurn = self:vernacularForTurnOwner() == "me" or false
+      onReady()
+    end)
+  end)
 end
 
 function CTBM:endTurnWithDataTable(t, onError)

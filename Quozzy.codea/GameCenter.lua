@@ -620,35 +620,43 @@ function attemptPendingLegSend(matchId)
     end
   end
 
-  if pending.kind == "finalize" then
+  -- tbm.currentMatch can be nil or stale here -- endTurnWithDataTable's own
+  -- success path nils it out deliberately, but an exchange send can become
+  -- owed at any time independent of turn-pass state (confirmed live: a
+  -- same-session score send after a handshake's turn-pass succeeded failed
+  -- every attempt with currentMatch nil before this guard existed). Reload
+  -- first rather than trusting it.
+  tbm:ensureCurrentMatch(matchId, function()
+    if pending.kind == "finalize" then
+      tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
+        -- finalizeCompletedTurnBasedMatch (and the tbm:localPlayerWon/Lost/Tied
+        -- calls inside it) are fire-and-forget in the bridge today — no error
+        -- channel to retry against, same as before this generalization existed.
+        -- Best-effort: try once, then clear the pending entry either way.
+        local ok = finalizeCompletedTurnBasedMatch(nil)
+        if not ok then
+          devLog("attemptPendingLegSend: finalize preconditions not met", matchId)
+        end
+        pendingTurnSendsByMatchId[matchId] = nil
+        persistPendingTurnSends()
+      end)
+      return
+    end
+
+    if pending.via == "exchange" then
+      tbm:sendExchangeWithDataTable(pending.turnData, onSendFailed, function()
+        onLegSendSucceeded(matchId)
+      end)
+      return
+    end
+
+    -- via == "turn": merge first, then pass the turn. Success is reported
+    -- asynchronously via tbm:onTurnEnded -> onLegSendSucceeded, same as
+    -- before this generalization existed -- endTurnWithDataTable has no
+    -- separate success callback of its own.
     tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
-      -- finalizeCompletedTurnBasedMatch (and the tbm:localPlayerWon/Lost/Tied
-      -- calls inside it) are fire-and-forget in the bridge today — no error
-      -- channel to retry against, same as before this generalization existed.
-      -- Best-effort: try once, then clear the pending entry either way.
-      local ok = finalizeCompletedTurnBasedMatch(nil)
-      if not ok then
-        devLog("attemptPendingLegSend: finalize preconditions not met", matchId)
-      end
-      pendingTurnSendsByMatchId[matchId] = nil
-      persistPendingTurnSends()
+      tbm:endTurnWithDataTable(pending.turnData, onSendFailed)
     end)
-    return
-  end
-
-  if pending.via == "exchange" then
-    tbm:sendExchangeWithDataTable(pending.turnData, onSendFailed, function()
-      onLegSendSucceeded(matchId)
-    end)
-    return
-  end
-
-  -- via == "turn": merge first, then pass the turn. Success is reported
-  -- asynchronously via tbm:onTurnEnded -> onLegSendSucceeded, same as before
-  -- this generalization existed -- endTurnWithDataTable has no separate
-  -- success callback of its own.
-  tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
-    tbm:endTurnWithDataTable(pending.turnData, onSendFailed)
   end)
 end
 
