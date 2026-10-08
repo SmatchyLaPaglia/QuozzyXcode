@@ -205,6 +205,19 @@ function XT.endMatch(myOutcome, otherOutcome)
   return "ending"
 end
 
+-- Non-turn-holder's only direct "I'm done with this" option per Apple's
+-- header: "Abandon the match when it is not the current participant's turn.
+-- In this there is no update to matchData and no need to set
+-- nextParticipant." Testing what this actually does to the match's overall
+-- status (vs. just this participant's own status) -- not documented beyond
+-- the one-line comment.
+function XT.quitOutOfTurn(outcome)
+  XT.m:participantQuitOutOfTurnWithOutcome_withCompletionHandler_(outcome or 1, function(o__err)
+    objc.async(function() L("quitOutOfTurn", o__err and err(o__err) or "ok") end)
+  end)
+  return "quitting out of turn"
+end
+
 function XT.dump(n)
   n = n or 20
   local from = math.max(1, #XT.log - n + 1)
