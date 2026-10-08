@@ -810,7 +810,7 @@ readyTapPanel        = nil   -- “Tap anywhere to start” panel
 -- false = full game boot
 SAFE_BOOT = false
 
-gcBadgePermissionRequested = gcBadgePermissionRequested or false
+notificationPermissionRequested = notificationPermissionRequested or false
 
 local function setHomeScreenBadgeCount(count)
   count = math.max(0, math.floor(tonumber(count) or 0))
@@ -830,38 +830,48 @@ local function setHomeScreenBadgeCount(count)
   return ok
 end
 
-local function requestHomeScreenBadgePermission()
-  if gcBadgePermissionRequested then return end
-  gcBadgePermissionRequested = true
-  
+-- Requests badge + alert + sound together in one call, not just badge.
+-- iOS only prompts the user once per option set it's ever been asked about;
+-- a later, separate request for alert/sound (e.g. for
+-- scheduleCommentTimeoutNotification below) would NOT re-prompt if this
+-- earlier call had only asked for badge -- it would just silently stay
+-- un-granted forever. Broadened here rather than requesting alert/sound
+-- separately elsewhere.
+local function requestNotificationPermissions()
+  if notificationPermissionRequested then return end
+  notificationPermissionRequested = true
+
   local ok = pcall(function()
     local UN = objc and objc.UNUserNotificationCenter
     if not UN then
-      devLog("Badge permission request skipped (UNUserNotificationCenter unavailable)")
+      devLog("Notification permission request skipped (UNUserNotificationCenter unavailable)")
       return
     end
     local center = UN.currentNotificationCenter or (UN.currentNotificationCenter and UN:currentNotificationCenter())
     if not center then
-      devLog("Badge permission request skipped (notification center unavailable)")
+      devLog("Notification permission request skipped (notification center unavailable)")
       return
     end
     local opts = nil
     if objc.enum and objc.enum.UNAuthorizationOptions then
-      opts = objc.enum.UNAuthorizationOptions.badge
+      local o = objc.enum.UNAuthorizationOptions
+      if o.badge and o.alert and o.sound then
+        opts = o.badge + o.alert + o.sound
+      end
     end
     if not opts then
-      -- badge-only is bit 1 << 0 on iOS
-      opts = 1
+      -- badge=1<<0, sound=1<<1, alert=1<<2 on iOS
+      opts = 7
     end
     center:requestAuthorizationWithOptions_completionHandler_(opts, function(granted, err)
       objc.async(function()
         local grantedBool = (granted == true or granted == 1)
-        devLog("Badge permission callback", "granted=", grantedBool, "err=", err ~= nil)
+        devLog("Notification permission callback", "granted=", grantedBool, "err=", err ~= nil)
       end)
     end)
   end)
   if not ok then
-    devLog("Badge permission request failed (bridge call)")
+    devLog("Notification permission request failed (bridge call)")
   end
 end
 
@@ -1020,7 +1030,7 @@ function setup()
   tbm:uponDetectingAuthentication(function()
     defineAvatarsAfterMicrodelay()
     otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
-    requestHomeScreenBadgePermission()
+    requestNotificationPermissions()
     refreshHomeScreenBadgeFromGCMatches("auth")
     refreshVsMatchesList("auth")
     requestPendingHandshakeResendCheck("auth")

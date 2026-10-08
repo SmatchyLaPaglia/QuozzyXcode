@@ -175,6 +175,10 @@ function decideComment(commentText)
   if finishedAwaitingDecisionByMatchId[q.id] then
     persistFinishedAwaitingDecision()
   end
+  -- The whole point of the nudge (scheduleCommentTimeoutNotification,
+  -- endGameRound) was to get the player to come back and do exactly this --
+  -- no longer needed once they have.
+  cancelCommentTimeoutNotification(q.id)
   attemptLegSend(q)
   return true
 end
@@ -733,6 +737,61 @@ function onExchangeRepliesReceived(gkMatch)
   end
 end
 
+-- Schedules a local notification nudging the player to reopen the app,
+-- firing delaySeconds after they finished -- the same moment the
+-- self-enforced timeout (applyCommentTimeoutIfExpired) would otherwise
+-- silently lock their comment in as blank. This is a plain UserNotifications
+-- feature, unrelated to GameKit's own (unreliable, see MULTIPLAYER_DESIGN.md)
+-- turnTimeout -- it doesn't force anything by itself (a local notification
+-- can't run app code unless the user taps it), it only raises the odds the
+-- silent player actually reopens, so the existing on-foreground logic gets a
+-- chance to run. One identifier per match, so a later comment decision can
+-- cancel it (cancelCommentTimeoutNotification) rather than nagging after the
+-- fact. Requires requestNotificationPermissions (Main.lua) to have been
+-- granted alert+sound -- silently does nothing otherwise, same as every
+-- other best-effort devLog-guarded bridge call in this file.
+function scheduleCommentTimeoutNotification(matchId, delaySeconds, opponentName)
+  if not (objc and objc.UNUserNotificationCenter) then return end
+  local ok = pcall(function()
+    local UN = objc.UNUserNotificationCenter
+    local center = UN.currentNotificationCenter or (UN.currentNotificationCenter and UN:currentNotificationCenter())
+    if not center then return end
+
+    local content = objc.UNMutableNotificationContent:alloc():init()
+    content.title = "Your turn is waiting"
+    content.body = opponentName and (opponentName .. " is waiting for your comment on your match!")
+      or "Your match is waiting for your comment."
+    content.sound = objc.UNNotificationSound.defaultSound
+
+    local trigger = objc.UNTimeIntervalNotificationTrigger:triggerWithTimeInterval_repeats_(delaySeconds, false)
+    local identifier = "commentTimeout-" .. tostring(matchId)
+    local request = objc.UNNotificationRequest:requestWithIdentifier_content_trigger_(identifier, content, trigger)
+
+    center:addNotificationRequest_withCompletionHandler_(request, function(o__err)
+      objc.async(function()
+        devLog("scheduleCommentTimeoutNotification", matchId, o__err and o__err.localizedDescription or "ok")
+      end)
+    end)
+  end)
+  if not ok then
+    devLog("scheduleCommentTimeoutNotification failed (bridge call)", matchId)
+  end
+end
+
+-- Cancels a previously-scheduled comment-timeout nudge. Call once the
+-- comment is actually decided (decideComment) so a player who responds
+-- promptly doesn't get an irrelevant notification a day later. Harmless
+-- no-op if nothing was pending under this identifier.
+function cancelCommentTimeoutNotification(matchId)
+  if not (objc and objc.UNUserNotificationCenter) then return end
+  pcall(function()
+    local UN = objc.UNUserNotificationCenter
+    local center = UN.currentNotificationCenter or (UN.currentNotificationCenter and UN:currentNotificationCenter())
+    if not center then return end
+    center:removePendingNotificationRequestsWithIdentifiers_({ "commentTimeout-" .. tostring(matchId) })
+  end)
+end
+
 function endGameRound()
   print("DEBUG:endGameRound: currentFoundWords():", json.encode(currentFoundWords()))
   
@@ -780,7 +839,11 @@ function endGameRound()
   -- Starts the self-enforced comment-timeout clock (see
   -- applyCommentTimeoutIfExpired in qMatch_qPlayer.lua) — only stamped once,
   -- the first time this player's round finishes for this match.
+  local isFirstFinish = q.players[pid].commentWindowStartedAt == nil
   q.players[pid].commentWindowStartedAt = q.players[pid].commentWindowStartedAt or os.time()
+  if isFirstFinish then
+    scheduleCommentTimeoutNotification(q.id, COMMENT_WINDOW_SECONDS, q.otherName or q.opponentName or opponentAlias)
+  end
 
   -- Persist THIS finished-but-undecided result to disk right now, before
   -- anything else — a kill between finishing and deciding a comment must not
