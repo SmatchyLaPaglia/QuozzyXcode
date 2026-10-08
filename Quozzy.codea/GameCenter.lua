@@ -600,13 +600,23 @@ function onLegSendSucceeded(matchId)
     awaitingHandshakeSend = false
   end
 
-  -- A score/comment/finalize send succeeding means this match's finished
-  -- result has now actually reached GameKit -- it no longer needs the
-  -- standalone disk snapshot endGameRound wrote (that snapshot exists purely
-  -- to survive a kill before this point was ever reached).
+  -- The disk snapshot (endGameRound's "I finished but haven't fully
+  -- communicated this yet" record) is only done being needed once MY OWN
+  -- comment has actually sent -- not just whenever any send succeeds. Under
+  -- the old bundled design "any non-handshake send succeeding" and "comment
+  -- sent" were the same event; they aren't anymore now that score and
+  -- comment are independent sends (see MULTIPLAYER_DESIGN.md). A successful
+  -- score-only send clearing this snapshot would permanently blind
+  -- checkFinishedMatchesForCommentTimeout to a still-undecided comment --
+  -- found via a live test that backdated commentWindowStartedAt right after
+  -- a score-via-exchange send and discovered the snapshot was already gone.
   if pending.kind ~= "handshake" and finishedAwaitingDecisionByMatchId[matchId] then
-    finishedAwaitingDecisionByMatchId[matchId] = nil
-    persistFinishedAwaitingDecision()
+    local me = currentQMatch and currentQMatch.id == matchId and currentQMatch.players
+      and currentQMatch.players[localPID()]
+    if me and me.commentSent then
+      finishedAwaitingDecisionByMatchId[matchId] = nil
+      persistFinishedAwaitingDecision()
+    end
   end
 end
 

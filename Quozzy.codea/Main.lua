@@ -560,19 +560,26 @@ function retryPendingHandshakeSends(reason)
               local mid = m and _safeObjCString(m.matchID)
               if mid and mid == candidateId then
                 tbm:_setCurrentMatch(m, "handshake-resend")
-                if tbm.isMyTurn == true then
-                  devLog("retryPendingHandshakeSends: resending", "matchId=", candidateId, "reason=", reason)
-                  if pendingTurnSendsByMatchId[candidateId] then
-                    attemptPendingLegSend(candidateId)
-                  else
-                    -- A comment-timeout candidate with no pending entry yet:
-                    -- computeNextOwedAction hasn't run for it, so go through
-                    -- attemptLegSend (which will) rather than
-                    -- attemptPendingLegSend (which assumes it already has).
-                    local q = (currentQMatch and currentQMatch.id == candidateId) and currentQMatch
-                      or finishedAwaitingDecisionByMatchId[candidateId]
-                    if q then attemptLegSend(q) end
-                  end
+                -- No isMyTurn gate here (removed) -- that predates the
+                -- exchange-aware relay and would skip this candidate entirely
+                -- whenever this device doesn't hold the turn, which is
+                -- exactly the common case for a comment-timeout candidate.
+                -- attemptPendingLegSend/attemptLegSend already correctly
+                -- decide turn-pass vs. exchange internally (computeNextOwedAction
+                -- reads tbm.isMyTurn itself) -- let them, rather than
+                -- pre-emptively skipping before they get a chance to.
+                devLog("retryPendingHandshakeSends: checking", "matchId=", candidateId,
+                  "reason=", reason, "isMyTurn=", tostring(tbm.isMyTurn))
+                if pendingTurnSendsByMatchId[candidateId] then
+                  attemptPendingLegSend(candidateId)
+                else
+                  -- A comment-timeout candidate with no pending entry yet:
+                  -- computeNextOwedAction hasn't run for it, so go through
+                  -- attemptLegSend (which will) rather than
+                  -- attemptPendingLegSend (which assumes it already has).
+                  local q = (currentQMatch and currentQMatch.id == candidateId) and currentQMatch
+                    or finishedAwaitingDecisionByMatchId[candidateId]
+                  if q then attemptLegSend(q) end
                 end
                 break
               end
@@ -1059,6 +1066,17 @@ function setup()
     end
     refreshHomeScreenBadgeFromGCMatches("receivingTurn")
     refreshVsMatchesList("receivingTurn")
+
+    -- The comment-timeout sweep (checkFinishedMatchesForCommentTimeout,
+    -- inside retryPendingHandshakeSends) was previously only triggered from
+    -- draw()'s per-frame foreground check -- confirmed live that a
+    -- GameKit-triggered relaunch (e.g. from sendReminderToParticipants, see
+    -- MULTIPLAYER_DESIGN.md) reaches this handler even when the app was
+    -- fully terminated and never becomes foreground-active, so the sweep
+    -- needs its own trigger here too, not just the foreground one, or a
+    -- background-only wake would deliver fresh data but never actually
+    -- resolve this device's own stuck comment decision.
+    retryPendingHandshakeSends("receivingTurn")
   end)
 
   tbm:onTurnEnded(function(gkMatch, dataTable)

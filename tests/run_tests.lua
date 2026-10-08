@@ -524,10 +524,11 @@ test("endGameRound: persists the finished-but-undecided result to disk immediate
     recovered and recovered.players["local-player-id"].commentDecided == false)
 end)
 
-test("onLegSendSucceeded: clears the finished-awaiting-decision snapshot once a 'result' send succeeds", function()
+test("onLegSendSucceeded: clears the finished-awaiting-decision snapshot once my comment actually sends", function()
   useTurnBased = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].commentDecided = true -- locked, about to send
   finishedAwaitingDecisionByMatchId["m1"] = currentQMatch
   persistFinishedAwaitingDecision()
   pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "turn", turnData = {}, attempts = 1 }
@@ -535,6 +536,29 @@ test("onLegSendSucceeded: clears the finished-awaiting-decision snapshot once a 
   onLegSendSucceeded("m1")
 
   check("snapshot cleared", finishedAwaitingDecisionByMatchId["m1"] == nil)
+end)
+
+test("onLegSendSucceeded: a successful SCORE-ONLY send does NOT clear the snapshot while the comment is still undecided", function()
+  -- Regression case: under the old bundled design, any non-handshake send
+  -- succeeding meant the comment was sent too (they always went out
+  -- together). Now that score and comment are independent sends, a
+  -- score-only success must leave the snapshot in place, or
+  -- checkFinishedMatchesForCommentTimeout would permanently lose the
+  -- ability to ever sweep this match's still-undecided comment. Found via a
+  -- live device test that backdated commentWindowStartedAt right after a
+  -- score-via-exchange send and discovered the snapshot was already gone.
+  useTurnBased = true
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay = true
+  -- commentDecided deliberately left false -- comment not decided yet
+  finishedAwaitingDecisionByMatchId["m1"] = currentQMatch
+  persistFinishedAwaitingDecision()
+  pendingTurnSendsByMatchId["m1"] = { kind = "score", via = "exchange", turnData = {}, attempts = 1 }
+
+  onLegSendSucceeded("m1")
+
+  check("scoreSent marked", currentQMatch.players["local-player-id"].scoreSent == true)
+  check("snapshot survives -- comment still undecided", finishedAwaitingDecisionByMatchId["m1"] ~= nil)
 end)
 
 test("onLegSendSucceeded: a successful handshake does NOT touch the finished-awaiting-decision table", function()
