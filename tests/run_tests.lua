@@ -719,6 +719,88 @@ test("computeNextOwedLeg: nothing owed once my result is already sent", function
   check("nil", computeNextOwedLeg(q, "me", os.time()) == nil)
 end)
 
+-- ---- computeNextOwedAction: exchange-aware relay decision -----------------
+-- See MULTIPLAYER_DESIGN.md "GameKit exchange trial": a score is sent the
+-- instant a round ends, regardless of comment status or turn ownership --
+-- via="turn" if I hold it, via="exchange" if I don't.
+
+test("computeNextOwedAction: handshake owed when flagged, overrides everything else", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.needsInitialHandshake = true
+  q.players["me"].didPlay = true -- shouldn't matter, handshake wins
+  local a = computeNextOwedAction(q, "me", true, os.time())
+  check("handshake", a and a.kind == "handshake")
+end)
+
+test("computeNextOwedAction: nothing owed before I've finished playing", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  check("nil", computeNextOwedAction(q, "me", true, os.time()) == nil)
+end)
+
+test("computeNextOwedAction: score owed via turn the instant I finish, even if my comment isn't decided", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay = true
+  q.players["me"].commentDecided = false
+  local a = computeNextOwedAction(q, "me", true, os.time())
+  check("score via turn", a and a.kind == "score" and a.via == "turn")
+end)
+
+test("computeNextOwedAction: score owed via exchange when I don't hold the turn", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay = true
+  local a = computeNextOwedAction(q, "me", false, os.time())
+  check("score via exchange", a and a.kind == "score" and a.via == "exchange")
+end)
+
+test("computeNextOwedAction: comment owed once decided, after score already sent", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided = true
+  local a = computeNextOwedAction(q, "me", true, os.time())
+  check("comment via turn", a and a.kind == "comment" and a.via == "turn")
+end)
+
+test("computeNextOwedAction: comment owed via exchange when I don't hold the turn", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided = true
+  local a = computeNextOwedAction(q, "me", false, os.time())
+  check("comment via exchange", a and a.kind == "comment" and a.via == "exchange")
+end)
+
+test("computeNextOwedAction: nothing owed once score+comment both sent and opponent unresolved", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided, q.players["me"].commentSent = true, true
+  check("nil", computeNextOwedAction(q, "me", true, os.time()) == nil)
+end)
+
+test("computeNextOwedAction: finalize once both sides fully resolved and I hold the turn", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided, q.players["me"].commentSent = true, true
+  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, true
+  local a = computeNextOwedAction(q, "me", true, os.time())
+  check("finalize", a and a.kind == "finalize")
+end)
+
+test("computeNextOwedAction: nothing owed if both resolved but I don't hold the turn (not my job to finalize)", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided, q.players["me"].commentSent = true, true
+  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, true
+  check("nil", computeNextOwedAction(q, "me", false, os.time()) == nil)
+end)
+
+test("computeNextOwedAction: 'comment' (not finalize) if opponent played but hasn't decided a comment yet", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided = true
+  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, false
+  local a = computeNextOwedAction(q, "me", true, os.time())
+  check("comment via turn", a and a.kind == "comment" and a.via == "turn")
+end)
+
 -- ---- applyCommentTimeoutIfExpired -----------------------------------------
 
 test("applyCommentTimeoutIfExpired: locks in a blank decision once the window has passed", function()

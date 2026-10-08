@@ -149,6 +149,13 @@ function ensureQMatchPlayers(q, localId, opponentId)
     if p.commentDecided == nil then p.commentDecided = false end
     p.commentWindowStartedAt = p.commentWindowStartedAt or nil
     if p.resultSent == nil then p.resultSent = false end
+    -- scoreSent/commentSent: split out of resultSent for computeNextOwedAction
+    -- (see MULTIPLAYER_DESIGN.md "GameKit exchange trial") -- a score no longer
+    -- waits on a comment decision before going out, so the two need independent
+    -- sent-tracking. resultSent stays for computeNextOwedLeg, which still backs
+    -- production until GameCenter.lua is migrated.
+    if p.scoreSent == nil then p.scoreSent = false end
+    if p.commentSent == nil then p.commentSent = false end
     return p
   end
   
@@ -205,6 +212,53 @@ function computeNextOwedLeg(q, myId, now)
     return "finalize"
   end
   return "result"
+end
+
+-- Pure decision function for the exchange-aware relay (see MULTIPLAYER_DESIGN.md,
+-- "GameKit exchange trial" -- turnTimeout doesn't work, but exchanges do, so scores
+-- and comments go out the instant they're ready rather than waiting for the turn).
+-- No tbm/objc access here -- the caller supplies iHoldTurn (from tbm.isMyTurn) and
+-- picks the actual send mechanism. Returns one of:
+--   { kind = "handshake" }                        -- board has never gone out.
+--   { kind = "score",   via = "turn"|"exchange" }  -- my score hasn't gone out yet.
+--   { kind = "comment", via = "turn"|"exchange" }  -- my locked comment hasn't gone
+--                                                      out yet (only once decided).
+--   { kind = "finalize" }                          -- both sides fully resolved and
+--                                                      I hold the turn -- close it.
+--   nil                                             -- nothing owed right now.
+-- Unlike computeNextOwedLeg, "finalize" is only ever returned when iHoldTurn is
+-- true (GameKit only lets the turn holder end a match) -- if both sides are
+-- resolved but I don't hold the turn, there's nothing left for ME to do; whoever
+-- does hold it will see the same finalize condition next time they check.
+function computeNextOwedAction(q, myId, iHoldTurn, now)
+  if not (q and q.players) then return nil end
+  myId = myId or localPID()
+  local me = q.players[myId]
+  if not me then return nil end
+
+  if q.needsInitialHandshake then
+    return { kind = "handshake" }
+  end
+
+  if me.didPlay and not me.scoreSent then
+    return { kind = "score", via = iHoldTurn and "turn" or "exchange" }
+  end
+
+  if me.commentDecided and not me.commentSent then
+    return { kind = "comment", via = iHoldTurn and "turn" or "exchange" }
+  end
+
+  if iHoldTurn then
+    local opp = nil
+    for pid, pdata in pairs(q.players) do
+      if pid ~= myId then opp = pdata end
+    end
+    if me.didPlay and me.commentDecided and opp and opp.didPlay and opp.commentDecided then
+      return { kind = "finalize" }
+    end
+  end
+
+  return nil
 end
 
 -- Pure timeout check: if I finished this match's round and never decided on
