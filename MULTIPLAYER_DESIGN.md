@@ -130,9 +130,13 @@ exactly one comment.
   won/lost result. It counts from the moment of the send, not receipt.
 - `MULTIPLAYER_TEST_PLAN.md` describes the bundled score+comment version; it is
   to be rewritten (or deleted) to match this design before the code is changed.
-- Code to delete/replace: `COMMENT_WINDOW_SECONDS` / `applyCommentTimeoutIfExpired`
-  self-enforced timeout; the `enterQMatch` jump on an incoming turn
-  (`tbm:onReceivingTurn` in `Main.lua`) — keep only the background send.
+- ~~Code to delete/replace: `COMMENT_WINDOW_SECONDS` / `applyCommentTimeoutIfExpired`
+  self-enforced timeout~~ — **superseded, see "Decision" below (2026-10-08):** the
+  2026-10-07 plan assumed GameKit's own `turnTimeout` would replace this. The
+  exchange trial showed `turnTimeout` doesn't observably work, so this
+  self-enforced code is **kept**, not deleted. The `enterQMatch` jump on an
+  incoming turn (`tbm:onReceivingTurn` in `Main.lua`) should still change to a
+  background-only send, independent of this.
 
 **Proposed, NOT confirmed by Jesse:** update the local win/loss record the moment
 both scores are in (today it only updates when the match ends in Game Center via
@@ -184,7 +188,7 @@ Build only after the 2-player version works on real devices.
 - Mockups: https://claude.ai/artifact/12caW8uMRzhmKxRu8y6PVb (picker drawn before
   the laptop merge — reconcile with the real `MatchSelection.lua` screen).
 
-## GameKit exchange trial (2026-10-07) — in progress
+## GameKit exchange trial — complete (2026-10-08)
 
 **Why:** a comment locked while not holding the turn waits on the phone and can be
 lost to the 24h clock. GameKit *exchanges* (`sendExchange…`) let a player without
@@ -192,40 +196,104 @@ the turn send data to the match immediately; the turn holder merges it
 (`saveMergedMatchData`) before passing the turn or ending the match (Apple: an
 unmerged completed exchange makes endTurn/endMatch error). If exchanges work, a
 comment can leave the phone the moment it locks, the turn only needs to move for
-scores, and the comment-loss problem goes away. **Not yet adopted in the rules
-above** — pending this trial.
+scores, and the comment-loss problem goes away.
 
 **Harness:** `tools/xchg_trial.lua` — load with
-`DBG_SIM=<udid> tools/dbg.sh -f tools/xchg_trial.lua`, then call `XT.muteApp()`,
-`XT.findB(alias)`, `XT.create()`, `XT.passTurn(seconds)`, `XT.sendEx(seconds)`,
-`XT.reload()`, `XT.merge()`, `XT.saveTurn()`, `XT.endMatch()`, `XT.describe()`,
-`XT.dump()`. Callbacks only record to `XT.log` (no Codea work in objc callbacks).
+`tools/dbg.sh -f tools/xchg_trial.lua` (or `DBG_SIM=<udid>` for a simulator), then
+call `XT.muteApp()`, `XT.findB(alias)`, `XT.create()`, `XT.acceptById(matchID)`,
+`XT.passTurn(seconds)`, `XT.sendEx(seconds)`, `XT.reply()`, `XT.merge()`,
+`XT.saveTurn()`, `XT.endMatch(myOutcome, otherOutcome)`, `XT.reload()`,
+`XT.describe()`, `XT.dump()`. Callbacks only record to `XT.log` (no Codea work in
+objc callbacks). **Always `XT.reload()` immediately before any turn-affecting call**
+(`passTurn`/`endMatch`) — a stale local match object fails with "the specified
+participant does not have the required turn state" (code 23), a harness artifact
+seen repeatedly tonight, not a GameKit behavior. The same staleness risk applies to
+`tbm.currentMatch` in the real app, not just this harness.
 
-**Results so far** (simulator signed in as Gnostic Pan, invited Smatchy LaPaglia):
-- The objc bridge can call `sendExchange` — no native addon needed.
-- A non-turn-holder can send an exchange to an *invited-not-yet-accepted* player;
-  it appears in `match.exchanges`.
-- A 60s `turnTimeout` and a 60s exchange timeout did NOT fire within 3.5 min while
-  the recipient was only invited (timeoutDate stayed nil). Retest with a recipient
-  who has accepted.
+**Run on real hardware** (iPad "Jesse on iPad of Rosie" = Gnostic Pan, iPhone XR
+= GameySonata, both physically connected, both already signed in — no simulator
+involved this time):
 
-**Still to test** (needs a second real account — iPhone XR, GameySonata):
-exchange reply + completion visible to sender; merge by turn holder; endMatch
-blocked while an exchange is unmerged; turn timeout actually returning the turn;
-`saveCurrentTurn`; whether a result can be set before the match ends; overwriting
-"time expired" outcome; 3-player ring + multi-recipient exchange. The existing
-`turnTimeout` passed by `CTBM:endTurn…` is `0` — meaning unknown.
+- **Confirmed working, adopt into the design:**
+  - `acceptInviteWithCompletionHandler_` accepts an invite with zero system UI —
+    confirmed end to end (invite created on one device, accepted on the other,
+    both ways verified via a from-scratch reload showing both participants
+    `status=Active`).
+  - A non-turn-holder sending an exchange works on a fully **accepted** (not just
+    invited) participant — resolves the open question from the earlier
+    simulator-only trial.
+  - Exchange reply → completion is real and visible on both sides, exactly per
+    Apple's docs: the turn holder's `completedExchanges` populates (count 1) once
+    the recipient replies; the *sender's* `completedExchanges` correctly stays
+    empty (that list is turn-holder-only, per Apple's header comment) but the
+    sender's own `exchanges` array shows `replies=1`, which is the practical
+    signal a sender needs.
+  - `saveMergedMatchData:withResolvedExchanges:` works — merged data lands in
+    `matchData`, the resolved exchange disappears from the match entirely.
+  - `endMatchInTurnWithMatchData:` is genuinely **blocked** while a completed
+    exchange sits unmerged — confirmed via a real error (code 3, generic "error
+    communicating with the server" — not a specific/identifiable error code, so
+    the real implementation must proactively check for unresolved exchanges
+    before calling end, not rely on catching a distinguishable error).
+  - `saveCurrentTurnWithMatchData:` writes data without ending the turn, confirmed.
 
-**Rig state:** iPhone 17 simulator `1BB18035-952E-4B35-81B0-D8CD4124591D` is
-signed in as Gnostic Pan with the app installed. Test match
-`6759465984:e742845b-f496-4981-8fba-766d156591f8` (Gnostic Pan → Smatchy) is still
-open on Smatchy's turn; quit it when done. iPhone XR ("Testing iPhone XR",
-CoreDevice `C1F748A5-36C2-595C-AFF4-A74BF6C748AA`, Xcode id
-`00008020-001D382C1402002E`) is connected but the app isn't installed: Xcode
-needs the Apple Program License Agreement accepted at developer.apple.com before
-it can add the XR to the provisioning profile; then Run from Xcode.
+- **Confirmed NOT working — do not rely on this:**
+  - **`turnTimeout` does not produce an observable `timeoutDate`, at any value.**
+    Tried 65 (int), 65.0 (float, to rule out a Lua integer/float bridging bug),
+    and 86400 (24h, the design's real intended value) — `timeoutDate` read back
+    `nil` every time, immediately and on every subsequent reload.
+  - **The turn did not auto-transfer back after the timeout window elapsed.**
+    Passed a 65s timeout, waited a full 2 minutes past it (well past the window),
+    reloaded repeatedly — `currentParticipant` never moved. One full real-time
+    trial was run to completion; the `nil` `timeoutDate` symptom was independently
+    reproduced 3 more times across different values without a further full wait.
+  - This directly answers the open "still to verify" item from the first trial
+    commit: the production code's `turnTimeout` of `0` isn't silently broken
+    relative to some working nonzero value — **nonzero values don't work either**,
+    at least not via this objc bridge call path, on real hardware, in this GameKit
+    environment. Root cause (bridge marshaling bug vs. a GameKit/account-type
+    limitation) is not established — only the practical result is.
+  - **`matchOutcome` cannot be pre-staged.** Setting `p.matchOutcome` in Lua and
+    calling `saveCurrentTurnWithMatchData:` (which takes no participant array)
+    does not persist the outcome — confirmed by reload showing `outcome=0` after
+    a successful save. Outcome must be set immediately before the actual
+    `endTurnWithNextParticipants…` or `endMatchInTurnWithMatchData…` call that
+    consumes it.
+  - **Not reached / moot:** "overwriting a time-expired outcome" was impossible to
+    test — no time-expired state is ever reached if the timeout mechanism itself
+    doesn't fire. 3-player ring + multi-recipient exchange — not attempted
+    tonight, blocked on the 2-player result first per the existing "build only
+    after 2-player works" ordering.
 
-**Addon fallback:** Sparts Scoresheet's `addon-bridge-demo` branch
-(`~/Documents/Xcode/SpartsScoresheet`, pushed to SpartsScoresheetXcode) shows
-Lua↔native calls via `lua_register` + `unsafeRunLuaBlock:`; Quozzy already has the
-stock `Quozzy/Addon/ProjectAddon.mm` scaffolding.
+### Decision: adopt exchanges for score/comment delivery; drop GameKit's own turnTimeout as the Gate-2 enforcement mechanism
+
+Rules 1–5, 7, 8 above stand. **Rule 6 is revised**: GameKit's `turnTimeout`
+cannot be the thing that returns the turn after 24 hours — it doesn't observably
+do that. This is not a new problem: it only affects Gate 2 (GameKit's own formal
+close), and only in the already-accepted edge case where the turn-holding
+player's device never reopens — exactly the limitation `MULTIPLAYER_TEST_PLAN.md`
+already called "an accepted limitation, not a bug to route around" for the
+*current* (pre-exchange) design. Exchanges don't make that edge case worse, and
+they fix the much more common problem this trial was actually for: with scores
+and comments both delivered via exchange the instant they're ready — regardless
+of who currently holds the GameKit turn — Gate 1 (what players actually see)
+opens immediately and reliably for both players every time, with no dependency
+on turn position at all. Gate 2 falls back to the existing, already-proven
+self-enforced sweep (`COMMENT_WINDOW_SECONDS` / `applyCommentTimeoutIfExpired` /
+`retryPendingHandshakeSends`) rather than a new GameKit-enforced one — keep that
+code rather than deleting it as the 2026-10-07 decisions log suggested.
+
+**Revised rule 6:** A player who hasn't locked a comment within 24 hours of
+finishing locks a blank one automatically, the next time their own device runs
+(unchanged from current production behavior). Once both comments exist in the
+match data (delivered via ordinary turn-pass or exchange, whichever applies),
+*whoever next holds the turn* — naturally, not via any timeout-forced transfer —
+merges any pending exchanges and calls the final end. No turn-holder enforcement
+beyond that; this matches today's shipped behavior's risk profile exactly, not a
+regression.
+
+**Addon fallback** (not needed — exchanges worked via the plain objc bridge, no
+native addon required): Sparts Scoresheet's `addon-bridge-demo` branch
+(`~/Documents/Xcode/SpartsScoresheet`) shows Lua↔native calls via `lua_register` +
+`unsafeRunLuaBlock:` if ever needed for something the objc bridge can't reach;
+Quozzy already has the stock `Quozzy/Addon/ProjectAddon.mm` scaffolding.
