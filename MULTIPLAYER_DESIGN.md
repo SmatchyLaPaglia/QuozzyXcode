@@ -588,16 +588,54 @@ hardware — none of the above depends on the laptop staying on, only on
 `dbg.sh` access to inspect results, which simply resumed once devicectl
 reconnected.
 
+### `sendReminderToParticipants` in production (2026-10-08)
+
+Item 1 below is now closed. Wired as an automatic, threshold-based check
+rather than a manual "nudge" button — no new UI, and it's the shape that's
+actually unit-testable, which was the other half of the ask.
+
+- `noteOpponentFinishedIfNew(q, myId, now)` (qMatch_qPlayer.lua) — records,
+  once and only once per match id in a side table
+  (`oppFinishedObservedAtByMatchId`, persisted like the other
+  `*ByMatchId` tables), the moment THIS device first learns the opponent
+  finished their round. Deliberately **not** a field on `q.players[oppId]`:
+  `makeQMatchFromGK` rebuilds `q` from scratch on every incoming turn/exchange
+  event, so anything stamped on the opponent's player-slot table itself would
+  silently re-stamp to "now" on every later event instead of staying put.
+- `computeReminderDue(q, myId, now, windowSeconds)` (qMatch_qPlayer.lua) —
+  pure function: true only once I've fully finished my own side, the opponent
+  has played but not decided their comment, and `COMMENT_WINDOW_SECONDS` has
+  elapsed since `noteOpponentFinishedIfNew` first recorded their finish.
+  Sending earlier wouldn't help even if they woke up —
+  `applyCommentTimeoutIfExpired` still waits out the full window regardless
+  of why the device woke.
+- `maybeSendReminderForCurrentMatch(q)` (GameCenter.lua) — the dispatch
+  point: calls the above, and if due, sends via a new
+  `CTBM:sendReminderWithMessage` bridge method (mirrors
+  `sendExchangeWithDataTable`'s pattern) and marks `reminderSentByMatchId[q.id]
+  = true` **before** the completion handler returns — at most once per match,
+  ever, not a retry/cooldown. Marked up front rather than on success so a
+  failed attempt (network blip, rate limit) doesn't retry on its own; given
+  the rate limit isn't well understood (item 2 below), erring toward never
+  retrying beats risking a spam loop.
+- Called from every choke point that already means "this match's resolution
+  state may have just changed": `enterQMatch`, `onExchangeDataReceived`,
+  `onExchangeRepliesReceived` — the same choke points `attemptLegSend` uses.
+- Unit tests: `noteOpponentFinishedIfNew`, `computeReminderDue`, and
+  `maybeSendReminderForCurrentMatch`'s dispatch/guard/persistence behavior
+  are all covered in `tests/run_tests.lua` against the `FakeTBM` stub's new
+  `sendReminderWithMessage`. The actual GameKit call itself obviously isn't
+  (and can't be) unit-tested — that part was live-verified instead: the new
+  `CTBM:sendReminderWithMessage` wrapper was called directly against a real
+  open match on-device and returned success, and the full
+  `maybeSendReminderForCurrentMatch` dispatch chain was exercised end-to-end
+  against real on-device globals (gated correctly on the forced window, then
+  actually reached GameKit and got a success callback, confirmed via the
+  on-device log buffer).
+
 ### What's still open
 
-1. **Who calls `sendReminderToParticipants`, and when?** Not wired into the
-   app at all yet — tonight only proved the mechanism via the raw trial
-   harness. The natural shape: the *waiting* player's device notices (on its
-   own foreground, looking at a specific match) that the opponent has been
-   stuck a while and sends a reminder — either automatically past some
-   threshold, or via an explicit "nudge" UI action. Given the rate limit,
-   probably shouldn't be automatic-on-every-foreground; more likely a
-   deliberate action or a once-per-some-long-interval background check.
+1. ~~Who calls `sendReminderToParticipants`, and when?~~ Closed above.
 2. Exact rate limit parameters (cooldown duration, whether it's per-match or
    per-account) are unknown — only know empirically that back-to-back calls
    within ~2 minutes fail.

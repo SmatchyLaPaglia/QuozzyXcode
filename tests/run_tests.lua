@@ -27,6 +27,8 @@ local function reset()
   awaitingHandshakeSend = false
   pendingTurnSendsByMatchId = {}
   finishedAwaitingDecisionByMatchId = {}
+  oppFinishedObservedAtByMatchId = {}
+  reminderSentByMatchId = {}
   matchHistoryByOpponent = {}
   endedMatchBadgeIds = {}
   commentMatchBadgeIds = {}
@@ -596,6 +598,146 @@ test("checkFinishedMatchesForCommentTimeout: leaves matches still inside their w
 
   check("nothing decided yet", #justDecided == 0)
   check("still undecided", q.players["local-player-id"].commentDecided == false)
+end)
+
+-- ---- noteOpponentFinishedIfNew / computeReminderDue / maybeSendReminderForCurrentMatch
+-- (sendReminderToParticipants production wiring -- MULTIPLAYER_DESIGN.md
+-- "silent player never reopens") --------------------------------------------
+
+test("noteOpponentFinishedIfNew: stamps the observation the first time the opponent is seen to have played", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["opp"].didPlay = true
+  local before = os.time()
+
+  noteOpponentFinishedIfNew(q, "me", before)
+
+  check("stamped", oppFinishedObservedAtByMatchId["m1"] == before)
+end)
+
+test("noteOpponentFinishedIfNew: does not re-stamp on a later call (q rebuilt fresh from a later turn event)", function()
+  -- makeQMatchFromGK rebuilds q from scratch on every incoming turn/exchange
+  -- event (enterQMatch_inner, GameCenter.lua), so the opponent's didPlay==true
+  -- reappears "fresh" on every subsequent event too -- the FIRST observation
+  -- must stick regardless.
+  local q1 = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q1.players["opp"].didPlay = true
+  noteOpponentFinishedIfNew(q1, "me", 1000)
+
+  local q2 = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q2.players["opp"].didPlay = true
+  noteOpponentFinishedIfNew(q2, "me", 5000)
+
+  check("still the original timestamp", oppFinishedObservedAtByMatchId["m1"] == 1000)
+end)
+
+test("noteOpponentFinishedIfNew: no-op while the opponent hasn't played yet", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  noteOpponentFinishedIfNew(q, "me", os.time())
+  check("nothing recorded", oppFinishedObservedAtByMatchId["m1"] == nil)
+end)
+
+test("computeReminderDue: false before I've finished my own side", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["opp"].didPlay = true
+  oppFinishedObservedAtByMatchId["m1"] = os.time() - (COMMENT_WINDOW_SECONDS + 1)
+  check("false", computeReminderDue(q, "me", os.time()) == false)
+end)
+
+test("computeReminderDue: false if the opponent hasn't played at all", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay = true
+  q.players["me"].commentDecided = true
+  check("false", computeReminderDue(q, "me", os.time()) == false)
+end)
+
+test("computeReminderDue: false once the opponent has already decided their comment", function()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
+  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, true
+  oppFinishedObservedAtByMatchId["m1"] = os.time() - (COMMENT_WINDOW_SECONDS + 1)
+  check("false", computeReminderDue(q, "me", os.time()) == false)
+end)
+
+test("computeReminderDue: false before the window has elapsed since I observed them finish", function()
+  local now = os.time()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
+  q.players["opp"].didPlay = true
+  oppFinishedObservedAtByMatchId["m1"] = now - 10
+  check("false", computeReminderDue(q, "me", now) == false)
+end)
+
+test("computeReminderDue: true once the window has elapsed since I observed them finish", function()
+  local now = os.time()
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
+  q.players["opp"].didPlay = true
+  oppFinishedObservedAtByMatchId["m1"] = now - (COMMENT_WINDOW_SECONDS + 1)
+  check("true", computeReminderDue(q, "me", now) == true)
+end)
+
+test("maybeSendReminderForCurrentMatch: sends when due, and never sends a second time for the same match", function()
+  useTurnBased = true
+  local now = os.time()
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay, currentQMatch.players["local-player-id"].commentDecided = true, true
+  currentQMatch.players["opp"].didPlay = true
+  oppFinishedObservedAtByMatchId["m1"] = now - (COMMENT_WINDOW_SECONDS + 1)
+
+  maybeSendReminderForCurrentMatch(currentQMatch)
+  check("sent once", #tbm.reminderCalls == 1)
+  check("marked sent", reminderSentByMatchId["m1"] == true)
+
+  maybeSendReminderForCurrentMatch(currentQMatch)
+  check("not sent again", #tbm.reminderCalls == 1)
+end)
+
+test("maybeSendReminderForCurrentMatch: does nothing the moment I first observe the opponent finish (not due yet)", function()
+  useTurnBased = true
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay, currentQMatch.players["local-player-id"].commentDecided = true, true
+  currentQMatch.players["opp"].didPlay = true
+
+  maybeSendReminderForCurrentMatch(currentQMatch)
+
+  check("nothing sent", #tbm.reminderCalls == 0)
+  check("not marked sent", reminderSentByMatchId["m1"] == nil)
+end)
+
+test("maybeSendReminderForCurrentMatch: a failed send still counts as attempted, and is not retried", function()
+  -- Marked sent up front rather than in the completion handler -- a failed
+  -- attempt (network blip, rate limit) must not retry on its own. See
+  -- REMINDER_SENT_KEY's comment (qMatch_qPlayer.lua).
+  useTurnBased = true
+  local now = os.time()
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay, currentQMatch.players["local-player-id"].commentDecided = true, true
+  currentQMatch.players["opp"].didPlay = true
+  oppFinishedObservedAtByMatchId["m1"] = now - (COMMENT_WINDOW_SECONDS + 1)
+  tbm.failNextReminders = 1
+
+  maybeSendReminderForCurrentMatch(currentQMatch)
+  check("attempted", #tbm.reminderCalls == 1)
+  check("still marked sent despite failure", reminderSentByMatchId["m1"] == true)
+
+  maybeSendReminderForCurrentMatch(currentQMatch)
+  check("not retried", #tbm.reminderCalls == 1)
+end)
+
+test("maybeSendReminderForCurrentMatch: reminderSentByMatchId survives a simulated restart", function()
+  useTurnBased = true
+  local now = os.time()
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay, currentQMatch.players["local-player-id"].commentDecided = true, true
+  currentQMatch.players["opp"].didPlay = true
+  oppFinishedObservedAtByMatchId["m1"] = now - (COMMENT_WINDOW_SECONDS + 1)
+
+  maybeSendReminderForCurrentMatch(currentQMatch)
+  check("sent", #tbm.reminderCalls == 1)
+
+  reminderSentByMatchId = {}
+  loadReminderSent()
+  check("recovered after simulated restart", reminderSentByMatchId["m1"] == true)
 end)
 
 -- ---- shouldShowFinalCommentComposer: no longer gated on holding the turn -

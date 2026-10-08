@@ -917,6 +917,54 @@ function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
   )
 end
 
+-- Sends a GameKit push reminder to every other participant via Apple's own
+-- Game Center servers -- unlike endTurnWithDataTable, does NOT require
+-- holding the turn, and unlike sendExchangeWithDataTable, confirmed live to
+-- wake even a fully-terminated recipient app in the background (see
+-- MULTIPLAYER_DESIGN.md "silent player never reopens"). key is used as a
+-- Localizable.strings lookup key, falling back to the key text itself if no
+-- such entry exists -- no Localizable.strings entry is set up for this yet,
+-- so key should read as plain, sensible text on its own. Rate-limited by
+-- GameKit itself in a way not fully characterized (confirmed only that
+-- back-to-back calls within ~2 minutes fail) -- callers are responsible for
+-- not calling this too often (see reminderSentByMatchId, qMatch_qPlayer.lua).
+function CTBM:sendReminderWithMessage(key, args, onError, onSuccess)
+  if not self.currentMatch then
+    self:log("CTBM: can't send reminder because currentMatch is nil")
+    if onError then onError(nil) end
+    return
+  end
+
+  local localId = self.localPlayer.playerID
+  local recipients = {}
+  for _, p in ipairs(self.currentMatch.participants) do
+    if p and p.playerID ~= localId then
+      table.insert(recipients, p)
+    end
+  end
+
+  if #recipients == 0 then
+    self:log("CTBM: no valid reminder recipients")
+    if onError then onError(nil) end
+    return
+  end
+
+  self.currentMatch:sendReminderToParticipants_localizableMessageKey_arguments_completionHandler_(
+  recipients,
+  key,
+  args or {},
+  function(o__err)
+    if o__err then
+      self:log("CTBM:sendReminder error:", o__err.localizedDescription)
+      if onError then onError(o__err) end
+    else
+      self:log("CTBM: sendReminderToParticipants succeeded")
+      if onSuccess then onSuccess() end
+    end
+  end
+  )
+end
+
 -- Replies to every currently-active exchange on currentMatch (recipient side;
 -- doesn't require holding the turn). Moves each from active -> complete.
 -- onDone(repliedCount) fires once every reply attempt has returned, success or not.

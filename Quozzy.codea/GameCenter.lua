@@ -459,6 +459,7 @@ function enterQMatch(q)
   -- I already decided and queued earlier).
   if matchId and currentQMatch and currentQMatch.id == matchId then
     attemptLegSend(currentQMatch)
+    maybeSendReminderForCurrentMatch(currentQMatch)
   end
 end
 
@@ -728,6 +729,9 @@ function onExchangeDataReceived(gkMatch, dataTable)
     if tbm.isMyTurn and currentQMatch and currentQMatch.id == matchId then
       attemptLegSend(currentQMatch)
     end
+    if currentQMatch and currentQMatch.id == matchId then
+      maybeSendReminderForCurrentMatch(currentQMatch)
+    end
   end)
 
   if refreshHomeScreenBadgeFromGCMatches then refreshHomeScreenBadgeFromGCMatches("exchangeReceived") end
@@ -742,8 +746,11 @@ end
 -- pending send queued.
 function onExchangeRepliesReceived(gkMatch)
   local matchId = gkMatch and gkMatch.matchID
-  if currentQMatch and matchId and currentQMatch.id == matchId and tbm.isMyTurn then
-    attemptLegSend(currentQMatch)
+  if currentQMatch and matchId and currentQMatch.id == matchId then
+    if tbm.isMyTurn then
+      attemptLegSend(currentQMatch)
+    end
+    maybeSendReminderForCurrentMatch(currentQMatch)
   end
 end
 
@@ -799,6 +806,43 @@ function cancelCommentTimeoutNotification(matchId)
     local center = UN.currentNotificationCenter or (UN.currentNotificationCenter and UN:currentNotificationCenter())
     if not center then return end
     center:removePendingNotificationRequestsWithIdentifiers_({ "commentTimeout-" .. tostring(matchId) })
+  end)
+end
+
+-- The production call site for sendReminderToParticipants (see
+-- MULTIPLAYER_DESIGN.md "silent player never reopens" -- confirmed live to
+-- wake even a fully-terminated opponent app in the background via Apple's own
+-- push infrastructure, no server of our own needed, and that wake runs the
+-- very same comment-timeout sweep (Main.lua's retryPendingHandshakeSends,
+-- called from onReceivingTurn) that can actually resolve a stuck match once
+-- the window is up). Safe to call speculatively and often, same as
+-- attemptLegSend -- a no-op whenever computeReminderDue says it isn't due, or
+-- a reminder has already gone out for this match. Called from every choke
+-- point that means "this match's resolution state may have just changed":
+-- enterQMatch, onExchangeDataReceived, onExchangeRepliesReceived.
+function maybeSendReminderForCurrentMatch(q)
+  if not (useTurnBased and q and q.id and tbm) then return end
+  local myId = localPID()
+  noteOpponentFinishedIfNew(q, myId, os.time())
+  if reminderSentByMatchId[q.id] then return end
+  if not computeReminderDue(q, myId, os.time()) then return end
+
+  -- Marked sent up front, not inside the completion handler -- a failed
+  -- attempt (network blip, rate limit) should not retry on its own; see
+  -- REMINDER_SENT_KEY's comment (qMatch_qPlayer.lua) for why at-most-once.
+  reminderSentByMatchId[q.id] = true
+  persistReminderSent()
+
+  local matchId = q.id
+  tbm:ensureCurrentMatch(matchId, function()
+    tbm:sendReminderWithMessage("Your match is waiting for you!", {},
+      function(o__err)
+        devLog("maybeSendReminderForCurrentMatch: send failed", matchId,
+          o__err and o__err.localizedDescription or "nil")
+      end,
+      function()
+        devLog("maybeSendReminderForCurrentMatch: sent", matchId)
+      end)
   end)
 end
 

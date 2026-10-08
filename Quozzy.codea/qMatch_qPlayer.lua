@@ -56,6 +56,69 @@ function checkFinishedMatchesForCommentTimeout(now)
   return justDecided
 end
 
+-- The moment THIS device first learns the opponent finished their round for
+-- a given match, keyed by match id rather than stamped onto q.players[oppId]
+-- directly -- makeQMatchFromGK rebuilds q from scratch on every incoming
+-- turn/exchange event (see enterQMatch_inner, GameCenter.lua), so a field
+-- stamped on the opponent's player-slot table itself would be silently
+-- re-stamped to "now" on every subsequent event instead of staying put.
+-- Feeds computeReminderDue below. See MULTIPLAYER_DESIGN.md "silent player
+-- never reopens" for why this exists (sendReminderToParticipants).
+OPP_FINISHED_OBSERVED_KEY = OPP_FINISHED_OBSERVED_KEY or "Q_OppFinishedObservedAt"
+oppFinishedObservedAtByMatchId = oppFinishedObservedAtByMatchId or {}
+
+function persistOppFinishedObserved()
+  local ok, s = pcall(json.encode, oppFinishedObservedAtByMatchId)
+  if ok and s then saveProjectData(OPP_FINISHED_OBSERVED_KEY, s) end
+end
+
+function loadOppFinishedObserved()
+  local s = readProjectData(OPP_FINISHED_OBSERVED_KEY)
+  if not s or s=="" then oppFinishedObservedAtByMatchId = {}; return end
+  local ok, t = pcall(json.decode, s)
+  oppFinishedObservedAtByMatchId = (ok and type(t)=="table") and t or {}
+end
+
+-- Records the observation once and only once per match id; a no-op on every
+-- later call for the same match, including ones where the opponent's data
+-- gets re-sent or re-merged.
+function noteOpponentFinishedIfNew(q, myId, now)
+  if not (q and q.id and q.players) then return end
+  myId = myId or localPID()
+  now = now or os.time()
+  if oppFinishedObservedAtByMatchId[q.id] then return end
+
+  local opp = nil
+  for pid, pdata in pairs(q.players) do
+    if pid ~= myId then opp = pdata end
+  end
+  if opp and opp.didPlay then
+    oppFinishedObservedAtByMatchId[q.id] = now
+    persistOppFinishedObserved()
+  end
+end
+
+-- Reminder-sent-by-match-id (REMINDER_SENT_KEY) guards against resending --
+-- see computeReminderDue/maybeSendReminderForCurrentMatch (GameCenter.lua) for
+-- why this is at-most-once-ever rather than a retry/cooldown: the exact
+-- sendReminderToParticipants rate limit is unknown (confirmed live only that
+-- back-to-back calls within ~2 minutes fail with "exceeds the maximum number
+-- of sessions"), so this errs toward never retrying over risking a spam loop.
+REMINDER_SENT_KEY = REMINDER_SENT_KEY or "Q_ReminderSentByMatchId"
+reminderSentByMatchId = reminderSentByMatchId or {}
+
+function persistReminderSent()
+  local ok, s = pcall(json.encode, reminderSentByMatchId)
+  if ok and s then saveProjectData(REMINDER_SENT_KEY, s) end
+end
+
+function loadReminderSent()
+  local s = readProjectData(REMINDER_SENT_KEY)
+  if not s or s=="" then reminderSentByMatchId = {}; return end
+  local ok, t = pcall(json.decode, s)
+  reminderSentByMatchId = (ok and type(t)=="table") and t or {}
+end
+
 function newQMatch(id, source, localId, opponentId, opponentName, bSize, minLen)
   local q = {
     id = id,
@@ -245,6 +308,38 @@ function applyCommentTimeoutIfExpired(q, myId, now, windowSeconds)
     return true
   end
   return false
+end
+
+-- Pure decision: is right now a reasonable moment to nudge the opponent via
+-- sendReminderToParticipants (see maybeSendReminderForCurrentMatch,
+-- GameCenter.lua)? True only once I've fully finished my own side (nothing
+-- left for me to decide) and the opponent has played but not yet decided
+-- their own comment, and enough time has passed since I first learned they'd
+-- played that their own COMMENT_WINDOW_SECONDS clock would plausibly have run
+-- out on their device too -- sending any earlier wouldn't help even if they
+-- did wake up, since applyCommentTimeoutIfExpired still waits out the full
+-- window regardless of why the device woke. Caller (maybeSendReminderForCurrentMatch)
+-- owns the at-most-once-per-match guard -- this only answers "is it due",
+-- not "has it already happened."
+function computeReminderDue(q, myId, now, windowSeconds)
+  if not (q and q.id and q.players) then return false end
+  myId = myId or localPID()
+  now = now or os.time()
+  windowSeconds = windowSeconds or COMMENT_WINDOW_SECONDS
+
+  local me = q.players[myId]
+  if not (me and me.didPlay and me.commentDecided) then return false end
+
+  local opp = nil
+  for pid, pdata in pairs(q.players) do
+    if pid ~= myId then opp = pdata end
+  end
+  if not opp or not opp.didPlay or opp.commentDecided then return false end
+
+  local observedAt = oppFinishedObservedAtByMatchId[q.id]
+  if not observedAt then return false end
+
+  return (now - observedAt) >= windowSeconds
 end
 
 -- was localPlayerId()

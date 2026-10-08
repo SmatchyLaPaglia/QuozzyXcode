@@ -120,6 +120,8 @@ function FakeTBM.new()
     failNextMerges = 0,         -- same, for mergeCompletedExchanges
     completedExchangeCount = 0, -- how many "completed exchanges" mergeCompletedExchanges reports consuming
     activeExchangeCount = 0,    -- how many "active exchanges" replyToActiveExchanges reports replying to
+    reminderCalls = {},         -- every sendReminderWithMessage attempt (sent or failed)
+    failNextReminders = 0,      -- how many upcoming reminder sends should call onError instead
   }, FakeTBM)
 end
 
@@ -172,6 +174,18 @@ function FakeTBM:replyToActiveExchanges(dataTable, onDone)
   local n = self.activeExchangeCount or 0
   self.activeExchangeCount = 0
   if onDone then onDone(n) end
+end
+
+-- Mirrors CTBM:sendReminderWithMessage -- does NOT require isMyTurn, same as
+-- sendExchangeWithDataTable.
+function FakeTBM:sendReminderWithMessage(key, args, onError, onSuccess)
+  self.reminderCalls[#self.reminderCalls+1] = { key = key, args = args }
+  if self.failNextReminders and self.failNextReminders > 0 then
+    self.failNextReminders = self.failNextReminders - 1
+    if onError then onError({ localizedDescription = "simulated reminder failure" }) end
+    return
+  end
+  if onSuccess then onSuccess() end
 end
 
 function FakeTBM:_getEndStateFromMatch(m) return nil end
