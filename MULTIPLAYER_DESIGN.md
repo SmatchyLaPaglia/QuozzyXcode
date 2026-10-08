@@ -512,3 +512,97 @@ never.
    wouldn't close the match, but it would at least record that player's own
    intent, visible to them locally and to GameKit's own records for that
    participant, which today isn't captured anywhere if they just walk away.
+
+## The "silent player never reopens" problem — solved (2026-10-08, ~10:15am–11:00am)
+
+The one real gap left after everything above: a comment-timeout candidate
+sitting on a device that never gets reopened could never resolve, because
+the self-enforced sweep only ran from `draw()`'s per-frame foreground check.
+Looked for a workaround; found a real one.
+
+**`GKTurnBasedMatch.sendReminderToParticipants:localizableMessageKey:
+arguments:completionHandler:`** — a plain GameKit API, sends via Apple's own
+Game Center push infrastructure, no server of ours needed. Verified live,
+directly, not assumed from the header comment:
+
+- **Not turn-gated** — callable by the non-turn-holder, like exchanges.
+- **Rate-limited** — a second reminder sent ~2 minutes after the first failed
+  with "the requested operation could not be completed because it would
+  exceed the maximum number of sessions" (code 21). Exact cooldown/quota
+  unknown; not spammable, which is reassuring for a "don't annoy the
+  opponent" feature but means this can't be fired on every foreground check —
+  it needs to be deliberate (see "still open" below).
+- **Wakes a fully-terminated app in the background, confirmed via process ID**
+  (not inferred): force-killed the app via `devicectl device process
+  terminate`, confirmed the process gone, sent one reminder from the other
+  device, polled `devicectl device info processes` until a new PID appeared
+  on its own. It did, within under a minute, with zero user interaction.
+- The real (unmuted) `onReceivingTurn` production handler fires during that
+  background wake and correctly loads fresh match data — this part was
+  already confirmed earlier to be foreground-independent.
+
+**But the self-timeout sweep specifically wasn't reaching that path** — it
+only ran from a foreground-gated per-frame check, so a background-only wake
+delivered data but never resolved this device's own stuck comment. Fixed:
+`retryPendingHandshakeSends` (which runs the sweep) now also gets called
+directly from inside `onReceivingTurn`, not only from `draw()`.
+
+**That fix immediately surfaced a second, independent bug**: `retryPendingHandshakeSends`'s
+resend loop had `if tbm.isMyTurn == true then ... end` guarding whether to even
+attempt a resend — a leftover from before exchanges existed, when sending
+without the turn was impossible. Now that exchanges work regardless of turn
+position, this gate would skip the comment-timeout candidate entirely
+whenever the device didn't hold the turn — exactly the common case. Removed;
+`attemptPendingLegSend`/`attemptLegSend` already decide turn-pass vs.
+exchange correctly on their own (confirmed: `endTurnWithDataTable` already
+no-ops safely if not holding the turn).
+
+**Live-testing those two fixes surfaced a third, independent bug**:
+`onLegSendSucceeded` cleared the `finishedAwaitingDecisionByMatchId` disk
+snapshot — the thing `checkFinishedMatchesForCommentTimeout` sweeps — on
+*any* successful non-handshake send, including a score-only one. Correct
+under the old bundled design (score and comment always went out together);
+wrong now that they're independent, since it permanently blinds the sweep to
+a still-undecided comment the moment the score alone goes out. A live test
+caught this directly: backdated a match's `commentWindowStartedAt`
+immediately after its score-via-exchange send had already succeeded, and
+found the snapshot already gone. Fixed: only clears once `commentSent` is
+actually true.
+
+**Full chain confirmed working end to end, real hardware, zero remaining
+manual steps:** backdated a fresh match's comment window by 25 simulated
+hours, force-terminated the app, sent one reminder from the other device.
+Polled for the process to reappear (it did, autonomously). Foregrounded it to
+inspect: `finishedAwaitingDecisionByMatchId` entry was gone — meaning the
+comment had been decided blank *and sent* — confirmed independently via the
+other device reloading the real GameKit match: a completed, already-replied
+`GKTurnBasedExchange` from the terminated device, matching data length
+consistent with a real comment payload. Neither device needed any further
+manual action after the single reminder — the other side's real production
+`onExchangeDataReceived` auto-replied on its own, exactly as already proven
+earlier tonight.
+
+This survived an actual interruption too: the laptop running these tests
+shut down and restarted mid-poll. The physical devices are independent
+hardware — none of the above depends on the laptop staying on, only on
+`dbg.sh` access to inspect results, which simply resumed once devicectl
+reconnected.
+
+### What's still open
+
+1. **Who calls `sendReminderToParticipants`, and when?** Not wired into the
+   app at all yet — tonight only proved the mechanism via the raw trial
+   harness. The natural shape: the *waiting* player's device notices (on its
+   own foreground, looking at a specific match) that the opponent has been
+   stuck a while and sends a reminder — either automatically past some
+   threshold, or via an explicit "nudge" UI action. Given the rate limit,
+   probably shouldn't be automatic-on-every-foreground; more likely a
+   deliberate action or a once-per-some-long-interval background check.
+2. Exact rate limit parameters (cooldown duration, whether it's per-match or
+   per-account) are unknown — only know empirically that back-to-back calls
+   within ~2 minutes fail.
+3. Whether a background wake reliably has enough time/opportunity to
+   complete a multi-step async chain (sweep → lock comment → send → merge)
+   before iOS suspends the background-launched process again — it worked in
+   this test, but background execution time after a push-triggered launch is
+   not unlimited, and a slower network path could behave differently.
