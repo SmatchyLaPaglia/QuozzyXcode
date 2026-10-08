@@ -98,6 +98,29 @@ function XT.create()
   return "creating"
 end
 
+-- Recipient side: finding (admittedly Discovered through trial and error) -- a freshly-
+-- invited match does NOT reliably show up via loadMatchesWithCompletionHandler_ for a
+-- while (observed ~3+ min lag on real devices/real GC accounts), but loadMatchWithID_
+-- finds it immediately given the known ID. Accepts programmatically — no system UI, no
+-- human tap. Sets XT.m/XT.matchID on success.
+function XT.acceptById(matchID)
+  objc.GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(matchID, function(o__match, o__err)
+    objc.async(function()
+      if o__err then L("acceptById loadMatchWithID error", err(o__err)) return end
+      if not o__match then L("acceptById: nil match, no error") return end
+      o__match:acceptInviteWithCompletionHandler_(function(o__match2, o__err2)
+        objc.async(function()
+          if o__err2 then L("acceptInvite error", err(o__err2)) return end
+          XT.m = o__match2
+          XT.matchID = s(o__match2.matchID)
+          L("accepted", XT.matchID)
+        end)
+      end)
+    end)
+  end)
+  return "loading match by id to accept"
+end
+
 function XT.others(m)
   m = m or XT.m
   local me, list = myId(), {}
