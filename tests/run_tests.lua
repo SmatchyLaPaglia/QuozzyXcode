@@ -488,6 +488,14 @@ test("decideComment: sends via exchange when not holding the turn, rather than w
   -- turn to arrive, risking the 24h clock -- it goes out immediately via
   -- exchange instead.
   check("sent via exchange instead of waiting for the turn", #tbm.exchangeSentCalls == 1)
+  -- Regression: exchanges have their own (smaller) GameKit data-size limit --
+  -- confirmed live ("the match data was too large" on a full-state payload
+  -- that sends fine via turn-pass). An exchange must only carry the sender's
+  -- own update, not the opponent's slot or board data the recipient already
+  -- has from the handshake.
+  local sent = tbm.exchangeSentCalls[1]
+  check("exchange payload has only my own player slot", sent.players["opp"] == nil)
+  check("exchange payload omits boardTiles (recipient already has it)", sent.boardTiles == nil)
 end)
 
 -- ---- finishedAwaitingDecisionByMatchId: surviving a kill before deciding --

@@ -488,16 +488,33 @@ function attemptLegSend(q)
   if not pending or pending.kind ~= action.kind or pending.via ~= action.via then
     -- Freeze the payload now rather than recomputing it on every retry, so a
     -- retry always resends the exact same bytes (same idiom the original
-    -- handshake used). q.players is always sent in full regardless of kind --
-    -- see onLegSendSucceeded for why that lets one send sometimes satisfy
-    -- both scoreSent and commentSent.
-    local payload = {
-      boardSize   = q.boardSize or boardSize,
-      minWordLen  = q.minWordLen or MIN_WORD_LEN,
-      boardTiles  = q.boardTiles,
-      players     = q.players,
-      lastUpdated = os.time(),
-    }
+    -- handshake used).
+    --
+    -- Exchanges have their own GameKit data-size limit, confirmed live to be
+    -- smaller than matchDataMaximumSize -- a full-state payload that sends
+    -- fine via turn-pass failed every attempt via exchange with "the match
+    -- data was too large" once both players' accumulated word lists grew.
+    -- An exchange only needs to carry MY update: the recipient already has
+    -- their own data with full authority, and already has boardTiles from
+    -- the handshake -- so send just my own player slot, not the full
+    -- q.players table, and skip boardTiles/boardSize/minWordLen entirely.
+    -- A turn-pass keeps carrying the full table (the authoritative snapshot
+    -- mechanism this design relies on elsewhere), unchanged.
+    local payload
+    if action.via == "exchange" then
+      payload = {
+        players     = { [myId] = q.players[myId] },
+        lastUpdated = os.time(),
+      }
+    else
+      payload = {
+        boardSize   = q.boardSize or boardSize,
+        minWordLen  = q.minWordLen or MIN_WORD_LEN,
+        boardTiles  = q.boardTiles,
+        players     = q.players,
+        lastUpdated = os.time(),
+      }
+    end
     -- Every outgoing send carries the sender's current W/L record against this
     -- opponent so each side's local totals can self-heal from the other's.
     -- The handshake needs it too: a match abandoned right after creation
@@ -524,9 +541,14 @@ function attemptLegSend(q)
       awaitingHandshakeSend = true
       attachRecordSync()
     elseif action.kind == "score" or action.kind == "comment" then
-      local me = q.players[myId]
-      if me and me.comment and me.comment ~= "" then
-        payload.__gcMessage = me.comment
+      -- __gcMessage only matters for endTurnWithDataTable (sets the
+      -- system-matchmaker-UI message) -- unused by sendExchangeWithDataTable,
+      -- so skip it for exchanges rather than waste the bytes.
+      if action.via ~= "exchange" then
+        local me = q.players[myId]
+        if me and me.comment and me.comment ~= "" then
+          payload.__gcMessage = me.comment
+        end
       end
       attachRecordSync()
     end
