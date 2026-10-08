@@ -111,9 +111,15 @@ function FakeTBM.new()
     isMyTurn = false,
     currentMatch = nil,
     localPlayer = { playerID = "local-player-id", authenticated = true },
-    sentCalls = {},       -- every successful endTurnWithDataTable payload
+    sentCalls = {},         -- every successful endTurnWithDataTable payload
+    exchangeSentCalls = {}, -- every successful sendExchangeWithDataTable payload
+    mergeCalls = {},        -- every successful mergeCompletedExchanges payload
     wonCalls = {}, lostCalls = {}, tiedCalls = {}, -- finalize calls
-    failNextSends = 0,    -- how many upcoming sends should call onError instead
+    failNextSends = 0,          -- how many upcoming turn-pass sends should call onError instead
+    failNextExchangeSends = 0,  -- same, for sendExchangeWithDataTable
+    failNextMerges = 0,         -- same, for mergeCompletedExchanges
+    completedExchangeCount = 0, -- how many "completed exchanges" mergeCompletedExchanges reports consuming
+    activeExchangeCount = 0,    -- how many "active exchanges" replyToActiveExchanges reports replying to
   }, FakeTBM)
 end
 
@@ -130,6 +136,42 @@ function FakeTBM:endTurnWithDataTable(t, onError)
   self.sentCalls[#self.sentCalls+1] = t
   self.currentMatch = nil
   self.isMyTurn = false
+end
+
+-- Mirrors CTBM:mergeCompletedExchanges -- a no-op straight to onSuccess when
+-- there's nothing to merge (completedExchangeCount == 0), matching the real
+-- implementation (see MULTIPLAYER_DESIGN.md "GameKit exchange trial").
+function FakeTBM:mergeCompletedExchanges(dataTable, onError, onSuccess)
+  if (self.completedExchangeCount or 0) == 0 then
+    if onSuccess then onSuccess() end
+    return
+  end
+  if self.failNextMerges and self.failNextMerges > 0 then
+    self.failNextMerges = self.failNextMerges - 1
+    if onError then onError({ localizedDescription = "simulated merge failure" }) end
+    return
+  end
+  self.mergeCalls[#self.mergeCalls+1] = { dataTable = dataTable, merged = self.completedExchangeCount }
+  self.completedExchangeCount = 0
+  if onSuccess then onSuccess() end
+end
+
+-- Mirrors CTBM:sendExchangeWithDataTable -- unlike endTurnWithDataTable, does
+-- NOT require isMyTurn (the whole point of the exchange path).
+function FakeTBM:sendExchangeWithDataTable(t, onError, onSuccess)
+  if self.failNextExchangeSends and self.failNextExchangeSends > 0 then
+    self.failNextExchangeSends = self.failNextExchangeSends - 1
+    if onError then onError({ localizedDescription = "simulated exchange failure" }) end
+    return
+  end
+  self.exchangeSentCalls[#self.exchangeSentCalls+1] = t
+  if onSuccess then onSuccess({}) end
+end
+
+function FakeTBM:replyToActiveExchanges(dataTable, onDone)
+  local n = self.activeExchangeCount or 0
+  self.activeExchangeCount = 0
+  if onDone then onDone(n) end
 end
 
 function FakeTBM:_getEndStateFromMatch(m) return nil end

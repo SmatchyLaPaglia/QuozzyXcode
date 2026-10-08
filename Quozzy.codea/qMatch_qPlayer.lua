@@ -14,7 +14,7 @@ function loadPendingTurnSends()
 end
 
 -- A match I've locally finished playing but haven't yet decided a comment
--- for (see COMMENT_WINDOW_SECONDS / computeNextOwedLeg). Written to disk the
+-- for (see COMMENT_WINDOW_SECONDS / computeNextOwedAction). Written to disk the
 -- instant a round finishes (endGameRound), not just once a decision is
 -- eventually made -- otherwise a kill between finishing and deciding loses
 -- the whole result, not just the send. Kept in sync by decideComment while a
@@ -144,16 +144,12 @@ function ensureQMatchPlayers(q, localId, opponentId)
     -- Distinct from `comment == ""`, which is ambiguous between "declined"
     -- and "hasn't looked yet". commentWindowStartedAt is stamped the moment
     -- didPlay becomes true, and is what a timeout check measures against.
-    -- resultSent is local bookkeeping only (has THIS device already
-    -- transmitted its own score+comment for this match).
     if p.commentDecided == nil then p.commentDecided = false end
     p.commentWindowStartedAt = p.commentWindowStartedAt or nil
-    if p.resultSent == nil then p.resultSent = false end
-    -- scoreSent/commentSent: split out of resultSent for computeNextOwedAction
-    -- (see MULTIPLAYER_DESIGN.md "GameKit exchange trial") -- a score no longer
-    -- waits on a comment decision before going out, so the two need independent
-    -- sent-tracking. resultSent stays for computeNextOwedLeg, which still backs
-    -- production until GameCenter.lua is migrated.
+    -- scoreSent/commentSent: local bookkeeping only (has THIS device already
+    -- transmitted its own score / its own locked comment for this match) --
+    -- independent flags because a score never waits on a comment decision
+    -- before going out (see MULTIPLAYER_DESIGN.md "GameKit exchange trial").
     if p.scoreSent == nil then p.scoreSent = false end
     if p.commentSent == nil then p.commentSent = false end
     return p
@@ -172,48 +168,6 @@ end
 -- next foreground/launch — never the other player's device on their behalf.
 COMMENT_WINDOW_SECONDS = COMMENT_WINDOW_SECONDS or 24 * 60 * 60
 
--- Pure decision function: given the current local view of a match, what (if
--- anything) does THIS device still owe the other side? No tbm/objc/network
--- access here — callers decide separately whether they currently hold the
--- turn to actually act on the answer. Returns one of:
---   "handshake" — the board has never gone out for this match.
---   "result"    — I've finished and decided my comment, but haven't sent
---                 that combined score+comment yet; opponent isn't fully
---                 resolved yet, so this is a plain relay (not the final one).
---   "finalize"  — same as above, except the opponent's result already
---                 arrived fully resolved too, so this leg also closes the
---                 match out for GameKit's purposes.
---   nil         — nothing to send right now (includes: I've finished but
---                 haven't decided my comment yet — deliberately wait for
---                 that, never send a bare score ahead of it).
-function computeNextOwedLeg(q, myId, now)
-  if not (q and q.players) then return nil end
-  myId = myId or localPID()
-  local me = q.players[myId]
-  if not me then return nil end
-
-  if q.needsInitialHandshake then
-    return "handshake"
-  end
-
-  if not (me.didPlay and me.commentDecided) then
-    return nil
-  end
-  if me.resultSent then
-    return nil
-  end
-
-  local opp = nil
-  for pid, pdata in pairs(q.players) do
-    if pid ~= myId then opp = pdata end
-  end
-
-  if opp and opp.didPlay and opp.commentDecided then
-    return "finalize"
-  end
-  return "result"
-end
-
 -- Pure decision function for the exchange-aware relay (see MULTIPLAYER_DESIGN.md,
 -- "GameKit exchange trial" -- turnTimeout doesn't work, but exchanges do, so scores
 -- and comments go out the instant they're ready rather than waiting for the turn).
@@ -226,7 +180,7 @@ end
 --   { kind = "finalize" }                          -- both sides fully resolved and
 --                                                      I hold the turn -- close it.
 --   nil                                             -- nothing owed right now.
--- Unlike computeNextOwedLeg, "finalize" is only ever returned when iHoldTurn is
+-- Unlike computeNextOwedAction, "finalize" is only ever returned when iHoldTurn is
 -- true (GameKit only lets the turn holder end a match) -- if both sides are
 -- resolved but I don't hold the turn, there's nothing left for ME to do; whoever
 -- does hold it will see the same finalize condition next time they check.
@@ -240,6 +194,24 @@ function computeNextOwedAction(q, myId, iHoldTurn, now)
     return { kind = "handshake" }
   end
 
+  -- Checked before the individual score/comment checks below: if both sides
+  -- are already fully resolved locally and I hold the turn, finalize right
+  -- now rather than sending one more intermediate leg first -- the finalize
+  -- call carries the same full q.players payload, so an already-decided
+  -- comment of mine that technically hasn't been "sent" yet (commentSent
+  -- still false) is included in it regardless. Without this check first, a
+  -- player who becomes the second side to fully resolve would send a
+  -- redundant "comment" leg before ever reaching finalize.
+  if iHoldTurn and me.didPlay and me.commentDecided then
+    local opp = nil
+    for pid, pdata in pairs(q.players) do
+      if pid ~= myId then opp = pdata end
+    end
+    if opp and opp.didPlay and opp.commentDecided then
+      return { kind = "finalize" }
+    end
+  end
+
   if me.didPlay and not me.scoreSent then
     return { kind = "score", via = iHoldTurn and "turn" or "exchange" }
   end
@@ -248,23 +220,13 @@ function computeNextOwedAction(q, myId, iHoldTurn, now)
     return { kind = "comment", via = iHoldTurn and "turn" or "exchange" }
   end
 
-  if iHoldTurn then
-    local opp = nil
-    for pid, pdata in pairs(q.players) do
-      if pid ~= myId then opp = pdata end
-    end
-    if me.didPlay and me.commentDecided and opp and opp.didPlay and opp.commentDecided then
-      return { kind = "finalize" }
-    end
-  end
-
   return nil
 end
 
 -- Pure timeout check: if I finished this match's round and never decided on
 -- a comment within COMMENT_WINDOW_SECONDS, lock it in as blank now. Meant to
 -- run against every locally-known open match on app foreground/launch,
--- before computeNextOwedLeg is consulted — mutates `me` in place and returns
+-- before computeNextOwedAction is consulted — mutates `me` in place and returns
 -- true if it changed anything.
 function applyCommentTimeoutIfExpired(q, myId, now, windowSeconds)
   if not (q and q.players) then return false end
@@ -408,6 +370,32 @@ local function nonLocalSlotState(gkMatch)
   return "unresolved"
 end
 
+-- Applies an incoming players-patch (the shape both a turn-pass's dataTable.players
+-- and a GameKit exchange's payload.players carry) onto an already-constructed
+-- qMatch's players table. Shared so data arriving via either channel is applied
+-- identically (see MULTIPLAYER_DESIGN.md "GameKit exchange trial"). Includes
+-- commentDecided, which the original inline version of this logic (formerly
+-- duplicated in makeQMatchFromGK) omitted -- harmless for the old bundled-send
+-- design (receiving the opponent's "result" leg at all already implied they'd
+-- decided), but computeNextOwedAction's "finalize" check reads opp.commentDecided
+-- directly, so it must actually be relayed now.
+function applyIncomingPlayersPatch(q, patchPlayers)
+  if not (q and q.players and type(patchPlayers) == "table") then return end
+  for pid, patch in pairs(patchPlayers) do
+    if type(pid) == "string" and type(patch) == "table" then
+      q.players[pid] = q.players[pid] or {}
+      local slot = q.players[pid]
+      if patch.score ~= nil then slot.score = patch.score end
+      if patch.words ~= nil then slot.words = patch.words end
+      if patch.wordTimes ~= nil then slot.wordTimes = patch.wordTimes end
+      if patch.didPlay ~= nil then slot.didPlay = patch.didPlay end
+      if patch.comment ~= nil then slot.comment = patch.comment end
+      if patch.commentSentAt ~= nil then slot.commentSentAt = patch.commentSentAt end
+      if patch.commentDecided ~= nil then slot.commentDecided = patch.commentDecided end
+    end
+  end
+end
+
 function makeQMatchFromGK(gkMatch, dataTable)
   if dataTable and type(dataTable) ~= "table" then
     print("GC WARN: dataTable is not a table, type=", type(dataTable))
@@ -468,18 +456,7 @@ function makeQMatchFromGK(gkMatch, dataTable)
   
   -- apply players patch (THIS is the important part)
   if dataTable and type(dataTable.players) == "table" then
-    for pid, patch in pairs(dataTable.players) do
-      if type(pid) == "string" and type(patch) == "table" then
-        q.players[pid] = q.players[pid] or {}
-        local slot = q.players[pid]
-        if patch.score ~= nil then slot.score = patch.score end
-        if patch.words ~= nil then slot.words = patch.words end
-        if patch.wordTimes ~= nil then slot.wordTimes = patch.wordTimes end
-        if patch.didPlay ~= nil then slot.didPlay = patch.didPlay end
-        if patch.comment ~= nil then slot.comment = patch.comment end
-        if patch.commentSentAt ~= nil then slot.commentSentAt = patch.commentSentAt end
-      end
-    end
+    applyIncomingPlayersPatch(q, dataTable.players)
   end
   
   ensureQMatchPlayers(q, localId, opponentId)

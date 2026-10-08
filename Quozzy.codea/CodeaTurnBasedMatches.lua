@@ -217,16 +217,16 @@ function CTBM:uponDetectingAuthentication(fn)
   end
 end
 
-function CTBM:_matchWithNSDataToDataTable(o__match)
-  local decodedTable = nil
-  self._lastReceivedDataTable = nil
-  
-  local data = o__match and o__match.matchData
+-- Shared NSData -> Lua table decode, used both for a match's own matchData
+-- and (see MULTIPLAYER_DESIGN.md "GameKit exchange trial") an exchange's data
+-- blob -- same JSON-over-NSData encoding either way.
+function CTBM:_nsDataToDataTable(data, logLabel)
+  logLabel = logLabel or "data"
   if not data or not data.bytes or data.length == 0 then
-    self:log("CTBM: no match data found")    
+    self:log("CTBM: no", logLabel, "found")
     return nil
   end
-  
+
   local function decodeJSONString(str, label)
     if not str or str == "" then return nil end
     local okDecode, decodedOrErr = pcall(function()
@@ -237,7 +237,7 @@ function CTBM:_matchWithNSDataToDataTable(o__match)
       return nil
     end
     if type(decodedOrErr) ~= "table" then
-      self:log("CTBM:", label, "decoded match data is not table", type(decodedOrErr), "len=", tostring(data.length))
+      self:log("CTBM:", label, "decoded", logLabel, "is not table", type(decodedOrErr), "len=", tostring(data.length))
       return nil
     end
     return decodedOrErr
@@ -250,10 +250,9 @@ function CTBM:_matchWithNSDataToDataTable(o__match)
     if nsLegacy then legacyStr = tostring(nsLegacy) end
   end)
   if okLegacyStr then
-    decodedTable = decodeJSONString(legacyStr, "legacy")
+    local decodedTable = decodeJSONString(legacyStr, "legacy")
     if decodedTable then
-      self._lastReceivedDataTable = decodedTable
-      self:log("CTBM: decoded match data ok (legacy)", "len=", tostring(data.length))
+      self:log("CTBM: decoded", logLabel, "ok (legacy)", "len=", tostring(data.length))
       return decodedTable
     end
   else
@@ -271,14 +270,28 @@ function CTBM:_matchWithNSDataToDataTable(o__match)
     return nil
   end
 
-  decodedTable = decodeJSONString(str, "fallback")
+  local decodedTable = decodeJSONString(str, "fallback")
   if not decodedTable then
     return nil
   end
 
-  self._lastReceivedDataTable = decodedTable
-  self:log("CTBM: decoded match data ok (fallback)", "len=", tostring(data.length))
+  self:log("CTBM: decoded", logLabel, "ok (fallback)", "len=", tostring(data.length))
   return decodedTable
+end
+
+function CTBM:_matchWithNSDataToDataTable(o__match)
+  self._lastReceivedDataTable = nil
+  local data = o__match and o__match.matchData
+  local decodedTable = self:_nsDataToDataTable(data, "match data")
+  if decodedTable then self._lastReceivedDataTable = decodedTable end
+  return decodedTable
+end
+
+-- Decodes an incoming GKTurnBasedExchange's payload the same way match data
+-- is decoded -- same JSON-over-NSData shape, sent by sendExchangeWithDataTable.
+function CTBM:_exchangeDataToDataTable(o__exchange)
+  local data = o__exchange and o__exchange.data
+  return self:_nsDataToDataTable(data, "exchange data")
 end
 
 function CTBM:_endMatchLocal(endState, payload)
@@ -609,6 +622,13 @@ function CTBM:_makeLocalPlayerListener()
       thisCTBM:log("CTBM: exchange request with nil match")
       return
     end
+    -- Update currentMatch/isMyTurn directly rather than via _setCurrentMatch,
+    -- which also fires _onSettingCurrentMatch -- that can jump the screen to
+    -- STATE_END for a finished match, which background exchange handling must
+    -- never do (MULTIPLAYER_DESIGN.md rule 8: incoming turns/exchanges are
+    -- handled in the background, never changing screens on their own).
+    thisCTBM.currentMatch = o__match
+    thisCTBM.isMyTurn = thisCTBM:vernacularForTurnOwner() == "me" or false
     thisCTBM._onReceivedExchangeRequest(o__match, o__exchange)
   end
 
@@ -627,6 +647,8 @@ function CTBM:_makeLocalPlayerListener()
       thisCTBM:log("CTBM: exchange replies with nil match")
       return
     end
+    thisCTBM.currentMatch = o__match
+    thisCTBM.isMyTurn = thisCTBM:vernacularForTurnOwner() == "me" or false
     thisCTBM._onReceivedExchangeReplies(o__match, o__exchange)
   end
 

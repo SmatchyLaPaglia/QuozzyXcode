@@ -53,7 +53,7 @@ end
 
 -- Mirrors how production code always uses these two together (see
 -- startRoundFromCurrentSettings, makeQMatchFromGK, makeDebugQMatch) so slot
--- defaults (commentDecided, resultSent, etc.) are actually populated.
+-- defaults (commentDecided, scoreSent, etc.) are actually populated.
 local function freshQMatch(...)
   local q = newQMatch(...)
   return ensureQMatchPlayers(q, q.localId, q.opponentId)
@@ -231,9 +231,9 @@ test("endGameRound: single player just records local score, no GK involvement", 
   check("no GK sends", #tbm.sentCalls == 0)
 end)
 
-test("endGameRound: multiplayer records local score but does not itself contact GameKit (current behavior)", function()
+test("endGameRound: multiplayer sends the score immediately when isMyTurn (MULTIPLAYER_DESIGN.md rule 2)", function()
   useTurnBased = true
-  tbm.isMyTurn = true -- even WHEN legally able to send, endGameRound doesn't attempt it today
+  tbm.isMyTurn = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   score = 23
   foundWords = {"WORD"}
@@ -241,8 +241,8 @@ test("endGameRound: multiplayer records local score but does not itself contact 
   check("local score recorded", currentQMatch.players["local-player-id"].score == 23)
   check("didPlay true", currentQMatch.players["local-player-id"].didPlay == true)
   check("awaiting comment flag set", currentQMatch.awaitingCommentBeforeFinalization == true)
-  check("KNOWN GAP: nothing sent to GameKit yet, even though isMyTurn==true",
-    #tbm.sentCalls == 0)
+  check("score sent immediately via turn-pass, independent of comment status",
+    #tbm.sentCalls == 1 and tbm.sentCalls[1].players["local-player-id"].score == 23)
 end)
 
 -- ---- enterQMatch: needsInitialHandshake flag threading (hazard #1) -------
@@ -272,7 +272,8 @@ test("enterQMatch: needsInitialHandshake stays true even after startRoundFromCur
   -- the flag survived it (this is the whole point of storing it explicitly
   -- rather than re-deriving from tile validity afterward).
   check("still true post-generation", currentQMatch.needsInitialHandshake == true)
-  check("computeNextOwedLeg still sees it", computeNextOwedLeg(currentQMatch, "local-player-id", os.time()) == "handshake")
+  local a = computeNextOwedAction(currentQMatch, "local-player-id", true, os.time())
+  check("computeNextOwedAction still sees it", a and a.kind == "handshake")
 end)
 
 test("enterQMatch: needsInitialHandshake false when it is not my turn (not the creator)", function()
@@ -304,13 +305,14 @@ test("enterQMatch: a queued-but-unsent local result survives a stale incoming pa
   -- time (not my turn then) -- exactly what attemptLegSend/decideComment
   -- would have queued, frozen at the moment of decision.
   pendingTurnSendsByMatchId["m1"] = {
-    leg = "result",
+    kind = "comment",
+    via = "turn",
     attempts = 0,
     turnData = {
       boardSize = 4, minWordLen = 3, boardTiles = {"X"},
       players = {
         ["local-player-id"] = { didPlay = true, score = 99, words = {"ZEBRA"},
-          wordTimes = {}, comment = "gg", commentDecided = true, resultSent = false },
+          wordTimes = {}, comment = "gg", commentDecided = true, scoreSent = true, commentSent = false },
       },
     },
   }
@@ -342,7 +344,7 @@ test("onLegSendSucceeded: handshake success clears needsInitialHandshake, awaiti
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.needsInitialHandshake = true
   awaitingHandshakeSend = true
-  pendingTurnSendsByMatchId["m1"] = { leg = "handshake", turnData = {}, attempts = 1 }
+  pendingTurnSendsByMatchId["m1"] = { kind = "handshake", turnData = {}, attempts = 1 }
 
   onLegSendSucceeded("m1")
 
@@ -351,17 +353,20 @@ test("onLegSendSucceeded: handshake success clears needsInitialHandshake, awaiti
   check("pending entry removed", pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
-test("onLegSendSucceeded: a 'result' leg marks resultSent instead of touching the handshake flags", function()
+test("onLegSendSucceeded: a 'comment' send marks scoreSent and commentSent instead of touching the handshake flags", function()
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.needsInitialHandshake = false
   currentQMatch.players["local-player-id"].didPlay = true
   currentQMatch.players["local-player-id"].commentDecided = true
   awaitingHandshakeSend = false
-  pendingTurnSendsByMatchId["m1"] = { leg = "result", turnData = {}, attempts = 1 }
+  pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "turn", turnData = {}, attempts = 1 }
 
   onLegSendSucceeded("m1")
 
-  check("resultSent marked", currentQMatch.players["local-player-id"].resultSent == true)
+  -- The full players table is always sent regardless of kind, so a
+  -- "comment" send succeeding marks both -- see onLegSendSucceeded.
+  check("scoreSent marked", currentQMatch.players["local-player-id"].scoreSent == true)
+  check("commentSent marked", currentQMatch.players["local-player-id"].commentSent == true)
   check("pending entry removed", pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
@@ -373,13 +378,13 @@ end)
 
 test("onLegSendSucceeded: clears the pending entry for a match that isn't the currently-active one, without touching currentQMatch", function()
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
-  currentQMatch.players["local-player-id"].resultSent = false
-  pendingTurnSendsByMatchId["m2"] = { leg = "result", turnData = {}, attempts = 1 }
+  currentQMatch.players["local-player-id"].scoreSent = false
+  pendingTurnSendsByMatchId["m2"] = { kind = "comment", via = "turn", turnData = {}, attempts = 1 }
 
   onLegSendSucceeded("m2")
 
   check("unrelated match's pending entry cleared", pendingTurnSendsByMatchId["m2"] == nil)
-  check("active match untouched", currentQMatch.players["local-player-id"].resultSent == false)
+  check("active match untouched", currentQMatch.players["local-player-id"].scoreSent == false)
 end)
 
 -- ---- end-to-end wiring: enterQMatch / decideComment now drive real sends -
@@ -399,11 +404,12 @@ test("enterQMatch: automatically sends the handshake for a brand-new match, with
   check("needsInitialHandshake cleared once onTurnEnded fires", currentQMatch.needsInitialHandshake == false)
 end)
 
-test("decideComment: sends a 'result' leg when the opponent hasn't played yet", function()
+test("decideComment: sends a 'comment' leg via turn-pass when the opponent hasn't played yet", function()
   useTurnBased = true
   tbm.isMyTurn = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].scoreSent = true -- sent already, via endGameRound
   score, foundWords = 10, {"CAT"}
 
   local ok = decideComment("nice board!")
@@ -421,6 +427,7 @@ test("decideComment: sends 'finalize' and calls localPlayerWon when the opponent
   tbm.currentMatch = { matchID = "m1" } -- needed for buildFinalTurnDataAndOutcome's precondition
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].scoreSent = true -- sent already, via endGameRound's own attemptLegSend call
   currentQMatch.players["local-player-id"].words = {"CAT","DOG","BIRD"} -- score 3 via the test env's reconcile stub
   currentQMatch.players["opp"].didPlay = true
   currentQMatch.players["opp"].commentDecided = true
@@ -434,18 +441,22 @@ test("decideComment: sends 'finalize' and calls localPlayerWon when the opponent
   check("pending entry cleared after finalize", pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
-test("decideComment: records the decision even without the turn, and queues it rather than losing it", function()
+test("decideComment: sends via exchange when not holding the turn, rather than waiting for it", function()
   useTurnBased = true
   tbm.isMyTurn = false -- e.g. the match creator, right after sending the handshake
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].scoreSent = true -- sent already, via endGameRound
 
-  local ok = decideComment("thoughts recorded even though I can't send yet")
+  local ok = decideComment("thoughts recorded even without the turn")
   check("decideComment still returns true (decision recorded)", ok == true)
   check("commentDecided true regardless of turn ownership", currentQMatch.players["local-player-id"].commentDecided == true)
-  check("nothing actually sent", #tbm.sentCalls == 0)
-  check("queued for retry once the turn arrives", pendingTurnSendsByMatchId["m1"] ~= nil)
-  check("queued leg is 'result'", pendingTurnSendsByMatchId["m1"].leg == "result")
+  check("nothing sent via turn-pass", #tbm.sentCalls == 0)
+  -- The whole point of the exchange path (MULTIPLAYER_DESIGN.md "GameKit
+  -- exchange trial"): a comment no longer has to wait on the phone for the
+  -- turn to arrive, risking the 24h clock -- it goes out immediately via
+  -- exchange instead.
+  check("sent via exchange instead of waiting for the turn", #tbm.exchangeSentCalls == 1)
 end)
 
 -- ---- finishedAwaitingDecisionByMatchId: surviving a kill before deciding --
@@ -480,7 +491,7 @@ test("onLegSendSucceeded: clears the finished-awaiting-decision snapshot once a 
   currentQMatch.players["local-player-id"].didPlay = true
   finishedAwaitingDecisionByMatchId["m1"] = currentQMatch
   persistFinishedAwaitingDecision()
-  pendingTurnSendsByMatchId["m1"] = { leg = "result", turnData = {}, attempts = 1 }
+  pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "turn", turnData = {}, attempts = 1 }
 
   onLegSendSucceeded("m1")
 
@@ -491,7 +502,7 @@ test("onLegSendSucceeded: a successful handshake does NOT touch the finished-awa
   useTurnBased = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   finishedAwaitingDecisionByMatchId["m2"] = { id = "m2", players = {} } -- unrelated match, still finishing
-  pendingTurnSendsByMatchId["m1"] = { leg = "handshake", turnData = {}, attempts = 1 }
+  pendingTurnSendsByMatchId["m1"] = { kind = "handshake", turnData = {}, attempts = 1 }
 
   onLegSendSucceeded("m1")
 
@@ -671,54 +682,6 @@ test("recordMatchSnapshot: clears both badges for a match the instant it's viewe
   check("comment badge cleared", commentMatchBadgeIds["m1"] == nil)
 end)
 
--- ---- computeNextOwedLeg: pure relay decision logic -----------------------
-
-test("computeNextOwedLeg: handshake owed when flagged, overrides everything else", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.needsInitialHandshake = true
-  q.players["me"].didPlay = true -- shouldn't matter, handshake wins
-  check("handshake", computeNextOwedLeg(q, "me", os.time()) == "handshake")
-end)
-
-test("computeNextOwedLeg: nothing owed before I've finished playing", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  check("nil", computeNextOwedLeg(q, "me", os.time()) == nil)
-end)
-
-test("computeNextOwedLeg: nothing owed once finished but comment not yet decided (never send a bare score)", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay = true
-  q.players["me"].commentDecided = false
-  check("nil, deliberately waiting", computeNextOwedLeg(q, "me", os.time()) == nil)
-end)
-
-test("computeNextOwedLeg: 'result' once finished and decided, opponent not resolved", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay = true
-  q.players["me"].commentDecided = true
-  check("result", computeNextOwedLeg(q, "me", os.time()) == "result")
-end)
-
-test("computeNextOwedLeg: 'finalize' once both sides are fully resolved", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
-  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, true
-  check("finalize", computeNextOwedLeg(q, "me", os.time()) == "finalize")
-end)
-
-test("computeNextOwedLeg: 'result' (not finalize) if opponent played but hasn't decided a comment yet", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
-  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, false
-  check("result", computeNextOwedLeg(q, "me", os.time()) == "result")
-end)
-
-test("computeNextOwedLeg: nothing owed once my result is already sent", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay, q.players["me"].commentDecided, q.players["me"].resultSent = true, true, true
-  check("nil", computeNextOwedLeg(q, "me", os.time()) == nil)
-end)
-
 -- ---- computeNextOwedAction: exchange-aware relay decision -----------------
 -- See MULTIPLAYER_DESIGN.md "GameKit exchange trial": a score is sent the
 -- instant a round ends, regardless of comment status or turn ownership --
@@ -782,6 +745,20 @@ test("computeNextOwedAction: finalize once both sides fully resolved and I hold 
   q.players["opp"].didPlay, q.players["opp"].commentDecided = true, true
   local a = computeNextOwedAction(q, "me", true, os.time())
   check("finalize", a and a.kind == "finalize")
+end)
+
+test("computeNextOwedAction: finalize takes priority over a redundant comment send, even if my own commentSent is still false", function()
+  -- Regression case: if I'm the second side to become fully resolved (e.g.
+  -- decideComment just locked my comment), my own commentSent flag hasn't
+  -- been marked true yet (that only happens once a send actually succeeds) --
+  -- but since the finalize call carries the same full payload, sending a
+  -- "comment" leg first would be a pointless extra round trip.
+  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].commentDecided = true -- commentSent deliberately left false
+  q.players["opp"].didPlay, q.players["opp"].commentDecided = true, true
+  local a = computeNextOwedAction(q, "me", true, os.time())
+  check("finalize, not comment", a and a.kind == "finalize")
 end)
 
 test("computeNextOwedAction: nothing owed if both resolved but I don't hold the turn (not my job to finalize)", function()

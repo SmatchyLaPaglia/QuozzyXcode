@@ -566,7 +566,7 @@ function retryPendingHandshakeSends(reason)
                     attemptPendingLegSend(candidateId)
                   else
                     -- A comment-timeout candidate with no pending entry yet:
-                    -- computeNextOwedLeg hasn't run for it, so go through
+                    -- computeNextOwedAction hasn't run for it, so go through
                     -- attemptLegSend (which will) rather than
                     -- attemptPendingLegSend (which assumes it already has).
                     local q = (currentQMatch and currentQMatch.id == candidateId) and currentQMatch
@@ -1058,6 +1058,18 @@ function setup()
     if mid then
       onLegSendSucceeded(mid)
     end
+  end)
+
+  -- GameKit exchange events (see MULTIPLAYER_DESIGN.md "GameKit exchange
+  -- trial") -- independent of turn position, so these never change screens;
+  -- GameCenter.lua's handlers only update local model state and badges.
+  tbm:onReceivedExchangeRequest(function(gkMatch, exchange)
+    local dataTable = tbm:_exchangeDataToDataTable(exchange)
+    onExchangeDataReceived(gkMatch, dataTable)
+  end)
+
+  tbm:onReceivedExchangeReplies(function(gkMatch, exchange)
+    onExchangeRepliesReceived(gkMatch)
   end)
 
   tbm:onSettingCurrentMatch(function(gkMatch, data)

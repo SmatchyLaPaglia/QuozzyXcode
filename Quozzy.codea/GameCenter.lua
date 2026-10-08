@@ -150,7 +150,7 @@ end
 -- The UI's entry point for "the player closed their comment box" (blank or
 -- not — see MULTIPLAYER_TEST_PLAN.md, treated as the same decision either
 -- way). Records the decision locally, then leaves WHAT to send (a plain
--- relay vs. a finalize) to computeNextOwedLeg/attemptLegSend rather than
+-- relay vs. a finalize) to computeNextOwedAction/attemptLegSend rather than
 -- branching on opponentPlayed here directly — that branch now lives in one
 -- place instead of being duplicated between this function and endGameRound.
 -- Note: this previously called tbm:endTurnWithDataTable directly with no
@@ -253,7 +253,7 @@ end
 -- by the actual public enterQMatch so that EVERY exit path — not just the
 -- final fallthrough — gets a chance to check "is there something I can now
 -- send?" (e.g. a merge just brought in the opponent's resolution, making a
--- previously-queued local decision sendable per computeNextOwedLeg).
+-- previously-queued local decision sendable per computeNextOwedAction).
 -- True only while the end screen up right now is showing the result of a round the local
 -- player just actually finished PLAYING this session (set by endGameRound() below). Every
 -- other way to land on STATE_END — opening an already-decided match from the vs list,
@@ -331,7 +331,7 @@ local function enterQMatch_inner(q)
 
   currentQMatch = ensureQMatchPlayers(q, localPID(), q.otherId or q.opponentId)
   -- Stored on the object (not just the local var above) because
-  -- computeNextOwedLeg (qMatch_qPlayer.lua) needs to read this signal AFTER
+  -- computeNextOwedAction (qMatch_qPlayer.lua) needs to read this signal AFTER
   -- startRoundFromCurrentSettings() below has locally generated real board
   -- tiles — at which point re-deriving "were tiles ever sent" from tile
   -- validity alone would always read true and the signal would be lost.
@@ -463,28 +463,34 @@ HANDSHAKE_RETRY_DELAYS = {1.0, 2.5, 5.0}
 
 -- Kept for backward compatibility with existing call sites/tests that invoke
 -- the handshake directly; routes through the same generalized path as every
--- other leg.
+-- other kind of send.
 function beginInitialHandshakeSend(q)
   q.needsInitialHandshake = true
   attemptLegSend(q)
 end
 
 -- The single entry point for "do I owe this match anything right now, and if
--- so, try to send it." Safe to call speculatively and often (e.g. after
--- every enterQMatch, or once a comment gets decided) — it's a no-op whenever
--- computeNextOwedLeg has nothing to say, and it dedupes: an already-pending
--- attempt for the same leg is retried in place rather than restarted.
+-- so, try to send it." Safe to call speculatively and often (e.g. after every
+-- enterQMatch, once a comment gets decided, or when an exchange arrives or
+-- gets replied to) -- it's a no-op whenever computeNextOwedAction has nothing
+-- to say, and it dedupes: an already-pending attempt for the same kind+via is
+-- retried in place rather than restarted. See MULTIPLAYER_DESIGN.md "GameKit
+-- exchange trial" for the design this implements -- a score/comment goes out
+-- the instant it's ready, via a normal turn-pass if I hold the turn or a
+-- GameKit exchange if I don't.
 function attemptLegSend(q)
   if not (useTurnBased and q and q.id and tbm) then return end
   local myId = localPID()
-  local leg = computeNextOwedLeg(q, myId, os.time())
-  if not leg then return end
+  local action = computeNextOwedAction(q, myId, tbm.isMyTurn, os.time())
+  if not action then return end
 
   local pending = pendingTurnSendsByMatchId[q.id]
-  if not pending or pending.leg ~= leg then
-    -- Freeze the payload now rather than recomputing it on every retry, so
-    -- a retry always resends the exact same bytes (same idiom the original
-    -- handshake used).
+  if not pending or pending.kind ~= action.kind or pending.via ~= action.via then
+    -- Freeze the payload now rather than recomputing it on every retry, so a
+    -- retry always resends the exact same bytes (same idiom the original
+    -- handshake used). q.players is always sent in full regardless of kind --
+    -- see onLegSendSucceeded for why that lets one send sometimes satisfy
+    -- both scoreSent and commentSent.
     local payload = {
       boardSize   = q.boardSize or boardSize,
       minWordLen  = q.minWordLen or MIN_WORD_LEN,
@@ -492,10 +498,10 @@ function attemptLegSend(q)
       players     = q.players,
       lastUpdated = os.time(),
     }
-    -- Every outgoing leg carries the sender's current W/L record against this
+    -- Every outgoing send carries the sender's current W/L record against this
     -- opponent so each side's local totals can self-heal from the other's.
     -- The handshake needs it too: a match abandoned right after creation
-    -- otherwise never syncs at all. Outcome isn't known yet on either leg
+    -- otherwise never syncs at all. Outcome isn't known yet on either kind
     -- (that's what distinguishes them from "finalize"), hence nil. At
     -- handshake time the opponent may not be in q.players yet, so prefer
     -- the match's own opponent fields.
@@ -514,17 +520,17 @@ function attemptLegSend(q)
       end
     end
 
-    if leg == "handshake" then
+    if action.kind == "handshake" then
       awaitingHandshakeSend = true
       attachRecordSync()
-    elseif leg == "result" then
+    elseif action.kind == "score" or action.kind == "comment" then
       local me = q.players[myId]
       if me and me.comment and me.comment ~= "" then
         payload.__gcMessage = me.comment
       end
       attachRecordSync()
     end
-    pending = { leg = leg, turnData = payload, attempts = 0 }
+    pending = { kind = action.kind, via = action.via, turnData = payload, attempts = 0 }
     pendingTurnSendsByMatchId[q.id] = pending
     persistPendingTurnSends()
   end
@@ -532,85 +538,156 @@ function attemptLegSend(q)
   attemptPendingLegSend(q.id)
 end
 
--- tbm:endTurnWithDataTable only reports failure via its callback (see
--- CodeaTurnBasedMatches.lua:806-855) — a successful send is only observable
--- via the separate tbm:onTurnEnded(...) global callback (Main.lua), which
--- calls this. Kept as its own testable function rather than inline in that
--- callback so the leg-kind dispatch (what actually changed, given which leg
--- just succeeded) has real test coverage.
+-- tbm:endTurnWithDataTable only reports failure via its callback -- a
+-- successful turn-pass send is only observable via the separate
+-- tbm:onTurnEnded(...) global callback (Main.lua), which calls this. An
+-- exchange send's success is observable directly (sendExchangeWithDataTable's
+-- own completion handler), so attemptPendingLegSend calls this itself for
+-- that case. Kept as its own testable function rather than inline in either
+-- callback so the kind-dispatch (what actually changed, given which send just
+-- succeeded) has real test coverage.
 function onLegSendSucceeded(matchId)
   local pending = pendingTurnSendsByMatchId[matchId]
   if not pending then return end
 
   if currentQMatch and currentQMatch.id == matchId and currentQMatch.players then
-    if pending.leg == "handshake" then
+    if pending.kind == "handshake" then
       currentQMatch.needsInitialHandshake = false
     else
       local me = currentQMatch.players[localPID()]
-      if me then me.resultSent = true end
+      -- The full players table is always sent regardless of which kind
+      -- triggered this send, so mark whichever of score/comment were
+      -- already true locally -- avoids a redundant follow-up send for the
+      -- rare case both became ready before either went out.
+      if me then
+        if me.didPlay then me.scoreSent = true end
+        if me.commentDecided then me.commentSent = true end
+      end
     end
   end
 
   pendingTurnSendsByMatchId[matchId] = nil
   persistPendingTurnSends()
 
-  if pending.leg == "handshake" and awaitingHandshakeSend
+  if pending.kind == "handshake" and awaitingHandshakeSend
      and currentQMatch and currentQMatch.id == matchId then
     awaitingHandshakeSend = false
   end
 
-  -- A "result"/"finalize" send succeeding means this match's finished result
-  -- has now actually reached GameKit -- it no longer needs the standalone
-  -- disk snapshot endGameRound wrote (that snapshot exists purely to survive
-  -- a kill before this point was ever reached).
-  if pending.leg ~= "handshake" and finishedAwaitingDecisionByMatchId[matchId] then
+  -- A score/comment/finalize send succeeding means this match's finished
+  -- result has now actually reached GameKit -- it no longer needs the
+  -- standalone disk snapshot endGameRound wrote (that snapshot exists purely
+  -- to survive a kill before this point was ever reached).
+  if pending.kind ~= "handshake" and finishedAwaitingDecisionByMatchId[matchId] then
     finishedAwaitingDecisionByMatchId[matchId] = nil
     persistFinishedAwaitingDecision()
   end
 end
 
--- Renamed from attemptHandshakeSend: sends whatever leg is currently frozen
--- in pendingTurnSendsByMatchId[matchId] (set by attemptLegSend), with the
--- same retry/backoff/give-up shape the original handshake used — now shared
--- by every leg kind. Also the resend target for
--- retryPendingHandshakeSends (Main.lua) on foreground/auth.
+-- Sends whatever kind/via is currently frozen in
+-- pendingTurnSendsByMatchId[matchId] (set by attemptLegSend), with the same
+-- retry/backoff/give-up shape the original handshake used -- now shared by
+-- every kind. Also the resend target for retryPendingHandshakeSends
+-- (Main.lua) on foreground/auth.
+--
+-- Every turn-passing action (a normal "via=turn" send, or "finalize") must
+-- merge any completed exchanges into matchData first -- GameKit errors on
+-- endTurn/endMatch otherwise (confirmed live, see MULTIPLAYER_DESIGN.md
+-- "GameKit exchange trial"). mergeCompletedExchanges is a no-op straight to
+-- its success callback when there's nothing to merge, so this is safe to call
+-- unconditionally rather than checking first.
 function attemptPendingLegSend(matchId)
   local pending = pendingTurnSendsByMatchId[matchId]
   if not pending then return end
   pending.attempts = pending.attempts + 1
   persistPendingTurnSends()
 
-  if pending.leg == "finalize" then
-    -- finalizeCompletedTurnBasedMatch (and the tbm:localPlayerWon/Lost/Tied
-    -- calls inside it) are fire-and-forget in the bridge today — no error
-    -- channel to retry against, same as before this generalization existed.
-    -- Best-effort: try once, then clear the pending entry either way.
-    local ok = finalizeCompletedTurnBasedMatch(nil)
-    if not ok then
-      devLog("attemptPendingLegSend: finalize preconditions not met", matchId)
-    end
-    pendingTurnSendsByMatchId[matchId] = nil
-    persistPendingTurnSends()
-    return
-  end
-
-  tbm:endTurnWithDataTable(pending.turnData, function(err)
+  local function onSendFailed(err)
     local p = pendingTurnSendsByMatchId[matchId]
     if not p then return end
-    devLog("leg send failed", "matchId=", matchId, "leg=", p.leg, "attempt=", p.attempts,
-      "err=", err and err.localizedDescription or "n/a")
+    devLog("leg send failed", "matchId=", matchId, "kind=", p.kind, "via=", p.via,
+      "attempt=", p.attempts, "err=", err and err.localizedDescription or "n/a")
     if p.attempts < HANDSHAKE_MAX_ATTEMPTS then
       tween.delay(HANDSHAKE_RETRY_DELAYS[p.attempts], function()
         attemptPendingLegSend(matchId)
       end)
     else
-      devLog("leg send exhausted attempts; will retry in background", matchId, p.leg)
-      if p.leg == "handshake" and awaitingHandshakeSend and currentQMatch and currentQMatch.id == matchId then
+      devLog("leg send exhausted attempts; will retry in background", matchId, p.kind)
+      if p.kind == "handshake" and awaitingHandshakeSend and currentQMatch and currentQMatch.id == matchId then
         awaitingHandshakeSend = false
       end
       -- pending stays in pendingTurnSendsByMatchId / on disk for background retry
     end
+  end
+
+  if pending.kind == "finalize" then
+    tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
+      -- finalizeCompletedTurnBasedMatch (and the tbm:localPlayerWon/Lost/Tied
+      -- calls inside it) are fire-and-forget in the bridge today — no error
+      -- channel to retry against, same as before this generalization existed.
+      -- Best-effort: try once, then clear the pending entry either way.
+      local ok = finalizeCompletedTurnBasedMatch(nil)
+      if not ok then
+        devLog("attemptPendingLegSend: finalize preconditions not met", matchId)
+      end
+      pendingTurnSendsByMatchId[matchId] = nil
+      persistPendingTurnSends()
+    end)
+    return
+  end
+
+  if pending.via == "exchange" then
+    tbm:sendExchangeWithDataTable(pending.turnData, onSendFailed, function()
+      onLegSendSucceeded(matchId)
+    end)
+    return
+  end
+
+  -- via == "turn": merge first, then pass the turn. Success is reported
+  -- asynchronously via tbm:onTurnEnded -> onLegSendSucceeded, same as before
+  -- this generalization existed -- endTurnWithDataTable has no separate
+  -- success callback of its own.
+  tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
+    tbm:endTurnWithDataTable(pending.turnData, onSendFailed)
   end)
+end
+
+-- Fires when another participant sends me a GameKit exchange (see
+-- MULTIPLAYER_DESIGN.md "GameKit exchange trial") -- independent of who
+-- currently holds the turn. Applies their data to our local model right away
+-- (same patch shape a normal turn-pass carries) so a score/comment sent while
+-- the opponent didn't hold the turn is reflected immediately, then replies to
+-- the exchange -- replying doesn't require holding the turn either, so this
+-- can happen the instant the exchange arrives.
+function onExchangeDataReceived(gkMatch, dataTable)
+  local matchId = gkMatch and gkMatch.matchID
+  if dataTable and type(dataTable.players) == "table"
+     and currentQMatch and matchId and currentQMatch.id == matchId then
+    applyIncomingPlayersPatch(currentQMatch, dataTable.players)
+    if dataTable.recordSync and mergeOpponentRecordFromTurnData then
+      mergeOpponentRecordFromTurnData(gkMatch, dataTable)
+    end
+  end
+
+  tbm:replyToActiveExchanges(nil, function(repliedCount)
+    devLog("onExchangeDataReceived: replied to", repliedCount, "exchange(s)", "matchId=", matchId)
+  end)
+
+  if refreshHomeScreenBadgeFromGCMatches then refreshHomeScreenBadgeFromGCMatches("exchangeReceived") end
+  if refreshVsMatchesList then refreshVsMatchesList("exchangeReceived") end
+end
+
+-- Fires once an exchange I sent has been replied to -- visible to both the
+-- original sender and whoever currently holds the turn (per Apple's docs).
+-- If I hold the turn, this is my signal that something is ready to merge --
+-- attemptLegSend will pick it up via attemptPendingLegSend's merge-first step
+-- the next time anything needs sending, including right now if I have my own
+-- pending send queued.
+function onExchangeRepliesReceived(gkMatch)
+  local matchId = gkMatch and gkMatch.matchID
+  if currentQMatch and matchId and currentQMatch.id == matchId and tbm.isMyTurn then
+    attemptLegSend(currentQMatch)
+  end
 end
 
 function endGameRound()
@@ -698,6 +775,13 @@ function endGameRound()
     end
   end
   q.awaitingCommentBeforeFinalization = true
+
+  -- Score goes out the instant the round ends, regardless of comment status
+  -- (MULTIPLAYER_DESIGN.md "GameKit exchange trial", rule 2) -- previously
+  -- this only got attempted later, on some other trigger (enterQMatch,
+  -- decideComment); now that a score never waits on a comment decision, this
+  -- is the natural place to kick the first attempt.
+  attemptLegSend(q)
 end
 
 useTurnBased     = false   -- NEW: master toggle for opponent / records
