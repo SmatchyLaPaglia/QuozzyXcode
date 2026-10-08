@@ -424,6 +424,81 @@ launch`. The build is unattended-friendly: existing signing identity and
 provisioning profile are picked up automatically, no Xcode GUI needed — this
 held for both devices once the XR's provisioning was fixed.
 
+## Two more findings (2026-10-08, ~9:40am), from Jesse double-checking the design directly
+
+**Q: "The instant a GKMatch is complete (both scores, both comments), is it
+ended by whichever handset detects this first?"** Tracing the code surfaced a
+real gap, then a second real bug, both fixed and live-verified:
+
+- `onExchangeDataReceived` applied the opponent's data and replied, but never
+  re-checked `attemptLegSend` afterward. A turn-pass receipt gets that check
+  for free via `enterQMatch`'s own `attemptLegSend` call; an exchange receipt
+  had no equivalent. Concretely: if I already hold the turn and have fully
+  finished my own side, and the opponent's last missing piece (say, their
+  comment) arrives via exchange because they didn't hold the turn — nothing
+  would notice I could now finalize until something unrelated happened to
+  call `attemptLegSend` again. Fixed: `attemptLegSend` now runs inside
+  `replyToActiveExchanges`'s own completion callback (after the reply
+  round-trips, so a finalize's merge step sees the exchange as genuinely
+  resolved), gated on `tbm.isMyTurn`.
+- Live-testing that fix surfaced a second, independent bug: the exchange send
+  failed every retry with **"the requested operation could not be completed
+  because the match data was too large."** Exchanges have their own GameKit
+  data-size limit, smaller than the regular matchData limit a turn-pass uses
+  — the full-state payload (both players, board data) that sends fine via
+  turn-pass exceeded it. Fixed: an exchange now only carries the sender's own
+  player slot, not the opponent's, and omits board data the recipient already
+  has from the handshake.
+- **Both fixes confirmed together, live, two real devices**: engineered the
+  exact scenario (one side fully done and idle holding the turn, the other's
+  final piece — a comment — arriving via exchange) and watched the match
+  reach `status=2.0` (Ended), both participants `Done`, matching outcome —
+  entirely automatically, zero manual trigger after the exchange landed.
+
+**So: yes, this is now the case** — for the 2-player design, with both fixes
+in place. The one remaining caveat (not a bug, a GameKit constraint): "whoever
+detects it first" must also currently **hold the turn** — GameKit only lets
+the turn holder write data or end a match. If the detecting device doesn't
+hold the turn, it has nothing to do but wait for its own next turn-pass or
+exchange-reply cycle to pick this up (which, per everything above, now
+happens automatically and promptly in practice).
+
+**Q: "What are the non-turn-holder's options for forcing a match end?"**
+Tested live rather than assumed from Apple's docs. Apple's only documented
+API for this is `participantQuitOutOfTurnWithOutcome:withCompletionHandler:`
+("abandon the match when it is not the current participant's turn... no
+update to matchData and no need to set nextParticipant"). Called it live from
+the non-turn-holder and confirmed exactly what the terse doc comment implies,
+with no surprises and no silver lining:
+
+- Only the **caller's own** participant status/outcome changes (confirmed
+  `Done`/`Quit`) — the match's overall `status` stayed `Open`, and the turn
+  holder's own participant record was completely untouched.
+- No matchData update occurs, confirmed (`matchData len=0` unchanged) — so
+  this app's relay logic, which only ever reads/writes the matchData JSON
+  blob (never GameKit's native `participant.status`/`matchOutcome` fields
+  directly), has **no awareness this happened at all**. A player who quits
+  out-of-turn today doesn't get interpreted by this code as "resolved" in any
+  way — `computeNextOwedAction` would keep seeing whatever stale data was
+  last actually relayed about them.
+- No GKLocalPlayerListener callback appears to fire on the turn holder's side
+  as a result (checked for any observable side effect on the turn holder's
+  device; found none — though note the verbose CTBM-internal matchmaking-event
+  log is simulator-gated, so this isn't as airtight as the two confirmations
+  above). Apple's listener protocol has no event type that matches "a
+  participant quit out of turn" — the closest, `wantsToQuitMatch:`, is
+  documented as firing only for the player who **currently holds the turn**.
+
+**Bottom line: a non-turn-holder cannot force the match to end.** Their only
+unilateral action marks themselves done without affecting the match's overall
+status, isn't visible to the turn holder in any automatic way, and isn't even
+understood by this app's own relay logic today. This confirms (more strongly
+than before) that the "both players went silent, match stays open forever"
+edge case genuinely has no non-turn-holder-side escape hatch — closing the
+match always requires the turn holder's own device to eventually act, whether
+promptly (now automatic, per the fixes above) or, in the silent-forever case,
+never.
+
 ### Follow-ups (nothing blocking — the design is now fully verified)
 
 1. 3+ players (decided 2026-09-24, not started) — explicitly gated on the
@@ -432,3 +507,8 @@ held for both devices once the XR's provisioning was fixed.
    are real GameKit matches against real accounts — harmless (all between
    Jesse's own Gnostic Pan/GameySonata/Smatchy LaPaglia accounts), but worth
    a glance in Game Center's match history if any look confusingly stale.
+3. Consider whether `participantQuitOutOfTurnWithOutcome:` is worth wiring in
+   anyway as a user-facing "forfeit" button for the non-turn-holder — it
+   wouldn't close the match, but it would at least record that player's own
+   intent, visible to them locally and to GameKit's own records for that
+   participant, which today isn't captured anywhere if they just walk away.
