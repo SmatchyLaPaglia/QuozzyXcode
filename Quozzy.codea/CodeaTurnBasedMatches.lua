@@ -55,6 +55,12 @@ function CTBM:init()
   self._onOtherPlayerQuit = function(match, payload)
     self:log("CTBM: _onOtherPlayerQuit undefined")
   end
+  self._onReceivedExchangeRequest = function(match, exchange)
+    self:log("CTBM: _onReceivedExchangeRequest undefined")
+  end
+  self._onReceivedExchangeReplies = function(match, exchange)
+    self:log("CTBM: _onReceivedExchangeReplies undefined")
+  end
   
   -- final initializations
   self:_major("registering GKLocalPlayer listener")
@@ -185,6 +191,8 @@ function CTBM:onLocalPlayerLost(fn)     self._onLocalPlayerLost = fn end
 function CTBM:onLocalPlayerTied(fn)     self._onLocalPlayerTied = fn end
 function CTBM:onLocalPlayerQuit(fn)     self._onLocalPlayerQuit = fn end
 function CTBM:onOtherPlayerQuit(fn)     self._onOtherPlayerQuit = fn end
+function CTBM:onReceivedExchangeRequest(fn) self._onReceivedExchangeRequest = fn end
+function CTBM:onReceivedExchangeReplies(fn) self._onReceivedExchangeReplies = fn end
 
 function CTBM:localPlayerWon(payload)
   self:_endMatchLocal(CTBM.ENDSTATE.WIN, payload)
@@ -584,7 +592,44 @@ function CTBM:_makeLocalPlayerListener()
     "CTBM: reached end of player_receivedTurnEventForMatch_didBecomeActive_"
     )
   end
-  
+
+  -- Fires when another participant sends an exchange to me, independent of turn
+  -- position (see MULTIPLAYER_DESIGN.md "GameKit exchange trial"). Same
+  -- no-async-wrapper style as the turn-event listener above -- this protocol's
+  -- callbacks arrive already on the main run loop, unlike explicit completion
+  -- handlers elsewhere in this file.
+  function PlayerListener:
+    player_receivedExchangeRequest_forMatch_(
+    o__player,
+    o__exchange,
+    o__match
+    )
+    thisCTBM:_logMatchmakingEvent("PLAYER_LISTENER_RECEIVED_EXCHANGE_REQUEST", o__match)
+    if not o__match then
+      thisCTBM:log("CTBM: exchange request with nil match")
+      return
+    end
+    thisCTBM._onReceivedExchangeRequest(o__match, o__exchange)
+  end
+
+  -- Fires once all recipients of an exchange I sent have replied (or it was
+  -- otherwise completed) -- sent to both the original sender and the current
+  -- turn holder, per Apple's docs.
+  function PlayerListener:
+    player_receivedExchangeReplies_forCompletedExchange_forMatch_(
+    o__player,
+    o__replies,
+    o__exchange,
+    o__match
+    )
+    thisCTBM:_logMatchmakingEvent("PLAYER_LISTENER_RECEIVED_EXCHANGE_REPLIES", o__match)
+    if not o__match then
+      thisCTBM:log("CTBM: exchange replies with nil match")
+      return
+    end
+    thisCTBM._onReceivedExchangeReplies(o__match, o__exchange)
+  end
+
   return PlayerListener()
 end
 
@@ -775,6 +820,115 @@ function CTBM:endTurnWithDataTable(t, onError)
       )
       
       self:log("CTBM: endTurnWithNextParticipants callback ended")
+    end
+  end
+  )
+end
+
+-- Sends an exchange carrying t to every other participant -- unlike
+-- endTurnWithDataTable, this does NOT require holding the turn (see
+-- MULTIPLAYER_DESIGN.md "GameKit exchange trial": confirmed working on real
+-- hardware against an accepted participant). The recipient must reply
+-- (replyToActiveExchanges) before the turn holder can merge it in.
+function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
+  if not self.currentMatch then
+    self:log("CTBM: can't send exchange because currentMatch is nil")
+    if onError then onError(nil) end
+    return
+  end
+
+  local localId = self.localPlayer.playerID
+  local recipients = {}
+  for _, p in ipairs(self.currentMatch.participants) do
+    if p and p.playerID ~= localId then
+      table.insert(recipients, p)
+    end
+  end
+
+  if #recipients == 0 then
+    self:log("CTBM: no valid exchange recipients")
+    if onError then onError(nil) end
+    return
+  end
+
+  local data = self:_dataTableToNSData(t)
+  self.currentMatch:sendExchangeToParticipants_data_localizableMessageKey_arguments_timeout_completionHandler_(
+  recipients,
+  data,
+  "XCHG_UPDATE",
+  {},
+  7 * 24 * 60 * 60, -- a week; GameKit's own exchange timeout isn't relied on (see design doc)
+  function(o__exchange, o__err)
+    if o__err then
+      self:log("CTBM:sendExchange error:", o__err.localizedDescription)
+      if onError then onError(o__err) end
+    else
+      self:log("CTBM: sendExchangeToParticipants succeeded")
+      if onSuccess then onSuccess(o__exchange) end
+    end
+  end
+  )
+end
+
+-- Replies to every currently-active exchange on currentMatch (recipient side;
+-- doesn't require holding the turn). Moves each from active -> complete.
+-- onDone(repliedCount) fires once every reply attempt has returned, success or not.
+function CTBM:replyToActiveExchanges(dataTable, onDone)
+  if not self.currentMatch then
+    if onDone then onDone(0) end
+    return
+  end
+  local active = self.currentMatch.activeExchanges
+  local total = active and #active or 0
+  if total == 0 then
+    if onDone then onDone(0) end
+    return
+  end
+
+  local data = self:_dataTableToNSData(dataTable)
+  local remaining = total
+  for _, ex in ipairs(active) do
+    ex:replyWithLocalizableMessageKey_arguments_data_completionHandler_(
+    "XCHG_REPLY", {}, data,
+    function(o__err)
+      if o__err then
+        self:log("CTBM:replyToActiveExchanges error:", o__err.localizedDescription)
+      else
+        self:log("CTBM: exchange reply succeeded")
+      end
+      remaining = remaining - 1
+      if remaining <= 0 and onDone then onDone(total) end
+    end
+    )
+  end
+end
+
+-- Merges every completed exchange into matchData (turn-holder only -- GameKit
+-- populates completedExchanges for the current turn holder and errors on
+-- endTurn/endMatch if any are left unmerged, confirmed via the exchange trial).
+-- A no-op straight to onSuccess if there's nothing to merge, to avoid a
+-- needless network round trip.
+function CTBM:mergeCompletedExchanges(dataTable, onError, onSuccess)
+  if not self.currentMatch then
+    if onError then onError(nil) end
+    return
+  end
+  local completed = self.currentMatch.completedExchanges
+  if not completed or #completed == 0 then
+    if onSuccess then onSuccess() end
+    return
+  end
+
+  local data = self:_dataTableToNSData(dataTable)
+  self.currentMatch:saveMergedMatchData_withResolvedExchanges_completionHandler_(
+  data, completed,
+  function(o__err)
+    if o__err then
+      self:log("CTBM:mergeCompletedExchanges error:", o__err.localizedDescription)
+      if onError then onError(o__err) end
+    else
+      self:log("CTBM: saveMergedMatchData succeeded, merged", #completed, "exchange(s)")
+      if onSuccess then onSuccess() end
     end
   end
   )
