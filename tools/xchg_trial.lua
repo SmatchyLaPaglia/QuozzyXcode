@@ -162,6 +162,19 @@ function XT.sendEx(timeout, recips)
   return "sending exchange"
 end
 
+-- Reply to the first active exchange on XT.m (recipient side; doesn't require holding
+-- the turn). Moves the exchange from active -> complete once all recipients have replied.
+function XT.reply(tbl)
+  local active = XT.m.activeExchanges
+  if cnt(active) == 0 then return "no active exchanges" end
+  local ex = get(active, 1)
+  ex:replyWithLocalizableMessageKey_arguments_data_completionHandler_(
+    "XT_REPLY", {}, payload(tbl or { xt = "reply", at = os.time() }), function(o__err)
+      objc.async(function() L("reply", o__err and err(o__err) or "ok") end)
+    end)
+  return "replying to " .. s(ex.exchangeID)
+end
+
 function XT.merge(tbl)
   local done = XT.m.completedExchanges
   XT.m:saveMergedMatchData_withResolvedExchanges_completionHandler_(
