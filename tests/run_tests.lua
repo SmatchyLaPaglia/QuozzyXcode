@@ -441,6 +441,37 @@ test("decideComment: sends 'finalize' and calls localPlayerWon when the opponent
   check("pending entry cleared after finalize", pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
+test("onExchangeDataReceived: finalizes immediately if the opponent's data arriving via exchange completes the picture", function()
+  -- Regression case: I've already done everything on my end and am just
+  -- sitting idle; the opponent's comment -- the one remaining missing piece
+  -- -- arrives via exchange (they didn't hold the turn) rather than a normal
+  -- turn-pass. A turn-pass receipt gets a free re-check via enterQMatch's own
+  -- attemptLegSend call; an exchange receipt needs its own, or finalize-
+  -- eligible matches sit undetected until something unrelated happens to
+  -- call attemptLegSend again.
+  useTurnBased = true
+  tbm.isMyTurn = true
+  tbm.currentMatch = { matchID = "m1" }
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].scoreSent = true
+  currentQMatch.players["local-player-id"].commentDecided = true
+  currentQMatch.players["local-player-id"].commentSent = true
+  currentQMatch.players["local-player-id"].words = {"CAT","DOG","BIRD"} -- score 3
+  currentQMatch.players["opp"].didPlay = true
+  currentQMatch.players["opp"].words = {"ANT"} -- score 1
+  -- opponent's commentDecided is still false -- about to arrive via exchange
+
+  onExchangeDataReceived({ matchID = "m1" }, {
+    players = { opp = { commentDecided = true, comment = "gg" } }
+  })
+
+  check("opponent's commentDecided applied from the exchange payload",
+    currentQMatch.players["opp"].commentDecided == true)
+  check("finalize triggered without any other action", #tbm.wonCalls == 1)
+  check("pending entry cleared after finalize", pendingTurnSendsByMatchId["m1"] == nil)
+end)
+
 test("decideComment: sends via exchange when not holding the turn, rather than waiting for it", function()
   useTurnBased = true
   tbm.isMyTurn = false -- e.g. the match creator, right after sending the handshake

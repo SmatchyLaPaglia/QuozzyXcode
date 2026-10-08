@@ -679,6 +679,19 @@ function onExchangeDataReceived(gkMatch, dataTable)
 
   tbm:replyToActiveExchanges(nil, function(repliedCount)
     devLog("onExchangeDataReceived: replied to", repliedCount, "exchange(s)", "matchId=", matchId)
+    -- The opponent's data just applied above might be the last missing piece
+    -- (e.g. their comment, arriving via exchange because they didn't hold the
+    -- turn) -- if I already hold the turn and have everything else done,
+    -- that makes the match finalize-eligible right now. Nothing else
+    -- re-checks this on receipt of an exchange specifically (a normal
+    -- turn-pass receipt already gets this for free via enterQMatch's own
+    -- attemptLegSend call) -- re-check here too, after the reply has
+    -- actually round-tripped so a finalize's merge step sees this exchange
+    -- as resolved. Called with the same frozen-payload-reuse/dedup semantics
+    -- as every other attemptLegSend call, not a special case.
+    if tbm.isMyTurn and currentQMatch and currentQMatch.id == matchId then
+      attemptLegSend(currentQMatch)
+    end
   end)
 
   if refreshHomeScreenBadgeFromGCMatches then refreshHomeScreenBadgeFromGCMatches("exchangeReceived") end
