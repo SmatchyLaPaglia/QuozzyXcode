@@ -218,6 +218,18 @@ function XT.quitOutOfTurn(outcome)
   return "quitting out of turn"
 end
 
+-- Testing whether this requires holding the turn (sibling to sendExchange,
+-- which doesn't) and whether it actually wakes the recipient's listener.
+-- Apple: "Each recipient will receive a push notification... On the receiver
+-- side this will generate a turn event for the match."
+function XT.sendReminder(recips)
+  XT.m:sendReminderToParticipants_localizableMessageKey_arguments_completionHandler_(
+    recips or XT.others(), "XT_REMINDER", {}, function(o__err)
+      objc.async(function() L("sendReminder", o__err and err(o__err) or "ok") end)
+    end)
+  return "sending reminder"
+end
+
 function XT.dump(n)
   n = n or 20
   local from = math.max(1, #XT.log - n + 1)
