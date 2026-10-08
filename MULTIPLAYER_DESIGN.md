@@ -366,15 +366,51 @@ a synthetic call) by hand via `dbg.sh`:
 5. Match closed cleanly via the harness (merge + `endMatchInTurn`), both
    participants correctly `Done` with matching outcomes.
 
-**Not covered by the live test:** a full finalize reached through two real
-updated devices (only one side could be rebuilt — see below), and the
-receiving-side `applyIncomingPlayersPatch`/`commentDecided` fix specifically
-under live conditions (validated by unit test and by code reading, not by a
-live device applying a real incoming comment-decided patch). The merge-before-
-every-turn-pass behavior was validated live only via the raw trial harness's
-`XT.merge()`/`XT.endMatch()`, not through the production `attemptPendingLegSend`
-path with a real pending turn-pass queued behind a real completed exchange —
-worth a specific follow-up check if anything looks off around that boundary.
+**Update (2026-10-08, ~5:45am–5:55am): the XR provisioning blocker is
+resolved** — Jesse fixed it (Xcode GUI / developer.apple.com, exact mechanism
+not visible from here) and asked for a full two-updated-device retest before
+going back to sleep. Rebuilt and reinstalled on the XR
+(`xcodebuild -allowProvisioningUpdates` now succeeds; new provisioning profile
+`dc2a00d4-...` includes it). Reran the full scenario with **both devices
+running the real, current production code** — no harness standing in for
+either side's app logic this time, only for match creation/invite-accept
+(`tools/xchg_trial.lua`'s raw GameKit calls, same as any matchmaking UI would
+use):
+
+1. Handshake: iPad creates, sends — **GameySonata's real `onReceivingTurn`
+   fired automatically** (no manual wiring), correctly decoded the board and
+   set up `currentQMatch`/`useTurnBased`/`tbm.isMyTurn` from scratch.
+2. iPad finishes first (not holding the turn) → sent via exchange, confirmed
+   via `scoreSent=true`. **GameySonata's real `onReceivedExchangeRequest`
+   fired automatically**, applied the patch (`didPlay=true, score=42,
+   words=[...]` all correct on GameySonata's own `currentQMatch`), and
+   auto-replied — all unprompted, zero manual invocation.
+3. GameySonata then finished (now holding the turn, with a real completed
+   exchange sitting unmerged) → **the exact previously-untested integration
+   edge**: `attemptPendingLegSend`'s `via=="turn"` branch had to merge first.
+   Confirmed directly, not inferred: a fresh reload after GameySonata's send
+   showed `exchanges=0` (resolved) and the turn correctly passed back to the
+   iPad — the merge-before-turn-pass path works for real, through the actual
+   production dispatch, not just the raw harness.
+4. Comments: iPad decided first (holding the turn, comment sent via turn-pass)
+   — GameySonata's real code received it with **`commentDecided=true`
+   correctly set**, confirming that specific fix (the patch-application gap
+   found earlier tonight) holds under real incoming data, not just a
+   unit-test fixture. GameySonata then decided its own comment — both sides
+   now fully resolved, GameySonata holding the turn — and **computeNextOwedAction
+   correctly took the finalize branch** (not a redundant comment send, the
+   exact priority bug fixed earlier).
+5. **Real finalize, both devices, zero harness involvement**: reload after
+   GameySonata's `decideComment` call showed `status=2.0` (Ended),
+   `current=nil`, both participants `status=5.0` (Done) with matching
+   `outcome=4.0` (tied — a function of the arbitrary test word lists summing
+   to equal scores under the real scoring formula, not a bug; what matters is
+   both sides agree).
+
+Every item in the "not covered" list above is now directly confirmed on real
+hardware, real production code, both sides: the merge-before-turn-pass edge,
+the `commentDecided` relay fix under live conditions, and a full two-device
+finalize. Nothing in this design remains unverified at the integration level.
 
 **Rebuild/redeploy note, for next time:** editing `Quozzy.codea/*.lua` on disk
 has zero effect on an already-installed app — Codea bundles the whole
@@ -385,23 +421,14 @@ Quozzy.xcodeproj -scheme Quozzy -configuration Debug -destination
 'generic/platform=iOS' build`, then `xcrun devicectl device install app
 --device "<name>" <path-to>/Quozzy.app`, then `devicectl device process
 launch`. The build is unattended-friendly: existing signing identity and
-provisioning profile are picked up automatically, no Xcode GUI needed.
-**iPhone XR (GameySonata) could not be rebuilt tonight** — its device UDID
-isn't in the current provisioning profile, and `xcodebuild -allowProvisioning
-Updates` fails with "No Accounts: Add a new account in Accounts settings" since
-the CLI has no authenticated Apple ID session (unlike Xcode's GUI, which
-apparently does, since the iPad's existing install came from there). Fixing
-this needs either Xcode GUI sign-in or manually registering the device's UDID
-at developer.apple.com — not resolvable from a CLI agent session.
+provisioning profile are picked up automatically, no Xcode GUI needed — this
+held for both devices once the XR's provisioning was fixed.
 
-### Exact punch list for whoever picks this up next
+### Follow-ups (nothing blocking — the design is now fully verified)
 
-1. Confirm the merge-before-turn-pass path (not just finalize, not just the
-   raw harness) with a real pending comment/score queued behind a real
-   completed exchange, through `attemptPendingLegSend` itself — the one
-   integration edge not directly exercised tonight.
-2. Get the iPhone XR back into the provisioning profile (Xcode GUI or
-   developer.apple.com) so a true two-updated-device test is possible,
-   including a real finalize.
-3. 3+ players (decided 2026-09-24, not started) — explicitly gated on the
-   2-player version working first; it now does.
+1. 3+ players (decided 2026-09-24, not started) — explicitly gated on the
+   2-player version working first; it now does, on real hardware, both sides.
+2. The test matches created tonight (several, across both trial sessions)
+   are real GameKit matches against real accounts — harmless (all between
+   Jesse's own Gnostic Pan/GameySonata/Smatchy LaPaglia accounts), but worth
+   a glance in Game Center's match history if any look confusingly stale.
