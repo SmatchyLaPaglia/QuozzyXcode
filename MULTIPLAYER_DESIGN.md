@@ -297,3 +297,97 @@ native addon required): Sparts Scoresheet's `addon-bridge-demo` branch
 (`~/Documents/Xcode/SpartsScoresheet`) shows Lua↔native calls via `lua_register` +
 `unsafeRunLuaBlock:` if ever needed for something the objc bridge can't reach;
 Quozzy already has the stock `Quozzy/Addon/ProjectAddon.mm` scaffolding.
+
+## Implementation status (2026-10-08) — built so far, cutover not done
+
+Built tonight, in production files, additive only — **current production
+behavior is completely unchanged**; nothing below is called by any live code path
+yet:
+
+- `computeNextOwedAction(q, myId, iHoldTurn, now)` (`qMatch_qPlayer.lua`, next to
+  the still-active `computeNextOwedLeg`) — the pure decision function for the
+  revised design: returns `{kind="handshake"|"score"|"comment"|"finalize",
+  via="turn"|"exchange"}` or `nil`. A score is owed the instant `didPlay` is true,
+  regardless of comment status; `via` is `"turn"` if `iHoldTurn`, `"exchange"`
+  otherwise. 10 new unit tests, all passing.
+- New player-slot fields `scoreSent`/`commentSent` (`ensureQMatchPlayers`),
+  alongside the still-present `resultSent` (which `computeNextOwedLeg` still
+  reads). Not yet written by any send-success path — see below.
+- `CTBM:sendExchangeWithDataTable(t, onError, onSuccess)`,
+  `CTBM:replyToActiveExchanges(dataTable, onDone)`,
+  `CTBM:mergeCompletedExchanges(dataTable, onError, onSuccess)`, plus the
+  `GKLocalPlayerListener` delegate methods they need
+  (`player:receivedExchangeRequest:forMatch:`,
+  `player:receivedExchangeReplies:forCompletedExchange:forMatch:`) and their
+  `CTBM:onReceivedExchangeRequest`/`onReceivedExchangeReplies` setters
+  (`CodeaTurnBasedMatches.lua`). Modeled directly on `tools/xchg_trial.lua`'s
+  calls, each individually verified live tonight (see above). Not covered by
+  `tests/run_tests.lua` (doesn't load this file) — verified with a syntax-only
+  parse check, not executed.
+
+### Why the cutover itself stopped here
+
+Wiring `computeNextOwedAction` into actual production dispatch turned out to be
+materially bigger than "swap the function call" once the exchange rule
+`saveMergedMatchData:withResolvedExchanges:` — "all completed exchanges must be
+resolved before ending a turn. Otherwise calling endTurn, participantQuitInTurn,
+or endMatchInTurn will return an error" — is taken seriously: **every**
+turn-passing send (not just the final one) must merge first, not only
+`finalize`. That, plus needing a live reply-on-receipt hook for incoming
+exchanges, plus ~15 existing tests in `tests/run_tests.lua` that hard-code
+`computeNextOwedLeg`'s leg names and `onLegSendSucceeded`'s single-`resultSent`
+model, add up to a genuinely interdependent rewrite — not "assemble
+already-validated pieces." Doing that in one unsupervised overnight pass, on
+code that handles real matches on real accounts, isn't a risk worth taking
+without someone able to review or catch a bug before it runs live. The
+exchange *primitives* are validated; the *integration* is new engineering that
+deserves the same scrutiny.
+
+### Exact punch list for whoever picks this up
+
+1. **`GameCenter.lua`: replace `attemptLegSend`'s internals.** Call
+   `computeNextOwedAction(q, myId, tbm.isMyTurn, os.time())` instead of
+   `computeNextOwedLeg`. New pending-entry shape:
+   `{ kind, via, turnData, attempts }` (was `{ leg, turnData, attempts }`).
+2. **`GameCenter.lua`: `attemptPendingLegSend` needs a merge-first step.** For
+   `via == "turn"` or `kind == "finalize"`: call
+   `tbm:mergeCompletedExchanges(payload, onError, onSuccessThen(actualSend))`
+   first — it's a no-op straight to `onSuccess` if nothing's pending, so this is
+   safe to call unconditionally. Only call the actual `endTurnWithDataTable` /
+   `finalizeCompletedTurnBasedMatch` inside that success callback. For
+   `via == "exchange"`: call `tbm:sendExchangeWithDataTable` directly, no merge
+   needed (merging is a turn-holder concern).
+3. **`onLegSendSucceeded`: replace the single `resultSent` write.** On a
+   successful `"score"` send, set `me.scoreSent = true`; on `"comment"`, set
+   `me.commentSent = true`. Since the full `q.players` table is always sent
+   regardless of `kind` (same as today), consider marking *both* sent if both
+   conditions were already true at send time, to avoid a redundant follow-up
+   send — not load-bearing, just an efficiency nicety.
+4. **`Main.lua`: wire the two new CTBM callbacks.** On
+   `onReceivedExchangeRequest(match, exchange)`: call
+   `tbm:replyToActiveExchanges(currentReplyPayload, onDone)` — doesn't require
+   holding the turn, should happen essentially immediately on receipt. On
+   `onReceivedExchangeReplies(match, exchange)`: if `tbm.isMyTurn`, this is the
+   turn holder's signal that something is ready to merge — call
+   `attemptLegSend(currentQMatch)` again (it'll see the completed exchange via
+   the merge-first step above).
+5. **`endGameRound` (`GameCenter.lua`) should call `attemptLegSend`.** Today it
+   only persists to disk and waits for some other trigger. Once scores go out
+   immediately regardless of comment status, this is the natural place to kick
+   the first attempt.
+6. **Rewrite affected tests in `tests/run_tests.lua`.** Everything in the
+   "computeNextOwedLeg" and "onLegSendSucceeded" sections, plus the
+   `beginInitialHandshakeSend`/`attemptPendingLegSend` tests that assert on
+   `pending.leg` — update to the new `kind`/`via` shape. The 10
+   `computeNextOwedAction` tests added tonight stay as-is.
+7. **Delete `computeNextOwedLeg`** once step 6 is green and nothing references
+   it (grep first — `resultSent` and the old leg names are referenced in
+   comments in several files; harmless but worth cleaning up in the same pass).
+8. **Live-hardware integration pass, required before trusting this**: repeat
+   tonight's manual trial sequence but through the *real app's* UI/state
+   machine instead of `tools/xchg_trial.lua` — create a match, have one side
+   finish while not holding the turn, confirm the exchange fires automatically,
+   gets replied to automatically, gets merged automatically, and the match
+   still finalizes correctly end to end. The two devices used tonight (iPad =
+   Gnostic Pan, iPhone XR = GameySonata) are already signed in and paired as
+   Game Center friends — same rig, no new setup needed.
