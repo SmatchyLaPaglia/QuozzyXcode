@@ -12,7 +12,7 @@
 --
 -- Set DEV_REMOTE_ENABLED = false to disable (e.g. for App Store builds).
 
-DEV_REMOTE_ENABLED = true
+DEV_REMOTE_ENABLED = false
 
 local CMD_PATH = "Documents:dbg_cmd.txt"
 local OUT_PATH = "Documents:dbg_out.txt"
