@@ -12,6 +12,7 @@ dofile(ROOT .. "/tests/env.lua")
 loadSource("qMatch_qPlayer.lua")
 loadSource("GameCenter.lua")
 loadSource("opponentRecords.lua")
+loadSource("MatchSelection.lua")
 
 -- ---------------------------------------------------------------- harness --
 local pass, fail = 0, 0
@@ -1088,6 +1089,64 @@ test("makeQMatchFromGK: my own finished result survives a reload where the oppon
     "score="..tostring(reopened.players["local-player-id"].score))
   check("opponent's (genuinely unplayed) slot is unaffected",
     reopened.players["opp"].didPlay == false)
+end)
+
+-- ---- The four visible symptoms of the bug above, checked explicitly -----
+-- (badge, status text, no replay, correct partial end screen) rather than
+-- just trusting that the data-layer fix implies all of them.
+
+test("vs entry: I played, opponent hasn't yet -- no badge, status reads 'waiting', not 'your move'", function()
+  check("needsAction false once I've played (even though match isn't ended)",
+    computeVsEntryNeedsAction(false, true, false) == false)
+  check("status text defers to the opponent",
+    vsStatusTextForEntry({ ended = false, localDidPlay = true, oppName = "Opp" }) == "Waiting for Opp")
+
+  -- Non-regression: the pre-fix case (I haven't played) must still read as
+  -- actionable -- this bug was never "nothing is ever actionable".
+  check("needsAction true before I've played",
+    computeVsEntryNeedsAction(false, false, false) == true)
+  check("status text still says it's my move before I've played",
+    vsStatusTextForEntry({ ended = false, localDidPlay = false, oppName = "Opp" }) == "Your move")
+end)
+
+test("enterQMatch: reopening my own just-finished match shows the end screen with only my side known, never restarts play", function()
+  useTurnBased = true
+  tbm.isMyTurn = false  -- handshake already passed the turn to the opponent
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  score, foundWords = 7, {"CAT"}
+  endGameRound()  -- I quit; score sent via exchange since I don't hold the turn
+
+  -- Mirrors the real flow: closing the end screen returns to the menu
+  -- (startSeasonTransition eventually sets state = STATE_MENU) well before
+  -- the player taps back into this match from the vs list.
+  state = STATE_MENU
+
+  local fakeGkMatch = {
+    matchID = "m1",
+    participants = {
+      { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } },
+    },
+  }
+  -- Server still hasn't merged my exchange -- same stale snapshot as above.
+  local staleDataTable = {
+    boardSize = 4,
+    minWordLen = 3,
+    players = {
+      ["local-player-id"] = { didPlay = false, score = 0, words = {} },
+      ["opp"]              = { didPlay = false },
+    },
+  }
+  tbm:_setCurrentMatch(fakeGkMatch, "test-reopen")  -- mirrors vsOpenMatchEntry
+
+  local reopenedQ = makeQMatchFromGK(fakeGkMatch, staleDataTable)
+  enterQMatch(reopenedQ)
+
+  check("does not restart gameplay", state == STATE_END, "state="..tostring(state))
+  check("my own score is shown", score == 7, "score="..tostring(score))
+  check("opponent's score is NOT fabricated as 0-and-final",
+    currentQMatch.players["opp"].didPlay == false)
+  check("opponent score reads as 0 only because they haven't played, not as a real result",
+    opponentScore == 0)
 end)
 
 -- =========================================================== summary =====

@@ -139,6 +139,17 @@ function vsStatusTextForEntry(e)
   return "Waiting for " .. (e.oppName or "opponent")
 end
 
+-- Pure predicate, pulled out of refreshVsMatchesList's per-entry loop so it
+-- can be tested directly: a match needs my attention only if I haven't
+-- played my own side yet (regardless of the opponent), or it's fully ended
+-- in GameKit and I haven't viewed that ending yet. Once I've played my own
+-- side, there's nothing new for me here until something actually changes on
+-- the opponent's end -- a badge/"your move" label at that point would be
+-- flagging information I already have, not new information.
+function computeVsEntryNeedsAction(ended, localDidPlay, viewed)
+  return (not ended and not localDidPlay) or (ended and not viewed)
+end
+
 ------------------------------------------------------------
 -- Data refresh
 ------------------------------------------------------------
@@ -197,7 +208,7 @@ function refreshVsMatchesList(reason)
                     sortTs = q.lastUpdated or 0,
                     avatar = nil,
                   }
-                  entry.needsAction = (not ended and not entry.localDidPlay) or (ended and not viewed)
+                  entry.needsAction = computeVsEntryNeedsAction(ended, entry.localDidPlay, viewed)
                   list[#list + 1] = entry
                   -- entry.avatar is resolved in _drawVsMatchesList, NOT here: readImage inside
                   -- this GameKit callback returns a blank image (and caches it for good).
