@@ -1038,6 +1038,58 @@ test("endGameRound: stamps commentWindowStartedAt exactly once for multiplayer",
     currentQMatch.players["local-player-id"].commentWindowStartedAt == stampedFirst)
 end)
 
+-- ---- makeQMatchFromGK: a finished-but-unmerged local result must survive --
+-- ---- a reload where the server's matchData hasn't caught up yet         --
+
+-- Reproduces: P1 creates a match (turn passes to P2 via the handshake),
+-- plays, quits (= finishes their round without holding the turn, so their
+-- score goes out via exchange). The exchange reaches P2's device, but
+-- nothing merges it into GameKit's own matchData until P2 does something
+-- turn-related -- which they haven't, because they're "still in game."
+-- Reopening the vs list / the match entry re-decodes fresh from that
+-- unmerged server snapshot, which still says P1 hasn't played. Without a
+-- fix, P1's own already-finished result gets silently discarded, the match
+-- keeps showing "your move", and P1 can re-enter and replay it indefinitely.
+test("makeQMatchFromGK: my own finished result survives a reload where the opponent hasn't merged my exchange yet", function()
+  useTurnBased = true
+  tbm.isMyTurn = false  -- the handshake already passed the turn to the opponent
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  score, foundWords = 7, {"CAT"}
+  endGameRound()  -- quit/finished; sent via exchange since I don't hold the turn
+
+  check("finished locally", currentQMatch.players["local-player-id"].didPlay == true)
+  check("snapshot recorded", finishedAwaitingDecisionByMatchId["m1"] ~= nil)
+
+  local fakeGkMatch = {
+    matchID = "m1",
+    participants = {
+      { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } },
+    },
+  }
+  -- What a fresh GameKit reload still looks like: the opponent hasn't
+  -- merged my exchange, so the server's own matchData still has me at
+  -- didPlay=false/score=0 -- stale, but it's genuinely what the server has.
+  local staleDataTable = {
+    boardSize = 4,
+    minWordLen = 3,
+    players = {
+      ["local-player-id"] = { didPlay = false, score = 0, words = {} },
+      ["opp"]              = { didPlay = false },
+    },
+  }
+
+  local reopened = makeQMatchFromGK(fakeGkMatch, staleDataTable)
+
+  check("my own finished result is not discarded by a stale reload",
+    reopened.players["local-player-id"].didPlay == true,
+    "didPlay="..tostring(reopened.players["local-player-id"].didPlay))
+  check("my score survives the reload too",
+    reopened.players["local-player-id"].score == 7,
+    "score="..tostring(reopened.players["local-player-id"].score))
+  check("opponent's (genuinely unplayed) slot is unaffected",
+    reopened.players["opp"].didPlay == false)
+end)
+
 -- =========================================================== summary =====
 
 print(string.format("\n%d passed, %d failed", pass, fail))

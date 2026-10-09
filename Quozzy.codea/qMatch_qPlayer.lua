@@ -555,6 +555,23 @@ function makeQMatchFromGK(gkMatch, dataTable)
   end
   
   ensureQMatchPlayers(q, localId, opponentId)
+
+  -- My own result for this match can be more current locally than what the
+  -- server has recorded: a score/comment sent via exchange only reaches the
+  -- opponent's device immediately -- it isn't folded into GameKit's own
+  -- matchData until THEY merge it, on their next turn-pass or finalize.
+  -- Until then, a fresh reload (vs list refresh, reopening the match) still
+  -- decodes the pre-finish server snapshot for my own slot.
+  -- finishedAwaitingDecisionByMatchId holds exactly my own most recent
+  -- locally-known result for this match (set by endGameRound, kept current
+  -- by decideComment, cleared only once my own comment has actually sent) --
+  -- prefer it over whatever this decode says about me specifically; nobody
+  -- but me can correctly report my own result anyway.
+  local finished = finishedAwaitingDecisionByMatchId[matchId]
+  if finished and finished.players and finished.players[localId] then
+    q.players[localId] = finished.players[localId]
+  end
+
   do
     local keys = {}; for k in pairs(q.players) do keys[#keys+1] = k end
     devLog("COMMENT_DBG makeQMatchFromGK final players slots:", table.concat(keys, " | "))
