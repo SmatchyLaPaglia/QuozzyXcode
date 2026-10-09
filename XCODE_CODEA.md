@@ -15,6 +15,9 @@ Verified with both `devLog` output and raw filesystem inspection (`ls`, `xxd`, `
 | `saveText(asset.documents .. "...txt")` / `readText(asset.documents .. "...txt")` | ✅ | ❌ (bundle) |
 | `saveImage(asset.documents .. "...")` / `readImage(asset.documents .. "...")` | ✅ | ❌ (bundle) |
 | `saveLocalData(key, val)` / `readLocalData(key)` | ✅ | ✅ (NSUserDefaults) |
+| `saveProjectData(key, val)` / `readProjectData(key)` | ❌ | ❌ |
+
+**`saveProjectData` does not persist in the exported app** (confirmed on a real iPad, 2026-10-09). A write is readable for the rest of that process, but after a relaunch `readProjectData` returns whatever was in the bundled `Quozzy.codea` project data at build time (stale dev values), not what was saved. Use `saveLocalData` for anything that has to survive a relaunch. The relay tables in `qMatch_qPlayer.lua` and the vs/Records "viewed" sets were moved to `saveLocalData` for this reason; `SEASON_KEY` (`Themes.lua`/`ConfettiEffectsEtc.lua`) still uses projectData.
 
 **`Documents:` writes to the data container** (`Data/.../Documents/`). Survives reinstalls.
 **`asset.documents` writes to the app bundle** (`Quozzy.app/Assets/`). Lost on reinstall.

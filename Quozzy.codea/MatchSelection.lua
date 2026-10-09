@@ -95,7 +95,7 @@ vsViewedMatchIds = vsViewedMatchIds or nil   -- loaded dict: [matchId] = true
 
 function loadVsViewedMatches()
   if vsViewedMatchIds ~= nil then return end
-  local raw = readProjectData(VS_VIEWED_MATCHES_KEY)
+  local raw = readLocalData(VS_VIEWED_MATCHES_KEY)
   if raw and raw ~= "" then
     local ok, t = pcall(json.decode, raw)
     if ok and type(t) == "table" then vsViewedMatchIds = t; return end
@@ -106,7 +106,7 @@ end
 function persistVsViewedMatches()
   if not vsViewedMatchIds then return end
   local ok, s = pcall(json.encode, vsViewedMatchIds)
-  if ok and s then saveProjectData(VS_VIEWED_MATCHES_KEY, s) end
+  if ok and s then saveLocalData(VS_VIEWED_MATCHES_KEY, s) end
 end
 
 function markVsMatchViewed(matchId)

@@ -611,13 +611,25 @@ function onLegSendSucceeded(matchId)
   -- checkFinishedMatchesForCommentTimeout to a still-undecided comment --
   -- found via a live test that backdated commentWindowStartedAt right after
   -- a score-via-exchange send and discovered the snapshot was already gone.
+  --
+  -- And only once that comment went out via a TURN-PASS. An exchange reaches
+  -- the opponent's device but not GameKit's own matchData until they merge
+  -- it -- and this snapshot is also what makeQMatchFromGK overlays onto the
+  -- stale server copy of my own slot. Clearing it after an exchange-sent
+  -- comment (e.g. the blank comment locked by closing the end screen right
+  -- after quitting) made every later reload read "I haven't played": a red
+  -- vs badge, "Your move", and tapping the match restarted the round.
+  -- makeQMatchFromGK prunes it instead, once the server has caught up.
   if pending.kind ~= "handshake" and finishedAwaitingDecisionByMatchId[matchId] then
     local me = currentQMatch and currentQMatch.id == matchId and currentQMatch.players
       and currentQMatch.players[localPID()]
-    if me and me.commentSent then
+    if me and me.commentSent and pending.via == "turn" then
       finishedAwaitingDecisionByMatchId[matchId] = nil
-      persistFinishedAwaitingDecision()
     end
+    -- Either way, flush: the scoreSent/commentSent just set above live on
+    -- this snapshot's own slot, and must survive a relaunch so the retry
+    -- sweep doesn't resend.
+    persistFinishedAwaitingDecision()
   end
 end
 

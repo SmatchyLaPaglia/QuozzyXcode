@@ -1149,6 +1149,96 @@ test("enterQMatch: reopening my own just-finished match shows the end screen wit
     opponentScore == 0)
 end)
 
+-- The tests above stop right after endGameRound. The real flow continues:
+-- closing the end screen locks a blank comment (decideComment), which also
+-- goes out via exchange -- and its success used to delete the very snapshot
+-- makeQMatchFromGK relies on, bringing the whole bug back.
+test("quit, close end screen (blank comment via exchange), reload stale server data: still 'waiting', no badge, end screen", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  score, foundWords = 7, {"CAT"}
+  endGameRound()
+  check("score went out via exchange", #tbm.exchangeSentCalls == 1)
+  decideComment("")  -- closing the end screen
+  check("blank comment went out via exchange", #tbm.exchangeSentCalls == 2)
+  check("snapshot survives an exchange-sent comment", finishedAwaitingDecisionByMatchId["m1"] ~= nil)
+  state = STATE_MENU
+
+  local fakeGkMatch = {
+    matchID = "m1",
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } },
+  }
+  local stale = {
+    boardSize = 4, minWordLen = 3,
+    players = {
+      ["local-player-id"] = { didPlay = false, score = 0, words = {} },
+      ["opp"]              = { didPlay = false },
+    },
+  }
+
+  -- Simulated relaunch: only the on-disk copy survives. projectData does
+  -- NOT survive a relaunch in the exported app (confirmed on device), so
+  -- wipe it here too -- only saveLocalData (NSUserDefaults) is durable.
+  _projectStore = {}
+  finishedAwaitingDecisionByMatchId = {}
+  loadFinishedAwaitingDecision()
+
+  local listQ = makeQMatchFromGK(fakeGkMatch, stale)
+  local me = listQ.players["local-player-id"]
+  check("vs list sees me as played", me.didPlay == true)
+  check("no vs badge", computeVsEntryNeedsAction(false, me.didPlay, false) == false)
+  check("row reads 'Waiting for Opp'",
+    vsStatusTextForEntry({ ended = false, localDidPlay = me.didPlay, oppName = "Opp" }) == "Waiting for Opp")
+
+  local exchangesBefore = #tbm.exchangeSentCalls
+  tbm:_setCurrentMatch(fakeGkMatch, "test-reopen")
+  enterQMatch(makeQMatchFromGK(fakeGkMatch, stale))
+  check("tapping it shows the end screen", state == STATE_END, "state="..tostring(state))
+  check("my score shown", score == 7, "score="..tostring(score))
+  check("opponent not shown as played", currentQMatch.players["opp"].didPlay == false)
+  check("reopening resends nothing", #tbm.exchangeSentCalls == exchangesBefore)
+
+  -- Once the opponent merges (server now has my full slot), the snapshot is pruned.
+  stale.players["local-player-id"] = { didPlay = true, score = 7, words = {"CAT"}, commentDecided = true }
+  makeQMatchFromGK(fakeGkMatch, stale)
+  check("snapshot pruned once the server caught up", finishedAwaitingDecisionByMatchId["m1"] == nil)
+end)
+
+test("makeQMatchFromGK: recovers my own result from my unmerged exchanges when no local snapshot exists", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  tbm._exchangeDataToDataTable = function(self, x) return x._data end
+  local function ex(lu, slot)
+    return { sender = { player = { gamePlayerID = "local-player-id" } },
+             _data = { lastUpdated = lu, players = { ["local-player-id"] = slot } } }
+  end
+  local gk = {
+    matchID = "m2",
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } },
+    exchanges = {
+      ex(100, { didPlay = true, score = 9, words = {"DOG"}, commentDecided = false }),
+      ex(200, { didPlay = true, score = 9, words = {"DOG"}, commentDecided = true, comment = "" }),
+      { sender = { player = { gamePlayerID = "opp" } },
+        _data = { lastUpdated = 300, players = { ["local-player-id"] = { didPlay = false } } } },
+    },
+  }
+  local stale = { boardSize = 4, minWordLen = 3, players = {
+    ["local-player-id"] = { didPlay = false, score = 0, words = {} }, ["opp"] = { didPlay = false } } }
+
+  local q = makeQMatchFromGK(gk, stale)
+  local me = q.players["local-player-id"]
+  check("recovered as played", me.didPlay == true)
+  check("newest of my exchanges wins", me.commentDecided == true and me.score == 9)
+  check("not owed again", computeNextOwedAction(q, "local-player-id", false, os.time()) == nil)
+
+  -- With a local snapshot too: the exchange-recovered slot must not be
+  -- mistaken for "the server caught up" and prune the snapshot.
+  finishedAwaitingDecisionByMatchId["m2"] = { players = { ["local-player-id"] = { didPlay = true, score = 9, commentDecided = true } } }
+  makeQMatchFromGK(gk, stale)
+  check("snapshot kept while server is still stale", finishedAwaitingDecisionByMatchId["m2"] ~= nil)
+end)
+
 -- =========================================================== summary =====
 
 print(string.format("\n%d passed, %d failed", pass, fail))

@@ -1,13 +1,18 @@
+-- Every *ByMatchId table below persists via saveLocalData (NSUserDefaults),
+-- NOT saveProjectData: in the Xcode-exported app, projectData writes only
+-- last until the process exits, and readProjectData then returns whatever
+-- shipped in the app bundle (confirmed on device 2026-10-09; see
+-- XCODE_CODEA.md). Every "survives a kill" guarantee here depends on this.
 PENDING_TURN_SENDS_KEY = PENDING_TURN_SENDS_KEY or "Q_PendingTurnSends"
 pendingTurnSendsByMatchId = pendingTurnSendsByMatchId or {}
 
 function persistPendingTurnSends()
     local ok, s = pcall(json.encode, pendingTurnSendsByMatchId)
-    if ok and s then saveProjectData(PENDING_TURN_SENDS_KEY, s) end
+    if ok and s then saveLocalData(PENDING_TURN_SENDS_KEY, s) end
 end
 
 function loadPendingTurnSends()
-    local s = readProjectData(PENDING_TURN_SENDS_KEY)
+    local s = readLocalData(PENDING_TURN_SENDS_KEY)
     if not s or s=="" then pendingTurnSendsByMatchId = {}; return end
     local ok, t = pcall(json.decode, s)
     pendingTurnSendsByMatchId = (ok and type(t)=="table") and t or {}
@@ -25,11 +30,11 @@ finishedAwaitingDecisionByMatchId = finishedAwaitingDecisionByMatchId or {}
 
 function persistFinishedAwaitingDecision()
     local ok, s = pcall(json.encode, finishedAwaitingDecisionByMatchId)
-    if ok and s then saveProjectData(FINISHED_AWAITING_DECISION_KEY, s) end
+    if ok and s then saveLocalData(FINISHED_AWAITING_DECISION_KEY, s) end
 end
 
 function loadFinishedAwaitingDecision()
-    local s = readProjectData(FINISHED_AWAITING_DECISION_KEY)
+    local s = readLocalData(FINISHED_AWAITING_DECISION_KEY)
     if not s or s=="" then finishedAwaitingDecisionByMatchId = {}; return end
     local ok, t = pcall(json.decode, s)
     finishedAwaitingDecisionByMatchId = (ok and type(t)=="table") and t or {}
@@ -69,11 +74,11 @@ oppFinishedObservedAtByMatchId = oppFinishedObservedAtByMatchId or {}
 
 function persistOppFinishedObserved()
   local ok, s = pcall(json.encode, oppFinishedObservedAtByMatchId)
-  if ok and s then saveProjectData(OPP_FINISHED_OBSERVED_KEY, s) end
+  if ok and s then saveLocalData(OPP_FINISHED_OBSERVED_KEY, s) end
 end
 
 function loadOppFinishedObserved()
-  local s = readProjectData(OPP_FINISHED_OBSERVED_KEY)
+  local s = readLocalData(OPP_FINISHED_OBSERVED_KEY)
   if not s or s=="" then oppFinishedObservedAtByMatchId = {}; return end
   local ok, t = pcall(json.decode, s)
   oppFinishedObservedAtByMatchId = (ok and type(t)=="table") and t or {}
@@ -109,11 +114,11 @@ reminderSentByMatchId = reminderSentByMatchId or {}
 
 function persistReminderSent()
   local ok, s = pcall(json.encode, reminderSentByMatchId)
-  if ok and s then saveProjectData(REMINDER_SENT_KEY, s) end
+  if ok and s then saveLocalData(REMINDER_SENT_KEY, s) end
 end
 
 function loadReminderSent()
-  local s = readProjectData(REMINDER_SENT_KEY)
+  local s = readLocalData(REMINDER_SENT_KEY)
   if not s or s=="" then reminderSentByMatchId = {}; return end
   local ok, t = pcall(json.decode, s)
   reminderSentByMatchId = (ok and type(t)=="table") and t or {}
@@ -491,6 +496,28 @@ function applyIncomingPlayersPatch(q, patchPlayers)
   end
 end
 
+-- The newest copy of my own player slot among the exchanges I sent on this
+-- match that the turn holder hasn't merged into matchData yet (merged ones
+-- disappear from gkMatch.exchanges). nil if none.
+function latestOwnExchangeSlot(gkMatch, localId)
+  local best, bestTs = nil, -1
+  pcall(function()
+    local ex = gkMatch.exchanges
+    if not (ex and tbm and tbm._exchangeDataToDataTable) then return end
+    for i = 1, #ex do
+      local x = ex[i]
+      local sender = x and x.sender and x.sender.player
+      if sender and sender.gamePlayerID == localId then
+        local d = tbm:_exchangeDataToDataTable(x)
+        local slot = d and type(d.players) == "table" and d.players[localId]
+        local ts = tonumber(d and d.lastUpdated) or 0
+        if type(slot) == "table" and ts >= bestTs then best, bestTs = slot, ts end
+      end
+    end
+  end)
+  return best
+end
+
 function makeQMatchFromGK(gkMatch, dataTable)
   if dataTable and type(dataTable) ~= "table" then
     print("GC WARN: dataTable is not a table, type=", type(dataTable))
@@ -567,9 +594,38 @@ function makeQMatchFromGK(gkMatch, dataTable)
   -- by decideComment, cleared only once my own comment has actually sent) --
   -- prefer it over whatever this decode says about me specifically; nobody
   -- but me can correctly report my own result anyway.
+  -- Second source for the same thing, one that needs no local storage at
+  -- all: my own sent-but-unmerged exchanges are still on the GK match
+  -- (the sender can read them in gkMatch.exchanges, each carrying my whole
+  -- player slot -- confirmed on device). Recovers my result even if the
+  -- local snapshot was lost.
+  -- What GameKit's own matchData says about me, before either overlay
+  -- below replaces it -- the snapshot prune must judge the server, not a
+  -- slot recovered from my own exchanges.
+  local serverMe = q.players[localId]
+  do
+    local mine = latestOwnExchangeSlot(gkMatch, localId)
+    if mine and mine.didPlay == true and not (serverMe and serverMe.didPlay == true
+        and (serverMe.commentDecided == true or mine.commentDecided ~= true)) then
+      -- It got here by being sent, so don't owe it again.
+      mine.scoreSent = true
+      mine.commentSent = mine.commentDecided == true
+      q.players[localId] = mine
+    end
+  end
+
   local finished = finishedAwaitingDecisionByMatchId[matchId]
   if finished and finished.players and finished.players[localId] then
-    q.players[localId] = finished.players[localId]
+    if serverMe and serverMe.didPlay == true and serverMe.commentDecided == true then
+      -- The server has caught up on everything I know about my own side
+      -- (the opponent merged my exchanges, or a turn-pass carried them), so
+      -- the snapshot has nothing left to protect -- onLegSendSucceeded
+      -- deliberately leaves exchange-sent ones here for exactly this.
+      finishedAwaitingDecisionByMatchId[matchId] = nil
+      persistFinishedAwaitingDecision()
+    else
+      q.players[localId] = finished.players[localId]
+    end
   end
 
   do

@@ -30,7 +30,7 @@ endScreenReturnToRecords = endScreenReturnToRecords or nil
 
 function loadRecordsViewed()
     if recordsViewedByOpp ~= nil then return end
-    local raw = readProjectData(RECORDS_VIEWED_KEY)
+    local raw = readLocalData(RECORDS_VIEWED_KEY)
     if raw and raw ~= "" then
         local ok, t = pcall(json.decode, raw)
         if ok and type(t) == "table" then recordsViewedByOpp = t return end
@@ -41,7 +41,7 @@ end
 function persistRecordsViewed()
     if not recordsViewedByOpp then return end
     local ok, s = pcall(json.encode, recordsViewedByOpp)
-    if ok and s then saveProjectData(RECORDS_VIEWED_KEY, s) end
+    if ok and s then saveLocalData(RECORDS_VIEWED_KEY, s) end
 end
 
 function markRecordsViewedForOpponent(oppKey)
