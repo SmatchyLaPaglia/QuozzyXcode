@@ -902,6 +902,7 @@ function endGameRound()
   q.players[pid].wordTimes = q.players[pid].wordTimes or {}
   q.players[pid].didPlay   = true
   q.players[pid].comment   = q.players[pid].comment or ""
+  if vsNoteLocalRoundFinished then vsNoteLocalRoundFinished(q.id) end
   -- Starts the self-enforced comment-timeout clock (see
   -- applyCommentTimeoutIfExpired in qMatch_qPlayer.lua) — only stamped once,
   -- the first time this player's round finishes for this match.

@@ -1239,6 +1239,25 @@ test("makeQMatchFromGK: recovers my own result from my unmerged exchanges when n
   check("snapshot kept while server is still stale", finishedAwaitingDecisionByMatchId["m2"] ~= nil)
 end)
 
+test("vs badges: quick-start only for a playable round; dot for a result I haven't seen, even before GK ends it", function()
+  local p, n = computeVsEntryFlags(false, false, false, false)
+  check("my move: playable, no new info", p == true and n == false)
+  p, n = computeVsEntryFlags(false, true, true, false)
+  check("both played, GK still open (comments pending): new info, not playable", p == false and n == true)
+  p, n = computeVsEntryFlags(true, true, true, false)
+  check("ended unseen: new info, not playable", p == false and n == true)
+  p, n = computeVsEntryFlags(false, true, true, true)
+  check("both played and viewed: nothing", p == false and n == false)
+
+  vsListEntries = { { id = "m9", ended = false, localDidPlay = false, oppDidPlay = false, viewed = false } }
+  recomputeVsBadgeFlags()
+  check("before playing: quick-start on", vsHasPlayable == true)
+  vsNoteLocalRoundFinished("m9")
+  check("right after I finish: quick-start off without waiting for a refresh", vsHasPlayable == false)
+  check("...and nothing new to badge either", vsHasActionable == false)
+  vsListEntries = nil
+end)
+
 -- =========================================================== summary =====
 
 print(string.format("\n%d passed, %d failed", pass, fail))

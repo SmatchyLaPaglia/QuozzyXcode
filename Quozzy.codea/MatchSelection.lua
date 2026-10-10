@@ -8,7 +8,8 @@ vsOverlay          = vsOverlay          or false
 vsOverlayMode      = vsOverlayMode      or "list"   -- "list" | "friends"
 vsListEntries      = vsListEntries      or {}
 vsListLoading      = vsListLoading      or false
-vsHasActionable    = vsHasActionable    or false    -- drives the vs-button red badge
+vsHasActionable    = vsHasActionable    or false    -- drives the vs-button red badge (playable or new result)
+vsHasPlayable      = vsHasPlayable      or false    -- drives the quick-start badge (a round I can play)
 vsFriendsEntries   = vsFriendsEntries   or {}
 vsFriendsLoading   = vsFriendsLoading   or false
 vsFriendsLoadError = vsFriendsLoadError or nil
@@ -134,7 +135,7 @@ function vsMatchAlreadyViewed(matchId, oppId)
 end
 
 function vsStatusTextForEntry(e)
-  if e.ended then return "Finished — tap to view" end
+  if e.ended or (e.localDidPlay and e.oppDidPlay) then return "Finished — tap to view" end
   if not e.localDidPlay then return "Your move" end
   return "Waiting for " .. (e.oppName or "opponent")
 end
@@ -146,8 +147,44 @@ end
 -- side, there's nothing new for me here until something actually changes on
 -- the opponent's end -- a badge/"your move" label at that point would be
 -- flagging information I already have, not new information.
-function computeVsEntryNeedsAction(ended, localDidPlay, viewed)
-  return (not ended and not localDidPlay) or (ended and not viewed)
+function computeVsEntryNeedsAction(ended, localDidPlay, viewed, oppDidPlay)
+  local playable, newInfo = computeVsEntryFlags(ended, localDidPlay, oppDidPlay, viewed)
+  return playable or newInfo
+end
+
+-- Two separate signals, deliberately not merged:
+--   playable -- I still have a round to play: the ONLY thing the quick-start
+--               badge advertises.
+--   newInfo  -- the result is in (both scores, i.e. gate 1 -- GameKit's own
+--               "ended" only comes later, after both comments) and I haven't
+--               opened it since: drives the vs-button dot and the row dot.
+function computeVsEntryFlags(ended, localDidPlay, oppDidPlay, viewed)
+  local finished = ended or (localDidPlay == true and oppDidPlay == true)
+  local playable = (not ended) and not localDidPlay
+  local newInfo = finished and not viewed
+  return playable, newInfo
+end
+
+-- Recomputes the aggregate badge flags from vsListEntries. Called after every
+-- list refresh, and directly when local state changes (vsNoteLocalRoundFinished)
+-- so the badges don't show stale "match ready" until the next async refresh.
+function recomputeVsBadgeFlags()
+  vsHasActionable, vsHasPlayable = false, false
+  for _, e in ipairs(vsListEntries or {}) do
+    e.playable, e.newInfo = computeVsEntryFlags(e.ended, e.localDidPlay, e.oppDidPlay, e.viewed)
+    e.needsAction = e.playable or e.newInfo
+    if e.needsAction then vsHasActionable = true end
+    if e.playable then vsHasPlayable = true end
+  end
+end
+
+-- endGameRound calls this: the match I just finished is no longer playable,
+-- whatever the last list refresh said.
+function vsNoteLocalRoundFinished(matchId)
+  for _, e in ipairs(vsListEntries or {}) do
+    if e.id == matchId then e.localDidPlay = true end
+  end
+  recomputeVsBadgeFlags()
 end
 
 ------------------------------------------------------------
@@ -157,7 +194,7 @@ function refreshVsMatchesList(reason)
   if vsListLoading then return end
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated and GKTurnBasedMatch) then
-    vsListEntries, vsHasActionable = {}, false
+    vsListEntries, vsHasActionable, vsHasPlayable = {}, false, false
     return
   end
   vsListLoading = true
@@ -197,7 +234,8 @@ function refreshVsMatchesList(reason)
                 end
                 local endedState = tbm._getEndStateFromMatch and tbm:_getEndStateFromMatch(m) or nil
                 local ended = endedState ~= nil
-                local viewed = ended and vsMatchAlreadyViewed(q.id, oppId)
+                local finished = ended or (me and me.didPlay == true and oppData and oppData.didPlay == true)
+                local viewed = finished and vsMatchAlreadyViewed(q.id, oppId) or false
                 if not (ended and viewed) then
                   local entry = {
                     id = q.id, gkMatch = m, dataTable = dataTable, q = q,
@@ -205,10 +243,10 @@ function refreshVsMatchesList(reason)
                     ended = ended,
                     localDidPlay = me and me.didPlay or false,
                     oppDidPlay = oppData and oppData.didPlay or false,
+                    viewed = viewed,
                     sortTs = q.lastUpdated or 0,
                     avatar = nil,
                   }
-                  entry.needsAction = computeVsEntryNeedsAction(ended, entry.localDidPlay, viewed)
                   list[#list + 1] = entry
                   -- entry.avatar is resolved in _drawVsMatchesList, NOT here: readImage inside
                   -- this GameKit callback returns a blank image (and caches it for good).
@@ -218,10 +256,7 @@ function refreshVsMatchesList(reason)
           end
           table.sort(list, function(a, b) return (a.sortTs or 0) > (b.sortTs or 0) end)
           vsListEntries = list
-          vsHasActionable = false
-          for _, e in ipairs(list) do
-            if e.needsAction then vsHasActionable = true break end
-          end
+          recomputeVsBadgeFlags()
           local ended, commented = {}, {}
           if computeMatchBadges then
             ended, commented = computeMatchBadges(liveMatches)
@@ -264,7 +299,11 @@ function vsOpenMatchEntry(entry)
   closeVsOverlay()
   -- Mark it viewed the moment it's opened, independent of anything that happens after —
   -- see vsMatchAlreadyViewed above for why this can't just rely on a Records snapshot.
-  if entry.ended and markVsMatchViewed then markVsMatchViewed(entry.id) end
+  if (entry.ended or (entry.localDidPlay and entry.oppDidPlay)) and markVsMatchViewed then
+    markVsMatchViewed(entry.id)
+    entry.viewed = true
+    recomputeVsBadgeFlags()
+  end
   if tbm and tbm._setCurrentMatch then
     tbm:_setCurrentMatch(entry.gkMatch, "vs-list-open")
   end
@@ -575,7 +614,7 @@ function _drawVsMatchesList(g)
       -- this is exactly the set of "unseen results" the vs-button's own red dot is warning
       -- about (vsHasActionable). "Your turn" rows (not ended) get their own accent border/
       -- text instead — a different signal, so no dot there.
-      if e.ended and drawRedBadgeDot then
+      if e.newInfo and drawRedBadgeDot then
         local br = math.max(7, avatarSize * 0.14)
         drawRedBadgeDot(avatarCx + avatarSize * 0.5 - br * 0.6, cardCy + avatarSize * 0.5 - br * 0.6, br)
       end

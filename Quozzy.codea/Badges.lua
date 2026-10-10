@@ -181,7 +181,7 @@ end
 -- local player's attention (mirrors vsListEntries' own newest-first sort).
 function vsQuickStartBestEntry()
   for _, e in ipairs(vsListEntries or {}) do
-    if e.needsAction then return e end
+    if e.playable then return e end
   end
   return nil
 end
@@ -204,7 +204,7 @@ function updateQuickStart(dt)
     if refreshVsMatchesList then refreshVsMatchesList("menuPeriodic") end
   end
 
-  if not vsHasActionable then
+  if not vsHasPlayable then
     _deactivateQuickStart()
     return
   end
