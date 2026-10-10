@@ -1,12 +1,3 @@
-  endScreenButtons = {}
-  local composing = model.commentUI and model.commentUI.canCompose
-    and (endScreenCommentDraft or "") ~= ""
-  if model.rematch and model.rematch.canOffer then
-    local againAction = model.rematch.versus and offerEndScreenRematch or startEndScreenSoloAgain
-    drawEndScreenButton(layout.againRect, "Again!", againAction)
-  end
-  drawEndScreenButton(layout.closeRect, composing and "Send" or "Close", disposeEndScreenAndReturnToMenu)
-
 endScreenMissedWordsJob = endScreenMissedWordsJob or nil
 endScreenMissedWordsJobMatchId = endScreenMissedWordsJobMatchId or nil
 endScreenCommentDraft = endScreenCommentDraft or ""
@@ -2003,17 +1994,14 @@ function drawEndScreenWith(model, layout)
   -- in; the composer itself now lives inside the local speech balloon below)
   ------------------------------------------------------------
 
-  if endScreenReturnToRecords then
-    -- Viewing a historical match from the records list: a rematch offer doesn't belong
-    -- here — replace it with a Back button that closes the same way the × does (the dispose
-    -- intercept returns to the records match list). Shown for complete AND incomplete views.
-    drawEndScreenButton(layout.playAgainRect, "Back", disposeEndScreenAndReturnToMenu)
-  elseif model.rematch and model.rematch.canOffer then
-    drawEndScreenButton(layout.playAgainRect, model.rematch.label, offerEndScreenRematch)
-  else
-    endScreen2PButtonRect = nil
-    endScreenButtonAction = nil
+  endScreenButtons = {}
+  local composing = model.commentUI and model.commentUI.canCompose
+    and (endScreenCommentDraft or "") ~= ""
+  if model.rematch and model.rematch.canOffer then
+    local againAction = model.rematch.versus and offerEndScreenRematch or startEndScreenSoloAgain
+    drawEndScreenButton(layout.againRect, "Again!", againAction)
   end
+  drawEndScreenButton(layout.closeRect, composing and "Send" or "Close", disposeEndScreenAndReturnToMenu)
 
   drawEndScreenSpeechBalloons(model, layout)
 
