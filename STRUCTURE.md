@@ -1730,3 +1730,24 @@ OPEN / NOT YET DEVICE-VERIFIED: red-dot placement + three clearing levels; Recor
   sync on device; composer tap on iPad; "updating" indicator on a real incoming update;
   sign-in via Settings. Shared busy indicator has corner-overlap blotches (translucent
   panelBG) and faint white dots on a light panel — pre-existing, now in both uses.
+
+## Screen ripple rebuilt as pure distortion (RippleShader.lua, 2026-10-10)
+Old badge ripple (CPU rings drawWaterRipple + ring shader, RIPPLE_RING_* consts) deleted from Badges.lua
+and RippleShader.lua. New RippleShader.lua: startScreenRipple(x,y) / screenRippleActive() /
+drawFrameWithRipple(fn). Main.lua draw() wraps drawFrame in it while active: whole frame is rendered into
+an image (setContext), then drawn on a full-screen mesh whose fragment shader only offsets texcoords
+(outward sine wave train, sharp front, amplitude settles to 0 over 3.2s). No color/alpha. Trigger: debug
+overlay (RipplePicker.lua) "Test Ripple" button -> ripple from screen center. Untested on device at time
+of writing (no lua on laptop; verify with tools/dbg.sh). Image is WIDTH x HEIGHT points — may look soft on retina.
+
+Ripple tuning (2026-10-10): RIPPLE_* consts replaced by global `rippleTune` table (defs in `rippleTuneDefs`,
+RippleShader.lua; `rippleTuneNudge(key,dir)`, `rippleTuneReset()`). Debug overlay has -/+ steppers per param
+(speed, wavelen, amp, trail, duration) + "Reset ripple" above "Test Ripple"; each nudge prints the new value.
+Background particles (flecks/confetti/path particles) are drawn inside drawFrame, so they are captured in the
+ripple image and distort with everything else. Native UIKit views (comment text field) are NOT captured.
+Test Ripple button plays a demo quick-start badge at screen center, drawn ON TOP of the debug panel
+(drawQuickStartBadgeAt in Badges.lua); ripple fires from center once the badge settles (age >= appearDuration).
+Panel stays visible and interactive throughout.
+Ripple now takes a start radius (startScreenRipple(x,y,r)): front begins at r, no distortion inside r (shader uStartR), so waves spread from the badge rim.
+Added rippleTune rim (start radius, default 42) and delay (s after badge appears, default 0.25) steppers; picker uses them.
+Ripple is LIVE on the real quick-start badge: updateQuickStart (Badges.lua) fires startScreenRipple(qs.x,qs.y,rippleTune.rim) once per appearance (qs.rippled flag), after rippleTune.delay, skipped while badgeSuppressed(). Locked defaults: speed 140, wavelen 22, amp 9, trail 25, rim 42, delay 0, duration 0.8. Debug overlay steppers kept for retuning.

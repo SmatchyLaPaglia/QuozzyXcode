@@ -168,6 +168,7 @@ local function _activateQuickStart()
   quickStart.active    = true
   quickStart.phase     = "visible"
   quickStart.phaseTime = 0
+  quickStart.rippled   = false
   _pickQuickStartPosition()
 end
 
@@ -224,97 +225,25 @@ function updateQuickStart(dt)
     if quickStart.phaseTime >= quickStart.hiddenDuration then
       quickStart.phase     = "visible"
       quickStart.phaseTime = 0
+      quickStart.rippled   = false
       _pickQuickStartPosition()
     end
   end
-end
 
--- Water-ripple wavefronts for the quick-start badge: continuously-emanating, fading rings
--- (mod-wrapped, so new ones keep appearing for as long as the badge is shown, rather than
--- one burst that goes flat), each drawn as 3 layered strokes for a soft gaussian-ish band
--- instead of one hard line — reads as a water surface, not sonar rings.
---
--- A live-shader version of this (RippleShader.lua) was tried and reverted 2026-09-27: its
--- math checked out perfectly in isolation (verified pixel-by-pixel via DevRemote, an
--- offscreen render, a fresh mesh+shader built the same way), but the app's own persistent,
--- cached copy of that exact mesh — built once and reused every frame, same pattern
--- DieShader.lua uses successfully — never rendered anything visible once wired into the
--- real draw path, for a reason that didn't isolate down to any single line despite
--- extensive bisection. Given TWO other shader attempts today (confetti's blur, tried twice)
--- also turned out unreliable in this environment, this plain 2D version is the one that
--- ships — reliable beats fancy here. See STRUCTURE.md "match-ready ripple" for the full
--- account if revisiting this.
--- Tuned for a full-screen sweep (see drawQuickStart): the badge is the droplet impact
--- point, and these wavefronts travel all the way to the screen's farthest corner, not just
--- a small ring around the badge — so speed/spacing are scaled up accordingly from the
--- original badge-local values (130/34/4).
-RIPPLE_RING_SPEED   = 420   -- points/second each wavefront's radius grows
-RIPPLE_RING_SPACING = 110   -- points between successive staggered wavefronts
-RIPPLE_RING_COUNT   = 4     -- how many staggered wavefronts are in flight at once — must match
-                             -- the shader's hardcoded GLSL loop bound (RippleShader.lua), which
-                             -- is a fixed constant rather than a uniform-driven loop count
-local RIPPLE_SOFT_LAYERS = {  -- {radius offset, stroke width, alpha fraction} per band
-  { -6, 3, 0.30 },
-  {  0, 4, 1.00 },
-  {  6, 3, 0.30 },
-}
-
--- How far a wavefront centered at (x, y) must travel to clear the farthest screen corner —
--- the badge hops to a new spot each cycle, so this is recomputed per-hop, not fixed.
-local function _distanceToFarthestCorner(x, y)
-  local dx = math.max(x, WIDTH - x)
-  local dy = math.max(y, HEIGHT - y)
-  return math.sqrt(dx * dx + dy * dy)
-end
-
-local function drawWaterRipple(cx, cy, t, maxRadius, ripColor)
-  local cycle = maxRadius + RIPPLE_RING_SPACING * RIPPLE_RING_COUNT
-  pushStyle()
-  noFill()
-  lineCapMode(ROUND)
-  ellipseMode(CENTER)
-  for i = 0, RIPPLE_RING_COUNT - 1 do
-    local phase = (t * RIPPLE_RING_SPEED - i * RIPPLE_RING_SPACING) % cycle
-    local fade = math.max(0, 1 - phase / maxRadius)
-    fade = fade * fade   -- ease-out: rings visibly weaken as they spread, like real ripples losing energy
-    if fade > 0.01 then
-      for _, layer in ipairs(RIPPLE_SOFT_LAYERS) do
-        local radius = phase + layer[1]
-        if radius > 0 then
-          strokeWidth(layer[2])
-          stroke(ripColor.r, ripColor.g, ripColor.b, ripColor.a * fade * layer[3])
-          ellipse(cx, cy, radius * 2, radius * 2)
-        end
-      end
-    end
+  -- Water ripple spreading from the badge rim (settings: rippleTune, RippleShader.lua)
+  if quickStart.phase == "visible" and not quickStart.rippled and not badgeSuppressed()
+     and quickStart.phaseTime >= rippleTune.delay then
+    quickStart.rippled = true
+    startScreenRipple(quickStart.x, quickStart.y, rippleTune.rim)
   end
-  popStyle()
 end
 
-function drawQuickStart()
-  if state ~= STATE_MENU then return end
-  if badgeSuppressed() then return end
-  if not quickStart.active then return end
-  if quickStart.phase ~= "visible" then return end
-
-  local qs = quickStart
-  local x, y = qs.x, qs.y
-  local r    = qs.radius
-
-  if qs.showDebugRect == true then
-    pushStyle()
-    rectMode(CENTER)
-    noFill()
-    stroke(255, 255, 0, 150)
-    strokeWidth(8)
-    rect(qs.avoidOrigin.x, qs.avoidOrigin.y, qs.avoidW, qs.avoidH)
-    popStyle()
-  end
-
-  local t          = qs.phaseTime or 0
+-- Draws the quick-start disc at (x, y) for badge-age t seconds (pop-in, hold, shrink-out).
+function drawQuickStartBadgeAt(x, y, t, visibleDur)
+  local qs         = quickStart
+  local r          = qs.radius
   local appear     = qs.appearDuration or 0.25
   local disappear  = qs.disappearDuration or 0.25
-  local visibleDur = qs.visibleDuration or (appear + disappear + 0.2)
 
   local maxScale = qs.maxScale or 1.25
   local scale    = 1.0
@@ -330,23 +259,6 @@ function drawQuickStart()
     alpha = 255 * (1.0 - d)
   else
     scale = 1.0
-  end
-
-  -- Water-ripple wavefronts: the badge is a droplet hitting the whole menu, which reads as
-  -- the surface of a pond — so the wavefronts sweep the entire screen, not just a small ring
-  -- around the badge. Drawn in absolute screen coordinates (outside the badge's own
-  -- translate/rotate below) with the origin pinned to the badge's actual (x, y) and the
-  -- max radius reaching the farthest screen corner from there. The real shader
-  -- (RippleShader.lua drawShaderRipple) is primary; falls back to the CPU version
-  -- (drawWaterRipple, above) if the shader isn't available. t resets to 0 each time the
-  -- badge pops in (and hops to a new spot), so every appearance reads as a fresh drop.
-  if t < visibleDur - disappear then
-    local ripColor   = color(230, 40, 40, alpha)
-    local maxRadius  = _distanceToFarthestCorner(x, y)
-    if not (drawShaderRipple and drawShaderRipple(x, y, t, maxRadius, ripColor,
-                                                   RIPPLE_RING_SPEED, RIPPLE_RING_SPACING)) then
-      drawWaterRipple(x, y, t, maxRadius, ripColor)
-    end
   end
 
   pushStyle()
@@ -373,6 +285,31 @@ function drawQuickStart()
 
   popMatrix()
   popStyle()
+end
+
+function drawQuickStart()
+  if state ~= STATE_MENU then return end
+  if badgeSuppressed() then return end
+  if not quickStart.active then return end
+  if quickStart.phase ~= "visible" then return end
+
+  local qs = quickStart
+  local x, y = qs.x, qs.y
+  local r    = qs.radius
+
+  if qs.showDebugRect == true then
+    pushStyle()
+    rectMode(CENTER)
+    noFill()
+    stroke(255, 255, 0, 150)
+    strokeWidth(8)
+    rect(qs.avoidOrigin.x, qs.avoidOrigin.y, qs.avoidW, qs.avoidH)
+    popStyle()
+  end
+
+  local t          = qs.phaseTime or 0
+  local visibleDur = qs.visibleDuration or ((qs.appearDuration or 0.25) + (qs.disappearDuration or 0.25) + 0.2)
+  drawQuickStartBadgeAt(x, y, t, visibleDur)
 end
 
 function handleQuickStartTouch(t)

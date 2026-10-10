@@ -1228,7 +1228,12 @@ end
 function draw()
   _lastDrawAt = os.time()
   CODEA_RENDER_PASS = true
-  local ok, err = xpcall(drawFrame, debug.traceback)
+  local ok, err
+  if screenRippleActive and screenRippleActive() then
+    ok, err = xpcall(function() drawFrameWithRipple(drawFrame) end, debug.traceback)
+  else
+    ok, err = xpcall(drawFrame, debug.traceback)
+  end
   if not ok then
     _fatalLog("draw", err)
     pcall(function() setContext(); clip() end)  -- don't leave a half-drawn frame's state behind
