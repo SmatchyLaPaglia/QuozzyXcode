@@ -1170,6 +1170,13 @@ end
 
 function drawReplayMatchmakingOverlay()
   if not replayMatchmakingBusy then return end
+  drawBusyPanel(replayMatchmakingBusyMessage or "matching...")
+end
+
+-- The app's one busy indicator: dimmed screen, centered panel, orbiting dots,
+-- message. Used while a match is being created ("matching...") and as the
+-- end screen's "updating..." signal, so both look identical.
+function drawBusyPanel(message)
   pushStyle()
   rectMode(CORNER)
   fill(0, 0, 0, 110)
@@ -1196,7 +1203,7 @@ function drawReplayMatchmakingOverlay()
   fontSize(math.floor(h * 0.22))
   textMode(CENTER)
   textAlign(CENTER)
-  text(replayMatchmakingBusyMessage or "matching...", cx, cy - h * 0.20)
+  text(message, cx, cy - h * 0.20)
   popStyle()
 end
 

@@ -118,3 +118,41 @@ xcrun simctl get_app_container $SIM $BUNDLE app    # app bundle (asset.documents
 ## Text rendering
 
 - `text()` silently **drops the en dash `–` (U+2013)** — it renders as nothing. The em dash `—` (U+2014) and the ASCII hyphen `-` render fine. Use `—` for attribution/quote dashes.
+
+
+## Objective-C bridge (LuaKit) — learned the hard way (2026-10-09/10)
+
+- **Re-entrant callbacks wedge the render thread.** While the render thread waits on a
+  bridge call (property read, method call), LuaKit may run a pending Lua callback block
+  re-entrantly with a corrupted stack. It fails before the callback's body runs ("attempt
+  to call a string value", "bad argument #-1 to 'async' (function expected, got string)")
+  and the render thread never recovers: app frozen, taps ignored, no crash report. Any
+  completion handler iOS answers almost instantly (UNUserNotificationCenter
+  addNotificationRequest) must get `nil`, not a Lua function — even `function() end` froze it.
+  All other callbacks only `handOff(...)` (see STRUCTURE.md "CALLBACK HAND-OFF").
+- **Never `objc.NSString:alloc()`.** LuaKit converts every returned NSString to a Lua string,
+  including the uninitialized placeholder from `alloc()`; the Objective-C exception that
+  follows can't be caught by `pcall` (simulator: abort with a crash report; device: silently
+  kills the render thread). Read NSData with `NSMutableData:dataWithData_(d)`,
+  `m:increaseLengthBy_(1)`, `NSString:stringWithUTF8String_(m.bytes)`.
+- **Lua errors from Codea itself go to stdout only** — not to devLog. Capture them with
+  `xcrun devicectl device process launch --console --terminate-existing --device <id>
+  com.jessewonderclark.quozzyseasons > console.txt`, or read the Xcode console.
+- Simulator crashes leave `.ips` reports in `~/Library/Logs/DiagnosticReports/`
+  (`lastExceptionBacktrace` holds the exception stack). Devices often leave none.
+- `lldb` attach to a device app: only one debugger at a time (fails while Xcode is attached).
+  `device select <id>` / `device process attach --pid N` then wait for the attach to finish
+  before interrupting (python: poll `GetProcess().GetState()`).
+
+## Device / Xcode practicalities
+
+- Low Power Mode forces Auto-Lock to 30 s regardless of the setting; a locked iPad refuses
+  app launch ("device was not, or could not be, unlocked"). For automated runs, set
+  `objc.UIApplication.sharedApplication.idleTimerDisabled = true` via DevRemote.
+- iPad can drain while "charging" from a laptop/hub port: the app redraws at 60 fps. Use a
+  ≥20 W wall charger during long test sessions.
+- Xcode stuck on "Connecting to <device>" while `devicectl list devices` says connected:
+  restart the iPad; or `killall -9 CoreDeviceService remotepairingd`; or Devices and
+  Simulators → untick "Connect via network" / Unpair and re-trust. (Untested which works.)
+- Builds from Xcode have DevRemote off (source keeps `DEV_REMOTE_ENABLED = false`); to drive a
+  device with tools/dbg.sh, build with it flipped on locally and don't commit the flip.

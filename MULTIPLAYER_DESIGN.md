@@ -644,3 +644,18 @@ actually unit-testable, which was the other half of the ask.
    before iOS suspends the background-launched process again — it worked in
    this test, but background execution time after a push-triggered launch is
    not unlimited, and a slower network path could behave differently.
+
+
+## Status update (2026-10-10)
+
+- **Rule 8 now holds:** incoming turns call `enterQMatch(q, {background=true})` — data and
+  sends only, never a screen change; `onSettingCurrentMatch` no longer jumps to STATE_END.
+- **Exchange pushes are not reliable on device** (an opponent's score exchange sat unanswered
+  with no event delivered). Mitigations: `makeQMatchFromGK` overlays both players' slots from
+  unmerged exchanges on the GK match; an end screen waiting on the opponent re-reads the match
+  every 8 s and answers pending exchanges; opening from the vs list reloads the match fresh.
+- **"Completed" for UI purposes = both scores in** (gate 1 / apparent end). Completed matches
+  leave the vs list and live in Records (unseen → records-button badge).
+- **The frozen-app bug was not a relay bug** — it was LuaKit running callbacks re-entrantly
+  (see XCODE_CODEA.md "Objective-C bridge"). All objc callbacks now hand off their work.
+- Still open: signing in to Game Center after a failed launch; 3+ players (unchanged).

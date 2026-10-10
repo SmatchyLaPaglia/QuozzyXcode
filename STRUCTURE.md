@@ -1652,3 +1652,81 @@ CTBM:clearAllMatches() was also changed the same day (CodeaTurnBasedMatches.lua)
   across two accounts — both the in-turn and out-of-turn quit branches got exercised given the
   match counts involved (26 + 16), not just the in-turn path _notifyGameCenterOfGameEnd already
   covered elsewhere.
+
+## Session 2026-10-09/10: freeze fix, callback hand-off, badges, Records, end-screen sync
+
+FROZEN APP (taps ignored, last frame stays) — ROOT CAUSE, proven by console tracebacks:
+  While the render thread waits on a bridge call (e.g. reading tbm.currentMatch.matchID),
+  LuaKit runs pending Lua callbacks RE-ENTRANTLY with a corrupted stack: it can't even
+  invoke them ("attempt to call a string value" / "bad argument #-1 to 'async' ... got
+  string"), and the render thread is wedged forever. Trigger was the comment-reminder
+  notification (UNUserNotificationCenter answers ~instantly, during endGameRound's GameKit
+  calls). Fix: pass nil, not a Lua function, as that completion handler (GameCenter.lua
+  scheduleCommentTimeoutNotification). Verified 3/3 repro rounds. The permission request
+  at launch still has an empty function (its handler is nonnull) — untested risk.
+  Earlier contributing bug: CTBM:_nsDataToDataTable used objc.NSString:alloc() (LuaKit
+  converts the uninitialized placeholder → uncatchable ObjC exception). Now NSMutableData
+  copy + increaseLengthBy_(1) + stringWithUTF8String_.
+
+CALLBACK HAND-OFF (GameCenter.lua top; enforced by tests/callback_rule_test.lua):
+  handOff(fn, a,b,c,d)   while drawing → deferToDraw (queued, drained by drainDeferredWork()
+                         at top of drawFrame); not drawing (backgrounded, push wake) → run now.
+  Every objc callback body = only handOff(...). The rule test finds callbacks by the hard
+  rule's prefixed params (o__x, oErr, bOk, sName, iCount, fValue) AND named methods on
+  objc.delegate(...)/objc.class(...) objects; also forbids objc.async except Main.lua's
+  safety-net wrapper (objc.async called during draw/touched → deferToDraw).
+  Conversion was mechanical: function(o__a) handOff(function(o__a) <body> end, o__a) end.
+
+FORENSICS: Main.lua draw()/touched() wrapped in xpcall (FATAL → devLog). Heartbeat +
+  log buffer → Documents:devlog_live.txt every second (tools/dbg.sh --pull devlog_live.txt;
+  works without DevRemote). Codea's own Lua errors go to stdout only: capture with
+  `xcrun devicectl device process launch --console --terminate-existing --device <id>
+  com.jessewonderclark.quozzyseasons > file` (or the Xcode console).
+
+RULE 8 (no screen ever appears unasked): enterQMatch(q, {background=true}) from
+  onReceivingTurn — model/send work only, never sets state, never adopts another match
+  while the player is off the menu. onSettingCurrentMatch no longer sets STATE_END.
+  Clear All suppresses turn navigation for 20s (tbm.suppressTurnNavigationUntil).
+
+EXCHANGES: makeQMatchFromGK overlays BOTH players' slots from unmerged exchanges on the GK
+  match (latestExchangeSlot — sender identified from the payload, never x.sender, which can
+  be an uninitialized string). mergeOpponentSlot never regresses (didPlay/commentDecided).
+  End screen waiting on the opponent re-reads the match every 8s (pollEndScreenMatch →
+  refreshCurrentMatchFromGK, read-only: never swaps tbm.currentMatch or sends).
+  New opponent data on an open end screen: deliverOpponentSlots stages it, drawBusyPanel
+  ("updating...") shows ENDSCREEN_UPDATE_SIGNAL_SECONDS (1.6s), applyDueEndScreenUpdate
+  applies it. drawBusyPanel (Main.lua) = same indicator as match creation ("matching...").
+
+PERSISTENCE: saveProjectData does NOT survive relaunch in the exported app — all relay
+  tables + viewed/ack sets use saveLocalData (see XCODE_CODEA.md).
+
+BADGES / LISTS (MatchSelection.lua recomputeVsBadgeFlags):
+  "completed" = both scores in (apparent end), not GK's formal end.
+  vsListEntries        playable or in progress only; vsHasActionable (vs dot) = a playable match.
+  vsHasPlayable        quick-start badge only.
+  recordsUnseenEntries completed & not viewed → recordsHasUnseen (records-button badge,
+                       cleared by tapping the button: ackRecordsButton / QB_RECORDS_BUTTON_ACK_V1).
+  Opponent-row dot     until that row is tapped (recordsTakeUnseenForOpponent marks viewed).
+  Match-row dot        shown for that one visit (recordsDetailBadgeIds, cleared on next touch).
+  Viewed               explicit only (vsViewedMatchIds; end screen of a complete result marks it).
+  Records rows synced from live data for EVERY finished match each list refresh (snapshotFromQMatch).
+  Red dots on cards: drawn after clip(), centered on the rounded corner arc (half in/out).
+  Menu: info left, records right (MENU_RECORDS_INFO_GAP 0.15), badge radius = vs dot (menuBadgeRadius).
+
+END SCREEN: comments visible on every open (noteEndScreenFrame/noteNotOnEndScreen).
+  Tap on the composer balloon is exempt from "any tap hides balloons" (endScreenTapIsOnComposer,
+  EndScreen.lua) and marks commentFields[3].focused at once. UITextView props are written only
+  on change (re-setting textColor every frame snapped the caret to the end).
+
+AUTH: authenticateHandler only records; CTBM:pollAuth() (from draw) presents the sign-in VC and
+  fires the post-auth setup once when localPlayer.authenticated becomes true by any route.
+  Untested: signing in later via Settings. Sign-in overlay text tells the player to quit and
+  reopen if it still doesn't connect.
+
+TESTS: lua tests/run_tests.lua (216) and lua tests/callback_rule_test.lua — both must pass.
+  Suite loads qMatch_qPlayer, GameCenter, opponentRecords, MatchSelection, EndScreen.
+
+OPEN / NOT YET DEVICE-VERIFIED: red-dot placement + three clearing levels; Records late-comment
+  sync on device; composer tap on iPad; "updating" indicator on a real incoming update;
+  sign-in via Settings. Shared busy indicator has corner-overlap blotches (translucent
+  panelBG) and faint white dots on a light panel — pre-existing, now in both uses.

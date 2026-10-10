@@ -2112,33 +2112,9 @@ function keyboard(key)
 end
 
 
--- "Updated" signal over the score area while a staged opponent update waits
--- (see deliverOpponentSlots, GameCenter.lua). Drawn last, on top of the cards.
+-- "Updated" signal while a staged opponent update waits (see deliverOpponentSlots,
+-- GameCenter.lua). Same indicator as match creation (drawBusyPanel, Main.lua).
 function drawEndScreenUpdateIndicator()
   if not endScreenPendingUpdate then return end
-  local g = endScreenLayout
-  local cr = g and g.cardListRect
-  local cx = cr and (cr.x + cr.w * 0.5) or WIDTH * 0.5
-  local cy = cr and (cr.y + cr.h * 0.5) or HEIGHT * 0.5
-  pushStyle()
-  rectMode(CENTER)
-  noStroke()
-  -- Opaque: drawRoundedRect builds corners from overlapping shapes, so a
-  -- translucent fill shows the overlaps as darker blotches.
-  local bg = color(58, 54, 50, 255)
-  drawRoundedRect(cx, cy, 170, 92, 18, bg, bg)
-  local n, r = 8, 16
-  local spin = (ElapsedTime or 0) * 7
-  ellipseMode(CENTER)
-  for i = 0, n - 1 do
-    local a = spin + i * (2 * math.pi / n)
-    fill(255, 255, 255, 60 + 195 * ((i + 1) / n))
-    ellipse(cx + math.cos(a) * r, cy + 12 + math.sin(a) * r, 7, 7)
-  end
-  fill(255)
-  font("HelveticaNeue-Bold")
-  fontSize(15)
-  textMode(CENTER)
-  text("updating", cx, cy - 26)
-  popStyle()
+  drawBusyPanel("updating...")
 end

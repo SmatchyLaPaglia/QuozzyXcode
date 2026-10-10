@@ -597,7 +597,7 @@ function noteNotOnEndScreen() _endScreenWasShowing = false end
 -- the data is applied. The indicator doesn't track real work (the data is
 -- already here); it tells the player something changed, which they couldn't
 -- otherwise see (the opponent's card is off to the side).
-ENDSCREEN_UPDATE_SIGNAL_SECONDS = 0.8
+ENDSCREEN_UPDATE_SIGNAL_SECONDS = 1.6
 endScreenPendingUpdate = endScreenPendingUpdate or nil
 
 -- Would merging `slot` into q's opponent pid change anything visible?

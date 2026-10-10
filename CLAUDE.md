@@ -51,7 +51,8 @@ Each was learned from a real bug. Details live where noted; these one-liners are
 
 - **On device**: Open `Quozzy.codea` in the Codea app on iPad — it runs immediately in the editor.
 - **As an iOS app**: Export from Codea to Xcode via `Quozzy.xcodeproj`, then build/run via Xcode.
-- There are no build scripts, linters, or test runners.
+- Tests: `lua tests/run_tests.lua` (logic suite, loads real source files into a stub env) and `lua tests/callback_rule_test.lua` (fails if any objc callback does work instead of `handOff(...)`). Run both before committing. No `lua` on the laptop? Build Lua 5.4 from lua.org source in a scratch dir.
+- Device testing: see STRUCTURE.md "DevRemote" and XCODE_CODEA.md "Device / Xcode practicalities". Latest session notes: STRUCTURE.md "Session 2026-10-09/10".
 
 ## Architecture
 
