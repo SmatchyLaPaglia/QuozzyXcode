@@ -243,39 +243,31 @@ function CTBM:_nsDataToDataTable(data, logLabel)
     return decodedOrErr
   end
 
-  -- 1) Legacy path first for compatibility with previously written matches.
-  local legacyStr = nil
-  local okLegacyStr = pcall(function()
-    local nsLegacy = objc.NSString:stringWithUTF8String_(data.bytes)
-    if nsLegacy then legacyStr = tostring(nsLegacy) end
-  end)
-  if okLegacyStr then
-    local decodedTable = decodeJSONString(legacyStr, "legacy")
-    if decodedTable then
-      self:log("CTBM: decoded", logLabel, "ok (legacy)", "len=", tostring(data.length))
-      return decodedTable
-    end
-  else
-    self:log("CTBM: legacy decode string conversion failed", "len=", tostring(data.length))
-  end
-
-  -- 2) Fallback: length-aware path (correct for NSData).
+  -- NSData isn't NUL-terminated, so stringWithUTF8String_(data.bytes) alone reads
+  -- past the end (garbage, sometimes failing JSON). Copy it, append one zero byte
+  -- (increaseLengthBy_ zero-fills), and read THAT. Deliberately never
+  -- objc.NSString:alloc():init...: LuaKit converts every returned NSString to a Lua
+  -- string, including the bare alloc() placeholder, which throws an Objective-C
+  -- exception pcall can't catch -- it aborted the app in the simulator and silently
+  -- killed the render thread on device (the frozen end screen / unresponsive app).
   local str = nil
   local okStr, errStr = pcall(function()
-    local ns = objc.NSString:alloc():initWithData_encoding_(data, 4) -- NSUTF8StringEncoding
+    local m = objc.NSMutableData:dataWithData_(data)
+    m:increaseLengthBy_(1)
+    local ns = objc.NSString:stringWithUTF8String_(m.bytes)
     if ns then str = tostring(ns) end
   end)
   if not okStr then
-    self:log("CTBM: fallback decode string conversion failed:", tostring(errStr), "len=", tostring(data.length))
+    self:log("CTBM: decode string conversion failed:", tostring(errStr), "len=", tostring(data.length))
     return nil
   end
 
-  local decodedTable = decodeJSONString(str, "fallback")
+  local decodedTable = decodeJSONString(str, logLabel)
   if not decodedTable then
     return nil
   end
 
-  self:log("CTBM: decoded", logLabel, "ok (fallback)", "len=", tostring(data.length))
+  self:log("CTBM: decoded", logLabel, "ok", "len=", tostring(data.length))
   return decodedTable
 end
 

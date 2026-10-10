@@ -305,7 +305,7 @@ local function enterQMatch_inner(q, background)
     if protectInProgressRound or protectFinishedUnsentResult then
       for pid, pdata in pairs(q.players or {}) do
         if pid ~= myId then
-          currentQMatch.players[pid] = pdata
+          mergeOpponentSlot(currentQMatch, pid, pdata)
         end
       end
       currentQMatch.lastUpdated = q.lastUpdated or currentQMatch.lastUpdated
@@ -473,6 +473,88 @@ local function enterQMatch_inner(q, background)
 
   if background then return end
   startRoundFromCurrentSettings()   -- generates+stores boardTiles, sets STATE_READY
+end
+
+-- Take the incoming opponent slot unless it would undo something already known:
+-- a copy of the match decoded before the opponent's exchange was visible says
+-- "not played", and must not wipe a result that has since arrived.
+function mergeOpponentSlot(q, pid, incoming)
+  if not (q and q.players and pid and incoming) then return end
+  local cur = q.players[pid]
+  if cur then
+    if cur.didPlay == true and incoming.didPlay ~= true then return end
+    if cur.commentDecided == true and incoming.commentDecided ~= true then return end
+  end
+  q.players[pid] = incoming
+end
+
+-- Exchange pushes don't reliably arrive (seen on device: an opponent's score
+-- exchange sat unanswered on the match with no event ever delivered), so while
+-- an end screen is waiting on the opponent, re-read the match ourselves: merge
+-- whatever the opponent has sent, answer their pending exchange, and send
+-- anything that's now owed. Called when a round ends and every few seconds on
+-- the end screen (pollEndScreenMatch).
+function refreshCurrentMatchFromGK(reason)
+  local q = currentQMatch
+  if not (useTurnBased and q and q.id and objc and objc.GKTurnBasedMatch) then return end
+  if refreshCurrentMatchInFlight then return end
+  refreshCurrentMatchInFlight = true
+  local matchId = q.id
+  local ok = pcall(function()
+    objc.GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(matchId, function(o__match, o__err)
+      objc.async(function()
+        refreshCurrentMatchInFlight = false
+        if o__err or not o__match then return end
+        if not (currentQMatch and currentQMatch.id == matchId) then return end
+        local dt = tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(o__match) or nil
+        local fresh = makeQMatchFromGK(o__match, dt)
+        if not fresh then return end
+        local myId = localPID()
+        local before = json.encode(currentQMatch.players or {})
+        for pid, pdata in pairs(fresh.players or {}) do
+          if pid ~= myId then mergeOpponentSlot(currentQMatch, pid, pdata) end
+        end
+        if json.encode(currentQMatch.players or {}) ~= before then
+          devLog("refreshCurrentMatchFromGK: opponent data updated", matchId, "reason=", reason)
+          local _, otherP = nil, nil
+          for pid, pdata in pairs(currentQMatch.players) do if pid ~= myId then otherP = pdata end end
+          opponentScore = tonumber(otherP and otherP.score) or opponentScore
+        end
+        -- Read-only with respect to the send machinery: never swap tbm.currentMatch
+        -- or start a send from here. Doing both right as a round ended overlapped
+        -- the score's own in-flight end-turn with a second one on a different
+        -- match object, and on device that killed the render thread (frozen end
+        -- screen; bisected 2026-10-10). Only answer the opponent's pending
+        -- exchange, on this freshly loaded object, when there actually is one.
+        local active = o__match.activeExchanges
+        if active and #active > 0 and not pendingTurnSendsByMatchId[matchId] then
+          for _, ex in ipairs(active) do
+            pcall(function()
+              ex:replyWithLocalizableMessageKey_arguments_data_completionHandler_(
+                "XCHG_REPLY", {}, tbm:_dataTableToNSData({}), function(o__err) end)
+            end)
+          end
+        end
+      end)
+    end)
+  end)
+  if not ok then refreshCurrentMatchInFlight = false end
+end
+
+END_SCREEN_POLL_INTERVAL = 8.0
+function pollEndScreenMatch()
+  if state ~= STATE_END or not useTurnBased or not currentQMatch then return end
+  local myId = localPID()
+  local waiting = false
+  for pid, pdata in pairs(currentQMatch.players or {}) do
+    if pid ~= myId and not (pdata.didPlay == true and pdata.commentDecided == true) then waiting = true end
+  end
+  if not waiting then return end
+  local now = ElapsedTime or 0
+  if now - (_endScreenPollAt or -1e9) >= END_SCREEN_POLL_INTERVAL then
+    _endScreenPollAt = now
+    refreshCurrentMatchFromGK("endScreenPoll")
+  end
 end
 
 function enterQMatch(q, opts)
@@ -980,6 +1062,9 @@ function endGameRound()
   -- decideComment); now that a score never waits on a comment decision, this
   -- is the natural place to kick the first attempt.
   attemptLegSend(q)
+  -- First end-screen re-check comes one poll interval later, after the score's
+  -- own send has settled (see refreshCurrentMatchFromGK).
+  _endScreenPollAt = ElapsedTime or 0
 end
 
 useTurnBased     = false   -- NEW: master toggle for opponent / records

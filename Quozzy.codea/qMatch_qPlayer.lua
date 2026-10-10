@@ -512,15 +512,21 @@ function latestExchangeSlot(gkMatch, senderId)
   pcall(function()
     local ex = gkMatch.exchanges
     if not (ex and tbm and tbm._exchangeDataToDataTable) then return end
+    -- Never read x.sender: on some matches (seen with old/cleared ones) its
+    -- player's gamePlayerID comes back as an uninitialized NSString, and LuaKit
+    -- converting it throws an Objective-C exception -- which pcall can't catch.
+    -- In the simulator that aborted the app; on device it silently killed the
+    -- render thread (the "frozen end screen"). The payload itself identifies the
+    -- sender: an exchange carries only its sender's own player slot.
     for i = 1, #ex do
       local x = ex[i]
-      local sender = x and x.sender and x.sender.player
-      if sender and sender.gamePlayerID == localId then
-        local d = tbm:_exchangeDataToDataTable(x)
-        local slot = d and type(d.players) == "table" and d.players[localId]
-        local ts = tonumber(d and d.lastUpdated) or 0
-        if type(slot) == "table" and ts >= bestTs then best, bestTs = slot, ts end
-      end
+      local d = x and tbm:_exchangeDataToDataTable(x)
+      local players = d and type(d.players) == "table" and d.players
+      local slot = players and players[localId]
+      local onlySender = true
+      if players then for pid in pairs(players) do if pid ~= localId then onlySender = false end end end
+      local ts = tonumber(d and d.lastUpdated) or 0
+      if type(slot) == "table" and onlySender and ts >= bestTs then best, bestTs = slot, ts end
     end
   end)
   return best

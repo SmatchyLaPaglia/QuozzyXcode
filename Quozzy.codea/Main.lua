@@ -1237,6 +1237,8 @@ function drawFrame()
     return
   end
 
+  if pollEndScreenMatch then pollEndScreenMatch() end
+
   -- Periodic flush of diagnostic log ring buffer to saveLocalData
   DEV_LOG_TIME_SINCE_FLUSH = (DEV_LOG_TIME_SINCE_FLUSH or 0) + DeltaTime
   if DEV_LOG_TIME_SINCE_FLUSH >= DEV_LOG_FLUSH_INTERVAL then

@@ -1220,7 +1220,7 @@ test("makeQMatchFromGK: recovers my own result from my unmerged exchanges when n
       ex(100, { didPlay = true, score = 9, words = {"DOG"}, commentDecided = false }),
       ex(200, { didPlay = true, score = 9, words = {"DOG"}, commentDecided = true, comment = "" }),
       { sender = { player = { gamePlayerID = "opp" } },
-        _data = { lastUpdated = 300, players = { ["local-player-id"] = { didPlay = false } } } },
+        _data = { lastUpdated = 300, players = { ["opp"] = { didPlay = false } } } },  -- opponent's own slot only
     },
   }
   local stale = { boardSize = 4, minWordLen = 3, players = {

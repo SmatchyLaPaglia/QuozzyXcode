@@ -406,9 +406,7 @@ function vsOpenMatchEntry(entry)
     end
     local q = makeQMatchFromGK and makeQMatchFromGK(gk, dataTable) or nil
     if q and enterQMatch then enterQMatch(q) end
-    -- An opponent exchange this device never answered (the push can be missed)
-    -- stays "active", and the turn holder can't merge it until it's answered.
-    if tbm and tbm.replyToActiveExchanges then tbm:replyToActiveExchanges(nil, function() end) end
+
   end
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   local ok = GKTurnBasedMatch and pcall(function()
