@@ -411,10 +411,10 @@ function vsOpenMatchEntry(entry)
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   local ok = GKTurnBasedMatch and pcall(function()
     GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(entry.id, function(o__match, o__err)
-      objc.async(function()
-        if o__match and not o__err then openWith(o__match, nil)
-        else openWith(entry.gkMatch, entry.dataTable) end
-      end)
+      -- Callback only hands the result over; the open runs in draw().
+      deferToDraw(function(m, e)
+        if m and not e then openWith(m, nil) else openWith(entry.gkMatch, entry.dataTable) end
+      end, o__match, o__err)
     end)
   end)
   if not ok then openWith(entry.gkMatch, entry.dataTable) end

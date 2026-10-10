@@ -1,3 +1,36 @@
+-- ===== Objective-C callback hand-off (CLAUDE.md hard rule) =====
+-- An objc callback may only hand data over; the work runs in draw(). Running
+-- work inside a callback froze the app: a block delivered while draw()/touched()
+-- was mid-bridge-call made Codea's objc.async throw and wedged the render
+-- thread for good (2026-10-10). tests/callback_rule_test.lua enforces that every
+-- callback body is just a handOff(...)/deferToDraw(...) call.
+_deferredWork = _deferredWork or {}
+
+-- Plain table writes only (no C calls), so safe even mid-bridge-call.
+function deferToDraw(fn, a, b, c)
+  _deferredWork[#_deferredWork + 1] = { fn = fn, a = a, b = b, c = c }
+end
+
+local function _runGuarded(fn, a, b, c)
+  local ok, err = xpcall(fn, debug.traceback, a, b, c)
+  if not ok and devLog then devLog("callback work failed:", tostring(err)) end
+end
+
+-- While the app is drawing, queue the work for the next frame. While it isn't
+-- (backgrounded/asleep -- e.g. woken by a GameKit push), draw() won't run to
+-- drain the queue, but nothing can be mid-bridge-call either, so run it now.
+function handOff(fn, a, b, c)
+  local drawing = CODEA_RENDER_PASS or (_lastDrawAt and os.time() - _lastDrawAt <= 1)
+  if drawing then deferToDraw(fn, a, b, c) else _runGuarded(fn, a, b, c) end
+end
+
+function drainDeferredWork()
+  if #_deferredWork == 0 then return end
+  local work = _deferredWork
+  _deferredWork = {}
+  for _, w in ipairs(work) do _runGuarded(w.fn, w.a, w.b, w.c) end
+end
+
 GameCenter = GameCenter or {}
 GameCenter.testMode = GameCenter.testMode or false
 MAX_MATCH_COMMENT_LEN = MAX_MATCH_COMMENT_LEN or 100
@@ -502,7 +535,8 @@ function refreshCurrentMatchFromGK(reason)
   local matchId = q.id
   local ok = pcall(function()
     objc.GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(matchId, function(o__match, o__err)
-      objc.async(function()
+      -- Callback only hands the result over; the merge/reply runs in draw().
+      deferToDraw(function(o__match, o__err)
         refreshCurrentMatchInFlight = false
         if o__err or not o__match then return end
         if not (currentQMatch and currentQMatch.id == matchId) then return end
@@ -521,11 +555,9 @@ function refreshCurrentMatchFromGK(reason)
           opponentScore = tonumber(otherP and otherP.score) or opponentScore
         end
         -- Read-only with respect to the send machinery: never swap tbm.currentMatch
-        -- or start a send from here. Doing both right as a round ended overlapped
-        -- the score's own in-flight end-turn with a second one on a different
-        -- match object, and on device that killed the render thread (frozen end
-        -- screen; bisected 2026-10-10). Only answer the opponent's pending
-        -- exchange, on this freshly loaded object, when there actually is one.
+        -- or start a send from here (a poll shouldn't race the real send path).
+        -- Only answer the opponent's pending exchange, on this freshly loaded
+        -- object, when there actually is one.
         local active = o__match.activeExchanges
         if active and #active > 0 and not pendingTurnSendsByMatchId[matchId] then
           for _, ex in ipairs(active) do
@@ -535,7 +567,7 @@ function refreshCurrentMatchFromGK(reason)
             end)
           end
         end
-      end)
+      end, o__match, o__err)
     end)
   end)
   if not ok then refreshCurrentMatchInFlight = false end
@@ -903,11 +935,13 @@ function scheduleCommentTimeoutNotification(matchId, delaySeconds, opponentName)
     local identifier = "commentTimeout-" .. tostring(matchId)
     local request = objc.UNNotificationRequest:requestWithIdentifier_content_trigger_(identifier, content, trigger)
 
-    center:addNotificationRequest_withCompletionHandler_(request, function(o__err)
-      objc.async(function()
-        devLog("scheduleCommentTimeoutNotification", matchId, o__err and o__err.localizedDescription or "ok")
-      end)
-    end)
+    -- The completion block must do NOTHING. iOS answers this request almost
+    -- instantly, so the block can be delivered into Lua while the round-end code
+    -- is still inside another bridge call; objc.async there then got the wrong
+    -- argument and threw, unwinding LuaKit while it held the render thread's lock
+    -- -- the frozen-app bug (traceback from the Xcode console, 2026-10-10).
+    center:addNotificationRequest_withCompletionHandler_(request, function(o__err) end)
+    devLog("scheduleCommentTimeoutNotification requested", matchId)
   end)
   if not ok then
     devLog("scheduleCommentTimeoutNotification failed (bridge call)", matchId)

@@ -882,12 +882,10 @@ local function requestNotificationPermissions()
       -- badge=1<<0, sound=1<<1, alert=1<<2 on iOS
       opts = 7
     end
-    center:requestAuthorizationWithOptions_completionHandler_(opts, function(granted, err)
-      objc.async(function()
-        local grantedBool = (granted == true or granted == 1)
-        devLog("Notification permission callback", "granted=", grantedBool, "err=", err ~= nil)
-      end)
-    end)
+    -- No-op on purpose: answered instantly once permission was decided, so it
+    -- can land inside another bridge call -- see scheduleCommentTimeoutNotification
+    -- (GameCenter.lua) for how Lua work in such a block froze the app.
+    center:requestAuthorizationWithOptions_completionHandler_(opts, function(bGranted, oErr) end)
   end)
   if not ok then
     devLog("Notification permission request failed (bridge call)")
@@ -1221,6 +1219,7 @@ local function _fatalLog(where, err)
 end
 
 function draw()
+  _lastDrawAt = os.time()
   CODEA_RENDER_PASS = true
   local ok, err = xpcall(drawFrame, debug.traceback)
   if not ok then
@@ -1230,8 +1229,34 @@ function draw()
   CODEA_RENDER_PASS = false
 end
 
+
+-- Safety net for the frozen-app bug. A callback block can be delivered into
+-- Lua while the render thread is already inside draw()/touched() (e.g. GameKit
+-- or UserNotifications answering instantly during a bridge call). Codea's
+-- objc.async then misreads its argument and throws ("bad argument #-1 to
+-- 'async' ... got string"), which unwinds LuaKit while it holds the render
+-- thread's lock and freezes the app for good. CODEA_RENDER_PASS is true exactly
+-- while draw()/touched() run, so an objc.async call seen then is one of those
+-- nested deliveries: queue the function for the next frame instead.
+if objc and objc.async and not _objcAsyncWrapped then
+  local nativeAsync = objc.async
+  local ok = pcall(function()
+    objc.async = function(fn)
+      if CODEA_RENDER_PASS then
+        deferToDraw(fn)
+        return
+      end
+      return nativeAsync(fn)
+    end
+  end)
+  _objcAsyncWrapped = ok and objc.async ~= nativeAsync
+end
+
+
 function drawFrame()
   devRemotePoll()
+  drainDeferredWork()
+  if tbm and tbm.pollAuth then tbm:pollAuth() end
   if FORCE_RED_BOOT_SCREEN then
     background(255, 0, 0)
     return

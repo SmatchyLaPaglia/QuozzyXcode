@@ -473,7 +473,7 @@ function drawGCSignInOverlay()
   local panelY  = HEIGHT / 2
 
   local title     = "Something Ker-Flumped"
-  local body      = "You'll have to open Settings and log in to Game Center to play friends."
+  local body      = "You'll have to open Settings and log in to Game Center to play friends. If it still says you're not connected after signing in, quit and reopen the app."
   local titleFont = 22
   local bodyFont  = 20
 

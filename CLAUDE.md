@@ -38,7 +38,7 @@ Each was learned from a real bug. Details live where noted; these one-liners are
 - **Anything that sets `replayMatchmakingBusy = true` must guarantee it gets cleared** — it blocks all touches.
 - **Don't start async GC work that sets `state` until `updateSeasonTransition()` has settled** (see State Transition Timing Trap below).
 - **Never `objc.NSString:alloc()`** (or any `alloc()` returning an NSString) — LuaKit converts every returned NSString to a Lua string, including the uninitialized placeholder, and the resulting Objective-C exception can't be caught by `pcall`: it aborts the app in the simulator and silently kills the render thread on device (frozen screen, taps ignored). Read NSData via `NSMutableData:dataWithData_` + `increaseLengthBy_(1)` + `stringWithUTF8String_` (see `CTBM:_nsDataToDataTable`).
-- **Only the send path may touch `tbm.currentMatch` / start sends** — a background refresh that swapped it and kicked a second send while a turn-pass was in flight killed the render thread on device.
+- **Completion blocks that iOS can answer instantly** (UNUserNotificationCenter add/authorize, anything cached) **must contain no Lua work, not even `objc.async`** — they can be delivered into Lua while the render thread is inside another bridge call; `objc.async` there misreads its argument and throws, which wedges the render thread's lock forever (the "frozen app" bug). Pass `function(oErr) end`.
 - **Verify UI changes on the device** with `tools/dbg.sh` (run Lua, `dbgTap`, `--shot` screenshots) instead of guessing. → STRUCTURE.md "DevRemote"
 
 ## Project Overview

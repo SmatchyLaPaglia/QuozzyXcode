@@ -213,7 +213,8 @@ function CTBM:uponDetectingAuthentication(fn)
   -- If authentication already happened, fire immediately
   if fn and self.localPlayer and self.localPlayer.authenticated then
     self:_major("already authenticated at handler set-time; firing callback now")
-    self._uponDetectingAuthentication()    
+    self._authFired = true
+    self._uponDetectingAuthentication()
   end
 end
 
@@ -769,28 +770,39 @@ function CTBM:_authenticate()
   self:_major("_authenticate start", "localPlayer=", self.localPlayer ~= nil, "authenticated=", self.localPlayer and self.localPlayer.authenticated or false)
   if self.localPlayer.authenticated then
     self:_major("already authenticated before handler setup")
+    self._authFired = true
     self._uponDetectingAuthentication()
-    self:log("CTBM: already authenticated, ran callback self._uponDetectingAuthentication")
     return
   end
-  
+
+  -- The handler only records what GameKit said (CLAUDE.md: no UIKit/Lua work in
+  -- objc callbacks). pollAuth(), called from draw(), presents the sign-in UI and
+  -- fires the app's post-auth setup. It also notices a sign-in that happens later
+  -- by any route (e.g. Settings after a failed launch), which previously left the
+  -- app disconnected from Game Center for the rest of the session.
   self.localPlayer.authenticateHandler = function(o__vc, o__err)
-    self:_major("authenticateHandler callback", "vc=", o__vc ~= nil, "err=", o__err ~= nil, "authenticated=", self.localPlayer and self.localPlayer.authenticated or false)
-    if o__err then
-      self:_major("authenticateHandler error", o__err.localizedDescription or o__err)
-      self:log("CTBM: authenticateHandler aborted with error: ", o__err)
-      return
-    end
-    
-    if o__vc then
-      self:_major("presenting Game Center auth UI")
-      self.viewController:presentModalViewController_animated_(o__vc, true)
-      return
-    end
-    
-    self:_major("authentication succeeded; firing app callback")
+    self._authPendingVC = o__vc
+    self._authCallbackSeen = true
+  end
+end
+
+function CTBM:pollAuth()
+  local now = ElapsedTime or 0
+  if self._authFired and not self._authPendingVC then return end
+  if self._authPendingVC then
+    local vc = self._authPendingVC
+    self._authPendingVC = nil
+    self:_major("presenting Game Center auth UI")
+    pcall(function() self.viewController:presentModalViewController_animated_(vc, true) end)
+    return
+  end
+  if now - (self._authPolledAt or -1e9) < 1.0 then return end
+  self._authPolledAt = now
+  local ok, authed = pcall(function() return self.localPlayer and self.localPlayer.authenticated end)
+  if ok and authed and not self._authFired then
+    self._authFired = true
+    self:_major("authentication detected; firing app callback")
     self:_uponDetectingAuthentication()
-    self:log("CTBM: authenticateHandler successful, ran callback self._uponDetectingAuthentication")
   end
 end
 
