@@ -278,7 +278,7 @@ function refreshVsMatchesList(reason)
   vsListLoading = true
   local ok = pcall(function()
     GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
+      handOff(function()
         local okInner, errInner = pcall(function()
           vsListLoading = false
           if o__err then
@@ -442,7 +442,7 @@ function vsLoadFriends()
   vsFriendsLoading, vsFriendsLoadError = true, nil
   local ok = pcall(function()
     lp:loadFriendPlayersWithCompletionHandler_(function(o__players, o__err)
-      objc.async(function()
+      handOff(function()
         local okInner, errInner = pcall(function()
           vsFriendsLoading = false
           if o__err then
@@ -506,7 +506,7 @@ function vsStartNewMatchWithFriend(friendEntry)
   request.recipients = { friendEntry.player }
   local ok = pcall(function()
     GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(request, function(o__match, o__err)
-      objc.async(function()
+      handOff(function()
         local okInner, errInner = pcall(function()
           vsNewGameBusy = false
           if o__err or not o__match then

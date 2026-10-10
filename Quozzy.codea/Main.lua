@@ -376,7 +376,7 @@ local function _tryRematchForLastReplay(settings)
     objc.GKPlayer:loadPlayersForIdentifiers_withCompletionHandler_(
       {lookupId},
       function(o__players, o__err)
-        objc.async(function()
+        handOff(function()
           devLog("DBG_PA _tryRematch: loadPlayers callback, err=", tostring(o__err), "count=", tostring(o__players and #o__players))
           if o__err then
             devLog("Play Again: load player error", o__err.localizedDescription or tostring(o__err))
@@ -398,7 +398,7 @@ local function _tryRematchForLastReplay(settings)
           GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(
             request,
             function(o__match, o__matchErr)
-              objc.async(function()
+              handOff(function()
                 devLog("DBG_PA _tryRematch: findMatch callback, err=", tostring(o__matchErr), "match=", tostring(o__match))
                 if o__matchErr or not o__match then
                   devLog("Play Again: create match failed", o__matchErr and o__matchErr.localizedDescription or "nil match")
@@ -557,7 +557,7 @@ function retryPendingHandshakeSends(reason)
 
   local ok = pcall(function()
     GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
+      handOff(function()
         local okInner, errInner = pcall(function()
           if o__err then
             local errText = _safeObjCString(o__err.localizedDescription) or _safeObjCString(o__err) or "unknown"
@@ -905,7 +905,7 @@ local function refreshHomeScreenBadgeFromGCMatches(reason)
   
   local ok = pcall(function()
     GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      objc.async(function()
+      handOff(function()
         if o__err then
           devLog("Home badge refresh GC load error", o__err.localizedDescription or tostring(o__err))
           return

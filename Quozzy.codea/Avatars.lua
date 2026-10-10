@@ -384,7 +384,7 @@ function loadPlayerPhoto(player, onReady)
     
     player:loadPhotoForSize_withCompletionHandler_(sizeEnum, function(oImage, oError)
         -- This callback might not be on the main thread; hop back if needed.
-        objc.async(function()
+        handOff(function()
             local callbacks = GCPlayerPhotoLoadingById[pid]
             GCPlayerPhotoLoadingById[pid] = nil
             

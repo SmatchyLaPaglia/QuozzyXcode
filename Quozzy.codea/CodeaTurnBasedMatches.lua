@@ -365,26 +365,26 @@ function CTBM:_notifyGameCenterOfGameEnd(endState, payload)
     nextParticipants,
     0,
     data,
-    function(o__Error)
+    function(o__Error) handOff(function(o__Error)
       if o__Error then
         self:log("CTBM: quit error:", o__Error.localizedDescription)
       else
         self:log("CTBM: quit sent")
       end
-    end
+    end, o__Error) end
     )
     
   else
     match:endMatchInTurnWithMatchData_completionHandler_(
     data,
-    function(o__Error)
+    function(o__Error) handOff(function(o__Error)
       if o__Error then
         self:log("CTBM: endMatch error:", o__Error.localizedDescription)
       else
         self:log("CTBM: endMatch sent")
         self:_finalizeGameEnd(match, payload, endState)
       end
-    end
+    end, o__Error) end
     )
   end
 end
@@ -461,7 +461,7 @@ function CTBM:findReadyMatch()
   self:log("CTBM: findReadyMatch")
   
   objc.GKTurnBasedMatch:loadMatchesWithCompletionHandler_(
-  function(o__matches, o__err)
+  function(o__matches, o__err) handOff(function(o__matches, o__err)
     if o__err then
       self:log("CTBM: loadMatches error:", o__err.localizedDescription)
       return
@@ -490,7 +490,7 @@ function CTBM:findReadyMatch()
     end
     
     self:log("CTBM: no ready matches (none are your turn)")
-  end
+  end, o__matches, o__err) end
   )
 end
 
@@ -525,13 +525,13 @@ end
 -- means all, not just the already-finished ones.
 function CTBM:_quitThenRemoveMatch(m, localId)
   local function doRemove()
-    m:removeWithCompletionHandler_(function(o__err)
+    m:removeWithCompletionHandler_(function(o__err) handOff(function(o__err)
       if o__err then
         self:log("CTBM: remove error:", m.matchID, o__err.localizedDescription)
       else
         self:log("CTBM: removed match", m.matchID)
       end
-    end)
+    end, o__err) end)
   end
 
   if self:_isMatchEnded(m) then
@@ -555,26 +555,26 @@ function CTBM:_quitThenRemoveMatch(m, localId)
     nextParticipants,
     0,
     m.matchData,
-    function(o__Error)
+    function(o__Error) handOff(function(o__Error)
       if o__Error then
         self:log("CTBM: quit-in-turn error:", m.matchID, o__Error.localizedDescription)
       else
         self:log("CTBM: quit-in-turn sent", m.matchID)
       end
       doRemove()
-    end
+    end, o__Error) end
     )
   else
     m:participantQuitOutOfTurnWithOutcome_withCompletionHandler_(
     objc.enum.GKTurnBasedMatchOutcome.quit,
-    function(o__Error)
+    function(o__Error) handOff(function(o__Error)
       if o__Error then
         self:log("CTBM: quit-out-of-turn error:", m.matchID, o__Error.localizedDescription)
       else
         self:log("CTBM: quit-out-of-turn sent", m.matchID)
       end
       doRemove()
-    end
+    end, o__Error) end
     )
   end
 end
@@ -589,7 +589,7 @@ function CTBM:clearAllMatches()
   self.suppressTurnNavigationUntil = os.time() + 20
 
   objc.GKTurnBasedMatch:loadMatchesWithCompletionHandler_(
-  function(o__matches, o__error)
+  function(o__matches, o__error) handOff(function(o__matches, o__error)
     if o__error then
       self:log("CTBM: loadMatches error:", o__error.localizedDescription)
       return
@@ -618,7 +618,7 @@ function CTBM:clearAllMatches()
       self._onMatchesCleared(count)
       self:log("CTBM: ran callback self._onMatchesCleared")
     end
-  end
+  end, o__matches, o__error) end
   )
 end
 
@@ -814,7 +814,7 @@ function CTBM:findOrMakeMatch()
   
   objc.GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(
   request,
-  function(o__match, o__err)
+  function(o__match, o__err) handOff(function(o__match, o__err)
     if o__err then
       self:log("CTBM: findMatchForRequest aborted with error: ", o__err)
       return
@@ -827,7 +827,7 @@ function CTBM:findOrMakeMatch()
     
     self:log("CTBM: findMatchForRequest found ", o__match.matchID)
     self:_setCurrentMatch(o__match, "findOrMakeMatch")
-  end
+  end, o__match, o__err) end
   )
 end
 
@@ -866,7 +866,7 @@ function CTBM:ensureCurrentMatch(matchId, onReady)
     return
   end
   objc.GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(matchId, function(o__match, o__err)
-    objc.async(function()
+    handOff(function()
       if o__err or not o__match then
         self:log("CTBM:ensureCurrentMatch load failed:", o__err and o__err.localizedDescription or "nil match")
         return
@@ -917,7 +917,7 @@ function CTBM:endTurnWithDataTable(t, onError)
   nextParticipants,
   0,
   data,
-  function(o__err)
+  function(o__err) handOff(function(o__err)
     if o__err then
       self:log("CTBM:endTurn error:", o__err.localizedDescription)
       if onError then onError(o__err) end
@@ -936,7 +936,7 @@ function CTBM:endTurnWithDataTable(t, onError)
       
       self:log("CTBM: endTurnWithNextParticipants callback ended")
     end
-  end
+  end, o__err) end
   )
 end
 
@@ -973,7 +973,7 @@ function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
   "XCHG_UPDATE",
   {},
   7 * 24 * 60 * 60, -- a week; GameKit's own exchange timeout isn't relied on (see design doc)
-  function(o__exchange, o__err)
+  function(o__exchange, o__err) handOff(function(o__exchange, o__err)
     if o__err then
       self:log("CTBM:sendExchange error:", o__err.localizedDescription)
       if onError then onError(o__err) end
@@ -981,7 +981,7 @@ function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
       self:log("CTBM: sendExchangeToParticipants succeeded")
       if onSuccess then onSuccess(o__exchange) end
     end
-  end
+  end, o__exchange, o__err) end
   )
 end
 
@@ -1021,7 +1021,7 @@ function CTBM:sendReminderWithMessage(key, args, onError, onSuccess)
   recipients,
   key,
   args or {},
-  function(o__err)
+  function(o__err) handOff(function(o__err)
     if o__err then
       self:log("CTBM:sendReminder error:", o__err.localizedDescription)
       if onError then onError(o__err) end
@@ -1029,7 +1029,7 @@ function CTBM:sendReminderWithMessage(key, args, onError, onSuccess)
       self:log("CTBM: sendReminderToParticipants succeeded")
       if onSuccess then onSuccess() end
     end
-  end
+  end, o__err) end
   )
 end
 
@@ -1053,7 +1053,7 @@ function CTBM:replyToActiveExchanges(dataTable, onDone)
   for _, ex in ipairs(active) do
     ex:replyWithLocalizableMessageKey_arguments_data_completionHandler_(
     "XCHG_REPLY", {}, data,
-    function(o__err)
+    function(o__err) handOff(function(o__err)
       if o__err then
         self:log("CTBM:replyToActiveExchanges error:", o__err.localizedDescription)
       else
@@ -1061,7 +1061,7 @@ function CTBM:replyToActiveExchanges(dataTable, onDone)
       end
       remaining = remaining - 1
       if remaining <= 0 and onDone then onDone(total) end
-    end
+    end, o__err) end
     )
   end
 end
@@ -1085,7 +1085,7 @@ function CTBM:mergeCompletedExchanges(dataTable, onError, onSuccess)
   local data = self:_dataTableToNSData(dataTable)
   self.currentMatch:saveMergedMatchData_withResolvedExchanges_completionHandler_(
   data, completed,
-  function(o__err)
+  function(o__err) handOff(function(o__err)
     if o__err then
       self:log("CTBM:mergeCompletedExchanges error:", o__err.localizedDescription)
       if onError then onError(o__err) end
@@ -1093,7 +1093,7 @@ function CTBM:mergeCompletedExchanges(dataTable, onError, onSuccess)
       self:log("CTBM: saveMergedMatchData succeeded, merged", #completed, "exchange(s)")
       if onSuccess then onSuccess() end
     end
-  end
+  end, o__err) end
   )
 end
 

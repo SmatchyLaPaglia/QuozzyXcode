@@ -989,10 +989,10 @@ function maybeSendReminderForCurrentMatch(q)
   local matchId = q.id
   tbm:ensureCurrentMatch(matchId, function()
     tbm:sendReminderWithMessage("Your match is waiting for you!", {},
-      function(o__err)
+      function(o__err) handOff(function(o__err)
         devLog("maybeSendReminderForCurrentMatch: send failed", matchId,
           o__err and o__err.localizedDescription or "nil")
-      end,
+      end, o__err) end,
       function()
         devLog("maybeSendReminderForCurrentMatch: sent", matchId)
       end)
