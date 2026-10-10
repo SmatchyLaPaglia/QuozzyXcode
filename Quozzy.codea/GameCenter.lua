@@ -266,7 +266,11 @@ end
 -- on this, so browsing old results no longer advances the season.
 justFinishedLiveGame = justFinishedLiveGame or false
 
-local function enterQMatch_inner(q)
+-- background == true: an incoming GameKit event, not the player. Every bit of
+-- model/send work still happens, but NOTHING here may change the screen
+-- (MULTIPLAYER_DESIGN.md rule 8: no screen or overlay appears unless the
+-- player opened it). Only the player's own taps call this without it.
+local function enterQMatch_inner(q, background)
   if not q or not q.id then
     print("enterQMatch: nil q or id")
     return
@@ -311,13 +315,29 @@ local function enterQMatch_inner(q)
     end
   end
 
+  -- Background event for some OTHER match while the player is in a match
+  -- screen: adopting it would replace the round/result they're looking at.
+  -- Leave the model alone -- retryPendingHandshakeSends (called alongside
+  -- this from onReceivingTurn) still sends whatever this device owes for it.
+  if background and state ~= STATE_MENU and not (currentQMatch and currentQMatch.id == q.id) then
+    devLog("enterQMatch(background): player busy in another screen; not adopting", q.id)
+    -- The listener already pointed tbm.currentMatch/isMyTurn at the incoming
+    -- match; point them back at the player's own, or their next send would
+    -- pick turn-pass vs exchange from the wrong match's turn state.
+    if currentQMatch and currentQMatch.id and tbm and tbm.ensureCurrentMatch then
+      tbm:ensureCurrentMatch(currentQMatch.id, function() end)
+    end
+    return
+  end
+
   -- A real entry into a match context (as opposed to the protective background merge just
   -- above, which returns early and must NOT reach here): whatever justFinishedLiveGame was
   -- claiming is no longer applicable until/unless endGameRound() sets it again below.
-  justFinishedLiveGame = false
-
-  if endReplayMatchmakingBusy then
-    endReplayMatchmakingBusy()
+  if not background then
+    justFinishedLiveGame = false
+    if endReplayMatchmakingBusy then
+      endReplayMatchmakingBusy()
+    end
   end
 
   -- Detect "this is my very first turn-event for a brand-new match I just created":
@@ -396,8 +416,10 @@ local function enterQMatch_inner(q)
     local endState = tbm:_getEndStateFromMatch(tbm.currentMatch)
     if endState then
       devLog("enterQMatch: selected match already ended; staying on end screen", "endState=", endState)
-      applyResolvedWordsToEndScreen(currentQMatch, localPID())
-      state = STATE_END
+      if not background then
+        applyResolvedWordsToEndScreen(currentQMatch, localPID())
+        state = STATE_END
+      end
       return
     end
   end
@@ -415,6 +437,7 @@ local function enterQMatch_inner(q)
       end
     end
     if meP and meP.didPlay == true and otherP and otherP.didPlay == true then
+      if background then return end
       if enterEndScreenForOpenCompletedGameplay(
         q,
         "enterQMatch: open match has completed gameplay; showing comment/results screen"
@@ -429,6 +452,7 @@ local function enterQMatch_inner(q)
   if tbm and tbm.currentMatch and tbm.isMyTurn == false then
     local myId = localPID()
     local meP = q.players and q.players[myId] or nil
+    if background then return end
     local otherId, otherP = applyResolvedWordsToEndScreen(q, myId)
     
     if meP and meP.didPlay == true then
@@ -447,12 +471,13 @@ local function enterQMatch_inner(q)
       "otherId=", otherId)
   end
 
+  if background then return end
   startRoundFromCurrentSettings()   -- generates+stores boardTiles, sets STATE_READY
 end
 
-function enterQMatch(q)
+function enterQMatch(q, opts)
   local matchId = q and q.id
-  enterQMatch_inner(q)
+  enterQMatch_inner(q, opts and opts.background == true)
   -- Runs after EVERY exit path above, not just the fallthrough — a merge
   -- guard branch or an end-screen branch may have just made something
   -- newly sendable (e.g. the opponent's resolution arriving completes what

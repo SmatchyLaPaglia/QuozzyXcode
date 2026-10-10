@@ -1258,6 +1258,40 @@ test("vs badges: quick-start only for a playable round; dot for a result I haven
   vsListEntries = nil
 end)
 
+test("background turn events never change the screen", function()
+  useTurnBased = true
+  local function gk(id) return { matchID = id,
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } } } end
+  local both = { boardSize = 4, minWordLen = 3, players = {
+    ["local-player-id"] = { didPlay = true, score = 3, words = {"CAT"} },
+    ["opp"] = { didPlay = true, score = 2, words = {"DOG"} } } }
+
+  -- On the menu, a finished match arrives: model updates, screen stays.
+  state = STATE_MENU
+  tbm.isMyTurn = true
+  enterQMatch(makeQMatchFromGK(gk("bg1"), both), { background = true })
+  check("menu stays put for a finished match", state == STATE_MENU, "state="..tostring(state))
+  check("model still adopted", currentQMatch and currentQMatch.id == "bg1")
+
+  -- A brand-new match (I haven't played) arrives: no ready screen.
+  state = STATE_MENU
+  enterQMatch(makeQMatchFromGK(gk("bg2"), { boardSize = 4, minWordLen = 3, players = {
+    ["opp"] = { didPlay = false } } }), { background = true })
+  check("no ready screen for a match I haven't opened", state == STATE_MENU, "state="..tostring(state))
+
+  -- Mid-round in another match: not hijacked.
+  currentQMatch = freshQMatch("mine", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  state = STATE_PLAY
+  enterQMatch(makeQMatchFromGK(gk("bg3"), both), { background = true })
+  check("my round keeps playing", state == STATE_PLAY and currentQMatch.id == "mine")
+
+  -- The player opening the same finished match still gets the end screen.
+  state = STATE_MENU
+  tbm.isMyTurn = true
+  enterQMatch(makeQMatchFromGK(gk("bg1"), both))
+  check("explicit open shows end screen", state == STATE_END, "state="..tostring(state))
+end)
+
 -- =========================================================== summary =====
 
 print(string.format("\n%d passed, %d failed", pass, fail))

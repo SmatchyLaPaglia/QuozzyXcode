@@ -1062,7 +1062,8 @@ function setup()
     if q and tbm.suppressTurnNavigationUntil and os.time() < tbm.suppressTurnNavigationUntil then
       devLog("onReceivingTurn: ignored while clearing all matches", q.id)
     elseif q then
-      enterQMatch(q)
+      -- Background only: an arriving turn never changes the screen (rule 8).
+      enterQMatch(q, { background = true })
     else
       print("makeQMatchFromGK failed")
     end
@@ -1104,12 +1105,10 @@ function setup()
 
   tbm:onSettingCurrentMatch(function(gkMatch, data)
     print("QUOZZY: onSettingCurrentMatch fired", gkMatch)
-    if not (tbm and tbm._getEndStateFromMatch) then return end
-    local endState = tbm:_getEndStateFromMatch(gkMatch)
-    if endState then
-      devLog("Selected GC match is finished", "endState=", endState)
-      state = STATE_END
-    end
+    -- No screen change here: this also fires for background turn events
+    -- (the player listener), and a finished match arriving must never pop
+    -- the end screen by itself (rule 8). A match the player opens goes
+    -- through enterQMatch, which shows the end screen for an ended match.
     refreshHomeScreenBadgeFromGCMatches("settingCurrentMatch")
   end)
 
