@@ -1369,6 +1369,27 @@ test("tapping the comment composer balloon focuses it instead of hiding it", fun
   check("hidden balloons: not a composer tap", endScreenTapIsOnComposer({ x = 100, y = 520, state = BEGAN }) == false)
 end)
 
+-- ===================================================== menu panels ======
+
+loadSource("MenuPanels.lua")
+
+test("menu panels: studio coordinates map to the y-up screen and persist", function()
+  WIDTH, HEIGHT = 390, 844
+  local cx, cy, w, h = mpRect(36, 239, 131, 88)   -- the board panel, studio top-left/y-down
+  check("center x", math.abs(cx - (36 + 65.5)) < 0.01, cx)
+  check("center y is flipped", math.abs(cy - (844 - 239 - 44)) < 0.01, cy)
+  check("size unscaled on the reference phone", w == 131 and h == 88)
+  _test_resetPersistence()
+  resetMenuPanelCfg()
+  local c = menuPanelCfg()
+  check("defaults loaded", c.fillRole == "white" and c.gx == 32 and c.btnX == 0)
+  c.fillAlpha = 55
+  saveMenuPanelCfg()
+  resetMenuPanelCfg()
+  saveLocalData(MENU_PANEL_KEY, json.encode({ fillAlpha = 55, bogus = 1, fillRole = 7 }))
+  check("export names every geometry", menuPanelExportText():find("seasonPlate = { x=20", 1, true) ~= nil)
+end)
+
 -- =========================================================== summary =====
 
 print(string.format("\n%d passed, %d failed", pass, fail))

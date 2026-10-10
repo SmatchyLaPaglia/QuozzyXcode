@@ -149,11 +149,15 @@ function drawMenuSeasonPoof(r)
   ----------------------------------------------------------
 
   menuFitCache = menuFitCache or {}
-  local sig = string.format("%d:%d:%d", seasonIndex or 0, math.floor(r.w), math.floor(r.h))
+  -- r.nameW/nameH (set when the season plate is on) size the season NAME to its plate; the
+  -- haiku keeps fitting the full band so it never shrinks with the plate.
+  local nameW, nameH = r.nameW or r.w, r.nameH or r.h
+  local sig = string.format("%d:%d:%d:%d:%d", seasonIndex or 0, math.floor(r.w), math.floor(r.h),
+    math.floor(nameW), math.floor(nameH))
   local fit = menuFitCache[sig]
   if not fit then
-    local seasonBoxW = math.min(r.w, 500)
-    local seasonBoxH = math.min(r.h, 248)
+    local seasonBoxW = math.min(nameW, 500)
+    local seasonBoxH = math.min(nameH, 248)
     local seasonSize = menuMeasureFitSize(seasonName or "Season", SEASON_FONT, seasonBoxW, seasonBoxH)
     local haikuSize  = list and menuMaxHaikuFitSize(list, HAIKU_FONT, r.w, haikuAreaH) or (haikuAreaH * 0.19)
     fit = { season = math.floor(seasonSize), haiku = math.floor(haikuSize) }
@@ -533,6 +537,9 @@ function drawMenu()
   updateFlecks(HEIGHT * 0.5, HEIGHT, TextGoPoof_state() == "A")
   drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
 
+  -- Panels whose z puts them behind the menu elements (MenuPanels.lua)
+  drawMenuPanelsLayer("back")
+
   ------------------------------------------------------------
   -- LAYOUT CONSTANTS
   ------------------------------------------------------------
@@ -580,6 +587,15 @@ function drawMenu()
     w  = innerW,
     h  = areaH
   }
+
+  -- The season name / haiku are centered on the season plate (MenuPanels.lua) when it's on.
+  local plateCx, plateCy = menuPanelSeasonCenter()
+  if plateCx then
+    seasonRect.cx, seasonRect.cy = plateCx, plateCy
+    seasonRect.x, seasonRect.y = plateCx - seasonRect.w * 0.5, plateCy - seasonRect.h * 0.5
+    local _, _, pw, ph, pu = mpRect(menuPanelCfg().sx, menuPanelCfg().sy, menuPanelCfg().sw, menuPanelCfg().sh)
+    seasonRect.nameW, seasonRect.nameH = math.min(seasonRect.w, pw - 28 * pu), ph * 0.78
+  end
 
   drawMenuSeasonPoof(seasonRect)
 
@@ -672,18 +688,20 @@ function drawMenu()
   local labelY    = gridCy + textShift + numberSize * 0.2 + 10  -- slight air above the number (+6 for the high-baseline "6" digit)
   local numberY   = gridCy + textShift - numberSize * 0.25
 
-  font("Georgia-Italic")
-  fontSize(labelSize)
-  fill(Color.uiAccent)
-  textMode(CENTER)
-  textAlign(CENTER)
-  text("board", textCx, labelY)
+  if not menuPanelShown("board") then   -- the board panel (MenuPanels.lua) carries this text when on
+    font("Georgia-Italic")
+    fontSize(labelSize)
+    fill(Color.uiAccent)
+    textMode(CENTER)
+    textAlign(CENTER)
+    text("board", textCx, labelY)
 
-  font("Georgia-Bold")
-  fontSize(numberSize)
-  fill(Color.uiAccent)
-  local numberStr = boardSize .. " x " .. boardSize
-  text(numberStr, textCx, numberY)
+    font("Georgia-Bold")
+    fontSize(numberSize)
+    fill(Color.uiAccent)
+    local numberStr = boardSize .. " x " .. boardSize
+    text(numberStr, textCx, numberY)
+  end
 
   popStyle()
 
@@ -758,30 +776,32 @@ function drawMenu()
 
   popMatrix()
 
-  -- Text: "minimum length" + number, vertically centered together
-  local diceLabelSize  = math.max(9,  math.min(h3 * 0.12, 20))
-  local diceNumberSize = math.max(12, math.min(h3 * 0.18, 26))
+  if not menuPanelShown("dice") then   -- the min. letters panel (MenuPanels.lua) carries this text when on
+    -- Text: "minimum length" + number, vertically centered together
+    local diceLabelSize  = math.max(9,  math.min(h3 * 0.12, 20))
+    local diceNumberSize = math.max(12, math.min(h3 * 0.18, 26))
 
-  local textX   = HPAD + 4
-  local textPad = 6
-  local textCY  = s[3].yBot + textPad + diceNumberSize * 0.5  -- vertical center
+    local textX   = HPAD + 4
+    local textPad = 6
+    local textCY  = s[3].yBot + textPad + diceNumberSize * 0.5  -- vertical center
 
-  -- Measure label first for positioning
-  font("Georgia-Italic")
-  fontSize(diceLabelSize)
-  local labelW, _ = textSize("minimum length")
+    -- Measure label first for positioning
+    font("Georgia-Italic")
+    fontSize(diceLabelSize)
+    local labelW, _ = textSize("minimum length")
 
-  -- Label: CENTER mode, positioned so left edge is at textX
-  fill(Color.uiAccent)
-  textMode(CENTER)
-  text("minimum length", textX + labelW * 0.5, textCY)
+    -- Label: CENTER mode, positioned so left edge is at textX
+    fill(Color.uiAccent)
+    textMode(CENTER)
+    text("minimum length", textX + labelW * 0.5, textCY)
 
-  -- Number to the right, same vertical center
-  font("Georgia-Bold")
-  fontSize(diceNumberSize)
-  fill(Color.uiAccent)
-  textMode(CENTER)
-  text(tostring(MIN_WORD_LEN), textX + labelW + 8 + diceNumberSize * 0.4, textCY)
+    -- Number to the right, same vertical center
+    font("Georgia-Bold")
+    fontSize(diceNumberSize)
+    fill(Color.uiAccent)
+    textMode(CENTER)
+    text(tostring(MIN_WORD_LEN), textX + labelW + 8 + diceNumberSize * 0.4, textCY)
+  end
 
   popStyle()
 
@@ -796,6 +816,13 @@ function drawMenu()
   local btnW   = btnH * 0.82
   local btnR   = btnW * 0.18
   local btnGap = WIDTH * 0.04
+  -- Plate Placement tuning (MenuPanels.lua): shift / gap / width offsets, all 0 = unchanged
+  local btnShiftX, gapAdj, widthAdj = menuPanelButtonAdjust()
+  do
+    local k = math.max(0.3, (btnW + widthAdj) / btnW)
+    btnW, btnH, btnR = btnW * k, btnH * k, btnR * k
+    btnGap = math.max(0, btnGap + gapAdj)
+  end
 
   -- Check for last opponent
   local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
@@ -804,7 +831,7 @@ function drawMenu()
   -- 2 or 3 buttons
   local buttonCount = hasReplay and 3 or 2
   local totalW = buttonCount * btnW + (buttonCount - 1) * btnGap
-  local startX = (WIDTH - totalW) * 0.5 + btnW * 0.5
+  local startX = (WIDTH - totalW) * 0.5 + btnW * 0.5 + btnShiftX
 
   local soloCx   = startX
   local vsCx     = startX + btnW + btnGap
@@ -991,6 +1018,9 @@ function drawMenu()
   text("they're just pretty pretty",         WIDTH * 0.5, y2)
 
   popStyle()
+
+  -- Panels in front of the menu elements (MenuPanels.lua)
+  drawMenuPanelsLayer("front")
 
   -- Draw row dividers (pink lines at section boundaries)
   if showRowDividers then

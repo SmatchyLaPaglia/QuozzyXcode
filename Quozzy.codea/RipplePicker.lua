@@ -19,6 +19,7 @@ end
 
 clearMatchesStatus = clearMatchesStatus or nil
 local clearMatchesBtnRect = nil
+local platePlacementBtnRect = nil
 local closeBtnRect = nil
 local testRippleBtnRect = nil
 local tuneBtnRects = {}   -- { rect, key, dir }
@@ -92,13 +93,19 @@ function drawRipplePickerOverlay()
   drawButton(clearBtnX, clearBtnY, clearBtnW, clearBtnH, "Clear All Matches", false)
   clearMatchesBtnRect = { x = clearBtnX, y = clearBtnY, w = clearBtnW, h = clearBtnH }
 
+  -- Opens the Plate Placement overlay (MenuPanels.lua): live tuning of the menu's panels
+  local plateBtnW, plateBtnH = 260, 48
+  local plateBtnX, plateBtnY = panelX, clearBtnY - clearBtnH / 2 - 14 - plateBtnH / 2
+  drawButton(plateBtnX, plateBtnY, plateBtnW, plateBtnH, "Plate Placement", false)
+  platePlacementBtnRect = { x = plateBtnX, y = plateBtnY, w = plateBtnW, h = plateBtnH }
+
   if clearMatchesStatus then
     fill(tileText.r, tileText.g, tileText.b, 200)
     font("HelveticaNeue-Bold")
     fontSize(14)
     textMode(CENTER)
     textAlign(CENTER)
-    text(clearMatchesStatus, clearBtnX, clearBtnY - clearBtnH / 2 - 20)
+    text(clearMatchesStatus, clearBtnX, plateBtnY - plateBtnH / 2 - 12)
   end
 
   local closeBtnW, closeBtnH = 200, 48
@@ -142,7 +149,7 @@ function drawRipplePickerOverlay()
   end
   local tuneTop = tuneBottom + rows * rowH
 
-  drawRecordsInfoLayoutMockup(panelX, panelW, tuneTop + 8, clearBtnY - clearBtnH / 2 - 40)
+  drawRecordsInfoLayoutMockup(panelX, panelW, tuneTop + 8, plateBtnY - plateBtnH / 2 - 40)
   drawButton(closeBtnX, closeBtnY, closeBtnW, closeBtnH, "Close", false)
   closeBtnRect = { x = closeBtnX, y = closeBtnY, w = closeBtnW, h = closeBtnH }
 
@@ -163,6 +170,11 @@ function handleRipplePickerTouch(t)
   if not ripplePickerOverlay then return false end
   if t.state == ENDED then
     if handleClearMatchesTouch(t) then
+      return true
+    end
+    if platePlacementBtnRect and pointInRect(t.x, t.y, platePlacementBtnRect.x, platePlacementBtnRect.y, platePlacementBtnRect.w, platePlacementBtnRect.h) then
+      ripplePickerOverlay = false
+      openPlatePlacementOverlay()
       return true
     end
     if testRippleBtnRect and pointInRect(t.x, t.y, testRippleBtnRect.x, testRippleBtnRect.y, testRippleBtnRect.w, testRippleBtnRect.h) then

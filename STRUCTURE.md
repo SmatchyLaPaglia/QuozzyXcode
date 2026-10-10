@@ -1764,3 +1764,16 @@ points — may look soft on retina.
 - 2026-10-10 (later): flecks are full-screen, updated/drawn at the top of drawMenu (POOL=130); board and min-length dice spin on
   independent clocks (menuSpinCycleClock(period, offset); MENU_DICE_SPIN_CYCLE/OFFSET); quick-start badge text no longer rotates;
   end-screen "updating" only fires on a REAL opponent change (opponentSlotWouldChange now treats nil==false; history views don't poll).
+
+## Menu panels + Plate Placement (MenuPanels.lua, 2026-10-10)
+- Translucent rounded panels: season-name plate, "board N × N", "min. letters N", "game types". Look chosen in the Menu Panel
+  Studio artifact; values live in menuPanelDefaults, overrides persist via saveLocalData(MENU_PANEL_KEY) (menuPanelCfg()).
+- Geometry is STUDIO points (390x844 phone, top-left origin, y DOWN) -> mpRect() -> Codea y-up. Sizes/fonts scale by min(W/390,H/844).
+- Drawn as meshes with per-vertex alpha (drawRoundedRect double-blends translucent fills). Cached by size+look+colors.
+- Layers: drawMenuPanelsLayer("back") right after flecks in drawMenu; ("front") after section 6. Per-panel z: front | behind | plateBehind.
+- Season name/haiku are centered on the plate (seasonRect.cx/cy override); seasonRect.nameW/nameH size the NAME to the plate (haiku still
+  fits the full band). Plate fades with the name via TextGoPoof_flecksFade() when haikuPlate=="fade".
+- Old loose "board 4 x 4" / "minimum length 3" text is drawn only when the matching panel is off.
+- Play buttons: menuPanelButtonAdjust() gives x shift / gap / width offsets (0 = the menu's own layout).
+- Debug Menu (🐛) > "Plate Placement" closes the debug overlay and opens drawPlatePlacementOverlay (translucent tabbed slider sheet; Copy exports
+  the studio paste format; Reset clears overrides; Dock auto-moves away from the panel being tuned). platePlacementOverlay is in badgeSuppressed().
