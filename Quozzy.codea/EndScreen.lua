@@ -712,6 +712,14 @@ local function endScreenHasVisibleBalloons()
   return false
 end
 
+-- True when touch t lands on the local player's live comment composer balloon.
+function endScreenTapIsOnComposer(t)
+  local r = endScreenLocalBalloonRect
+  if not (r and t and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer()) then return false end
+  if endScreenSpeechBalloonsVisible == false then return false end
+  return t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h
+end
+
 local function pointInCornerRect(px, py, r)
   return r and px >= r.x and px <= r.x + r.w and py >= r.y and py <= r.y + r.h
 end
@@ -736,6 +744,15 @@ function handleEndScreenTouch(t)
   -- the keyboard away mid-keystroke; a tap elsewhere while composing hides
   -- the draft balloon same as any other tap, but the draft text itself is
   -- preserved in endScreenCommentDraft).
+  -- Except a tap ON the comment composer balloon: that tap is meant for the native
+  -- UITextView (which becomes first responder from it), but Codea sees it too.
+  -- Hiding the balloons here hid the field and dropped its focus, so the composer
+  -- just vanished when tapped. Mark it focused right away instead -- the text
+  -- view's own "began editing" callback is handed off to the next frame.
+  if t.state == BEGAN and endScreenTapIsOnComposer(t) then
+    if commentFields and commentFields[3] then commentFields[3].focused = true end
+    return true
+  end
   if t.state == BEGAN and endScreenSpeechBalloonsVisible and endScreenHasVisibleBalloons() then
     endScreenSpeechBalloonsVisible = false
   end

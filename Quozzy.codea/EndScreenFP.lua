@@ -1700,6 +1700,8 @@ function buildEndScreenModel()
 end
 
 function drawEndScreenFP()
+  noteEndScreenFrame()
+  if applyDueEndScreenUpdate then applyDueEndScreenUpdate(ElapsedTime) end
   scrollListCol1 = scrollListCol1 or ScrollList.new()
   scrollListCol2 = scrollListCol2 or ScrollList.new()
   -- Animate card snap toward 0 (exponential decay)
@@ -1733,6 +1735,7 @@ function drawEndScreenFP()
   local model = buildEndScreenModel()
   syncEndScreenCommentState(model)
   drawEndScreenWith(model, endScreenLayout)
+  drawEndScreenUpdateIndicator()
 end
 
 -- Builds the ordered list of swipeable cards from the end-screen model.
@@ -2106,4 +2109,34 @@ function keyboard(key)
   if type(key) ~= "string" or #key ~= 1 then return end
   if key:match("[%c]") then return end
   endScreenCommentDraft = normalizeCommentDraft((endScreenCommentDraft or "") .. key)
+end
+
+
+-- "Updated" signal over the score area while a staged opponent update waits
+-- (see deliverOpponentSlots, GameCenter.lua). Drawn last, on top of the cards.
+function drawEndScreenUpdateIndicator()
+  if not endScreenPendingUpdate then return end
+  local g = endScreenLayout
+  local cr = g and g.cardListRect
+  local cx = cr and (cr.x + cr.w * 0.5) or WIDTH * 0.5
+  local cy = cr and (cr.y + cr.h * 0.5) or HEIGHT * 0.5
+  pushStyle()
+  rectMode(CENTER)
+  noStroke()
+  fill(0, 0, 0, 150)
+  drawRoundedRect(cx, cy, 170, 92, 18, color(0, 0, 0, 150), color(0, 0, 0, 150))
+  local n, r = 8, 16
+  local spin = (ElapsedTime or 0) * 7
+  ellipseMode(CENTER)
+  for i = 0, n - 1 do
+    local a = spin + i * (2 * math.pi / n)
+    fill(255, 255, 255, 60 + 195 * ((i + 1) / n))
+    ellipse(cx + math.cos(a) * r, cy + 12 + math.sin(a) * r, 7, 7)
+  end
+  fill(255)
+  font("HelveticaNeue-Bold")
+  fontSize(15)
+  textMode(CENTER)
+  text("updating", cx, cy - 26)
+  popStyle()
 end

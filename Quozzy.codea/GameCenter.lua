@@ -543,16 +543,8 @@ function refreshCurrentMatchFromGK(reason)
         local dt = tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(o__match) or nil
         local fresh = makeQMatchFromGK(o__match, dt)
         if not fresh then return end
-        local myId = localPID()
-        local before = json.encode(currentQMatch.players or {})
-        for pid, pdata in pairs(fresh.players or {}) do
-          if pid ~= myId then mergeOpponentSlot(currentQMatch, pid, pdata) end
-        end
-        if json.encode(currentQMatch.players or {}) ~= before then
+        if deliverOpponentSlots(fresh.players, ElapsedTime or 0) then
           devLog("refreshCurrentMatchFromGK: opponent data updated", matchId, "reason=", reason)
-          local _, otherP = nil, nil
-          for pid, pdata in pairs(currentQMatch.players) do if pid ~= myId then otherP = pdata end end
-          opponentScore = tonumber(otherP and otherP.score) or opponentScore
         end
         -- Read-only with respect to the send machinery: never swap tbm.currentMatch
         -- or start a send from here (a poll shouldn't race the real send path).
@@ -587,6 +579,75 @@ function pollEndScreenMatch()
     _endScreenPollAt = now
     refreshCurrentMatchFromGK("endScreenPoll")
   end
+end
+
+-- Every end screen opens with the comment balloons showing, however it was opened
+-- (just-finished round, vs list, Records, background update). Called once per
+-- end-screen frame; resets on the first frame after the end screen wasn't up.
+function noteEndScreenFrame()
+  if not _endScreenWasShowing then
+    _endScreenWasShowing = true
+    endScreenSpeechBalloonsVisible = true
+  end
+end
+function noteNotOnEndScreen() _endScreenWasShowing = false end
+
+-- "This end screen just got updated" signal. New opponent data for an open end
+-- screen is staged, an indicator shows for ENDSCREEN_UPDATE_SIGNAL_SECONDS, then
+-- the data is applied. The indicator doesn't track real work (the data is
+-- already here); it tells the player something changed, which they couldn't
+-- otherwise see (the opponent's card is off to the side).
+ENDSCREEN_UPDATE_SIGNAL_SECONDS = 0.8
+endScreenPendingUpdate = endScreenPendingUpdate or nil
+
+-- Would merging `slot` into q's opponent pid change anything visible?
+local function opponentSlotWouldChange(q, pid, slot)
+  local cur = q and q.players and q.players[pid]
+  if not slot then return false end
+  if cur and cur.didPlay == true and slot.didPlay ~= true then return false end
+  if cur and cur.commentDecided == true and slot.commentDecided ~= true then return false end
+  if not cur then return true end
+  return cur.didPlay ~= slot.didPlay or (cur.score or 0) ~= (slot.score or 0)
+    or (cur.comment or "") ~= (slot.comment or "") or cur.commentDecided ~= slot.commentDecided
+end
+
+-- Route opponent data for currentQMatch: staged behind the indicator while its
+-- end screen is up, applied straight away otherwise. Returns true if anything changes.
+function deliverOpponentSlots(slots, now)
+  local q = currentQMatch
+  if not (q and slots) then return false end
+  local myId = localPID()
+  local changed = false
+  for pid, slot in pairs(slots) do
+    if pid ~= myId and opponentSlotWouldChange(q, pid, slot) then changed = true end
+  end
+  if not changed then return false end
+  if state == STATE_END then
+    local pend = endScreenPendingUpdate
+    if not (pend and pend.matchId == q.id) then
+      pend = { matchId = q.id, slots = {}, applyAt = (now or 0) + ENDSCREEN_UPDATE_SIGNAL_SECONDS }
+      endScreenPendingUpdate = pend
+    end
+    for pid, slot in pairs(slots) do if pid ~= myId then pend.slots[pid] = slot end end
+  else
+    for pid, slot in pairs(slots) do if pid ~= myId then mergeOpponentSlot(q, pid, slot) end end
+  end
+  return true
+end
+
+-- Applies a staged update once its signal time has passed. Returns true when applied.
+function applyDueEndScreenUpdate(now)
+  local pend = endScreenPendingUpdate
+  if not pend then return false end
+  if not (currentQMatch and currentQMatch.id == pend.matchId) then endScreenPendingUpdate = nil; return false end
+  if (now or 0) < pend.applyAt then return false end
+  for pid, slot in pairs(pend.slots) do
+    mergeOpponentSlot(currentQMatch, pid, slot)
+    opponentScore = tonumber(slot.score) or opponentScore
+  end
+  endScreenPendingUpdate = nil
+  devLog("end screen: opponent update applied", pend.matchId)
+  return true
 end
 
 function enterQMatch(q, opts)
@@ -859,7 +920,12 @@ function onExchangeDataReceived(gkMatch, dataTable)
   local matchId = gkMatch and gkMatch.matchID
   if dataTable and type(dataTable.players) == "table"
      and currentQMatch and matchId and currentQMatch.id == matchId then
-    applyIncomingPlayersPatch(currentQMatch, dataTable.players)
+    if state == STATE_END then
+      -- Open end screen: show the "updated" signal before revealing it.
+      deliverOpponentSlots(dataTable.players, ElapsedTime or 0)
+    else
+      applyIncomingPlayersPatch(currentQMatch, dataTable.players)
+    end
     if dataTable.recordSync and mergeOpponentRecordFromTurnData then
       mergeOpponentRecordFromTurnData(gkMatch, dataTable)
     end

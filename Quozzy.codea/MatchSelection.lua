@@ -315,6 +315,13 @@ function refreshVsMatchesList(reason)
                 local ended = endedState ~= nil
                 local finished = ended or (me and me.didPlay == true and oppData and oppData.didPlay == true)
                 local viewed = finished and vsMatchAlreadyViewed(q.id, oppId) or false
+                -- Keep Records current for EVERY finished match, viewed or not: a comment
+                -- that arrives after the match was viewed must still reach its Records row
+                -- (it used to appear only after reopening that match's end screen).
+                if finished and recordMatchSnapshot and snapshotFromQMatch then
+                  local snap = snapshotFromQMatch(q, oppId, q.opponentName)
+                  if snap then recordMatchSnapshot(snap) end
+                end
                 if not (finished and viewed) then
                   local entry = {
                     id = q.id, gkMatch = m, dataTable = dataTable, q = q,
@@ -326,10 +333,6 @@ function refreshVsMatchesList(reason)
                     sortTs = q.lastUpdated or 0,
                     avatar = nil,
                   }
-                  if finished and recordMatchSnapshot and snapshotFromQMatch then
-                    local snap = snapshotFromQMatch(q, oppId, q.opponentName)
-                    if snap then recordMatchSnapshot(snap) end
-                  end
                   if finished then
                     -- Completed matches belong to Records; only unseen ones are kept
                     -- here (for its badges and rows), viewed ones live in match history.

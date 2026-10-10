@@ -13,6 +13,8 @@ loadSource("qMatch_qPlayer.lua")
 loadSource("GameCenter.lua")
 loadSource("opponentRecords.lua")
 loadSource("MatchSelection.lua")
+ScrollList = ScrollList or { new = function() return {} end }  -- EndScreen.lua builds lists at load
+loadSource("EndScreen.lua")
 
 -- ---------------------------------------------------------------- harness --
 local pass, fail = 0, 0
@@ -1306,6 +1308,65 @@ test("makeQMatchFromGK: opponent's score/comment from their unmerged exchange sh
   check("opponent comment shown", q.players["opp"].comment == "gg")
   local snap = snapshotFromQMatch(q, "opp", "Opp")
   check("records snapshot complete with comment", snap and snap.complete == true and snap.oppComment == "gg")
+end)
+
+test("end screen update signal: opponent data is staged, shown for a beat, then applied", function()
+  useTurnBased = true
+  state = STATE_END
+  endScreenPendingUpdate = nil
+  currentQMatch = freshQMatch("mu", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["opp"] = { didPlay = false }
+  local changed = deliverOpponentSlots({ ["opp"] = { didPlay = true, score = 5, words = {"DOG"} } }, 100)
+  check("change detected", changed == true)
+  check("not applied yet (indicator up)", currentQMatch.players["opp"].didPlay == false and endScreenPendingUpdate ~= nil)
+  check("still pending just before the signal time", applyDueEndScreenUpdate(100 + ENDSCREEN_UPDATE_SIGNAL_SECONDS - 0.1) == false)
+  check("applied after the signal time", applyDueEndScreenUpdate(100 + ENDSCREEN_UPDATE_SIGNAL_SECONDS) == true)
+  check("opponent now shown", currentQMatch.players["opp"].didPlay == true and currentQMatch.players["opp"].score == 5)
+  check("indicator gone", endScreenPendingUpdate == nil)
+  check("same data again: no new signal", deliverOpponentSlots({ ["opp"] = { didPlay = true, score = 5, words = {"DOG"} } }, 200) == false)
+
+  state = STATE_MENU
+  deliverOpponentSlots({ ["opp"] = { didPlay = true, score = 5, commentDecided = true, comment = "gg" } }, 300)
+  check("off the end screen: applied immediately, no indicator", currentQMatch.players["opp"].comment == "gg" and endScreenPendingUpdate == nil)
+end)
+
+test("every end screen opens with comments visible", function()
+  endScreenSpeechBalloonsVisible = false
+  noteNotOnEndScreen()
+  noteEndScreenFrame()
+  check("first end-screen frame shows comments", endScreenSpeechBalloonsVisible == true)
+  endScreenSpeechBalloonsVisible = false  -- player hid them
+  noteEndScreenFrame()
+  check("hiding sticks while the same end screen stays up", endScreenSpeechBalloonsVisible == false)
+end)
+
+test("records row picks up a comment that arrives after the match was viewed", function()
+  useTurnBased = true
+  matchHistoryByOpponent = {}
+  local q = { id = "mr", boardSize = 4, minWordLen = 3, lastUpdated = 10,
+    boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"},
+    players = { ["local-player-id"] = { didPlay = true, score = 1, words = {"CAT"}, comment = "first" },
+                ["opp"] = { didPlay = true, score = 1, words = {"DOG"}, comment = "" } } }
+  recordMatchSnapshot(snapshotFromQMatch(q, "opp", "Opp"))
+  q.players["opp"].comment = "That seems unlikely"; q.lastUpdated = 20
+  recordMatchSnapshot(snapshotFromQMatch(q, "opp", "Opp"))
+  local row = findMatchHistoryEntry("opp", "mr")
+  check("row has the later comment", row and row.oppComment == "That seems unlikely", row and row.oppComment)
+end)
+
+test("tapping the comment composer balloon focuses it instead of hiding it", function()
+  useTurnBased = true
+  state = STATE_END
+  currentQMatch = freshQMatch("mt", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay = true
+  endScreenSpeechBalloonsVisible = true
+  endScreenLocalBalloonRect = { x = 30, y = 500, w = 300, h = 40 }
+  commentFields = { [3] = { focused = false } }
+  check("composer offered", shouldShowFinalCommentComposer() == true)
+  check("tap inside balloon counts as composer tap", endScreenTapIsOnComposer({ x = 100, y = 520, state = BEGAN }) == true)
+  check("tap elsewhere does not", endScreenTapIsOnComposer({ x = 100, y = 100, state = BEGAN }) == false)
+  endScreenSpeechBalloonsVisible = false
+  check("hidden balloons: not a composer tap", endScreenTapIsOnComposer({ x = 100, y = 520, state = BEGAN }) == false)
 end)
 
 -- =========================================================== summary =====
