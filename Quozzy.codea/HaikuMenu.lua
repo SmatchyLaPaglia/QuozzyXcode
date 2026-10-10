@@ -139,7 +139,10 @@ function drawMenuSeasonPoof(r)
   -- lift the haiku so haiku + attribution together read as vertically centered.
   local attrZoneH  = r.h * 0.22
   local haikuAreaH = r.h - attrZoneH
-  local haikuCy    = r.cy + attrZoneH * 0.5
+  -- r.haikuCy (set by drawMenu) is where the haiku + attribution BLOCK is centered: halfway
+  -- between the notch and the top of the board. The haiku sits attrZoneH/2 above that so the
+  -- two together read as centered.
+  local haikuCy    = (r.haikuCy or r.cy) + attrZoneH * 0.5
 
   ----------------------------------------------------------
   -- Fit sizes, cached per season + area dimensions.
@@ -232,7 +235,7 @@ function drawMenuSeasonPoof(r)
     local haikuBottom = haikuCy - hbh * 0.5
     local gap    = attrSize * 0.6
     local attrCy = haikuBottom - gap - ah * 0.5
-    local minCy  = r.y + ah * 0.5 + 2            -- keep inside the band
+    local minCy  = r.haikuCy and (ah * 0.5) or (r.y + ah * 0.5 + 2)   -- keep inside the band
     if attrCy < minCy then attrCy = minCy end
     local ts = Color.tileStroke
     fill(ts.r, ts.g, ts.b, TextGoPoof_haikuAlpha())
@@ -535,7 +538,7 @@ function drawMenu()
     seasonFlecksBandH = HEIGHT
   end
   updateFlecks(HEIGHT * 0.5, HEIGHT, TextGoPoof_state() == "A")
-  drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
+  drawFlecks(seasons[seasonIndex], TextGoPoof_quickFade and TextGoPoof_quickFade(0.25) or TextGoPoof_flecksFade())
 
   -- Panels whose z puts them behind the menu elements (MenuPanels.lua)
   drawMenuPanelsLayer("back")
@@ -587,6 +590,17 @@ function drawMenu()
     w  = innerW,
     h  = areaH
   }
+
+  -- The haiku block (haiku + attribution) is centered between the notch and the board's top edge.
+  do
+    local bh2    = HEIGHT * boardRow
+    local bGridW = bh2 * menuBoardSizeAsPercentOfRow
+    local bCell  = math.max(4, math.floor((bGridW - (boardSize - 1) * 5) / boardSize))
+    local bGridH = boardSize * bCell + (boardSize - 1) * 5
+    local ang    = math.rad(math.abs(menuBoardTiltDegrees))
+    local boardTopY = midY(2) + bGridH * 0.5 * (math.cos(ang) + math.sin(ang))
+    seasonRect.haikuCy = (topSafeY + boardTopY) * 0.5
+  end
 
   -- The season name / haiku are centered on the season plate (MenuPanels.lua) when it's on.
   local plateCx, plateCy = menuPanelSeasonCenter()

@@ -186,7 +186,12 @@ function drawPoofingText(specA, specB)
 
   -- Fade in B text
 
-  P.alphaB = math.min(255, P.alphaB + HAIKU_FADE_STEP)
+  -- Everything below advances in "60 fps frames" of real time, not drawn frames: the poof
+  -- spawns ~1500 particles, and any frame-rate dip used to stretch the whole animation
+  -- (the dust and the haiku fade both lingered). Capped so a hitch can't skip it entirely.
+  local fstep = math.min(math.max(DeltaTime * 60, 0.5), 3)
+
+  P.alphaB = math.min(255, P.alphaB + HAIKU_FADE_STEP * fstep)
   
   if P.specsB then
     pushStyle()
@@ -210,7 +215,7 @@ function drawPoofingText(specA, specB)
 
   for _,p in ipairs(P.parts) do
 
-    p.life = p.life + 1
+    p.life = p.life + fstep
     local progress = p.life / p.maxLife
 
     if progress < 1 then
@@ -264,6 +269,15 @@ end
 
 -- Ambient-fleck opacity multiplier: 1 while idle (state A), ramps to 0 during
 -- the sweep as the haiku fades in, 0 once the haiku is showing (state B).
+-- Fast, time-based fade for things that must be GONE almost the instant the swipe lands
+-- (the season plate, the ambient flecks): 1 while idle, 0 `duration` seconds into the sweep,
+-- 0 once the haiku is showing. Unlike the haiku fade it never waits on the dust.
+function TextGoPoof_quickFade(duration)
+  if P.state == "A" then return 1 end
+  if P.state == "B" then return 0 end
+  return math.max(0, 1 - (P.animT or 0) / duration)
+end
+
 function TextGoPoof_flecksFade()
   if P.state == "A" then return 1 end
   if P.state == "B" then return 0 end

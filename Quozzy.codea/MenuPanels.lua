@@ -247,7 +247,7 @@ local function panelSpecs()
   local c = menuPanelCfg()
   return {
     { id = "season", show = c.showSeason, z = c.zSeason, x = c.sx, y = c.sy, w = c.sw, h = c.sh, tilt = c.stilt,
-      fades = (c.haikuPlate == "fade") },
+      fades = (c.haikuPlate == "fade") },   -- fades via TextGoPoof_quickFade (see drawMenuPanelsLayer)
     { id = "board", show = c.showBoard, z = c.zBoard, x = c.bx, y = c.by, w = c.bw, h = c.bh, tilt = c.btilt,
       label = "board", num = boardSize .. " × " .. boardSize },
     { id = "dice", show = c.showDice, z = c.zDice, x = c.dx, y = c.dy, w = c.dw, h = c.dh, tilt = c.dtilt,
@@ -316,7 +316,7 @@ function drawMenuPanelsLayer(layer)
   for _, sp in ipairs(panelSpecs()) do
     if sp.show then
       local am = 1
-      if sp.fades and TextGoPoof_flecksFade then am = TextGoPoof_flecksFade() end
+      if sp.fades and TextGoPoof_quickFade then am = TextGoPoof_quickFade(0.10) end
       if am > 0.01 then
         local z = sp.z
         if layer == "back" then
@@ -654,6 +654,7 @@ function handlePlatePlacementTouch(t)
       ppDragTo(ppDrag, t.x)
       ppDrag = nil
       saveMenuPanelCfg()
+      ppStatus = "Saved (kept across launches)"
       return true
     end
     if t.state == ENDED then
