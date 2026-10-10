@@ -285,7 +285,7 @@ function drawQuickStartBadgeAt(x, y, t, visibleDur)
   pushStyle()
   pushMatrix()
   translate(x, y)
-  rotate(qs.rotation or 0)
+  -- text stays level (the disc is round, so rotating only ever tilted the words)
 
   noStroke()
   fill(230, 40, 40, alpha)

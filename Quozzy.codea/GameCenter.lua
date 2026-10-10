@@ -568,6 +568,7 @@ end
 END_SCREEN_POLL_INTERVAL = 8.0
 function pollEndScreenMatch()
   if state ~= STATE_END or not useTurnBased or not currentQMatch then return end
+  if currentQMatch.source == "history" then return end   -- a snapshot, nothing live to update
   local myId = localPID()
   local waiting = false
   for pid, pdata in pairs(currentQMatch.players or {}) do
@@ -607,8 +608,9 @@ local function opponentSlotWouldChange(q, pid, slot)
   if cur and cur.didPlay == true and slot.didPlay ~= true then return false end
   if cur and cur.commentDecided == true and slot.commentDecided ~= true then return false end
   if not cur then return true end
-  return cur.didPlay ~= slot.didPlay or (cur.score or 0) ~= (slot.score or 0)
-    or (cur.comment or "") ~= (slot.comment or "") or cur.commentDecided ~= slot.commentDecided
+  -- nil and false mean the same here; comparing them raw made every poll look like an update.
+  return (cur.didPlay == true) ~= (slot.didPlay == true) or (cur.score or 0) ~= (slot.score or 0)
+    or (cur.comment or "") ~= (slot.comment or "") or (cur.commentDecided == true) ~= (slot.commentDecided == true)
 end
 
 -- Route opponent data for currentQMatch: staged behind the indicator while its

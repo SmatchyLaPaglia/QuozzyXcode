@@ -483,11 +483,18 @@ end
 -- Which cycle we're in (decides the target letters) and how far into it we are (decides
 -- what's still spinning vs. already resolved). Pure function of ElapsedTime, so the board
 -- preview and dice row call this independently yet stay perfectly in sync.
-function menuSpinCycleClock()
-  local cycleIndex = math.floor(ElapsedTime / MENU_SPIN_CYCLE)
-  local cycleT = ElapsedTime - cycleIndex * MENU_SPIN_CYCLE
+-- period/offset default to the shared MENU_SPIN_CYCLE clock; the dice row passes its own so
+-- the board and the min-length dice respin on independent schedules.
+function menuSpinCycleClock(period, offset)
+  period = period or MENU_SPIN_CYCLE
+  local t = ElapsedTime + (offset or 0)
+  local cycleIndex = math.floor(t / period)
+  local cycleT = t - cycleIndex * period
   return cycleIndex, cycleT
 end
+
+MENU_DICE_SPIN_CYCLE  = 3.3   -- min-length dice: deliberately not a multiple of the board's 2.6
+MENU_DICE_SPIN_OFFSET = 1.1
 
 -- tileIndex/tileCount: this tile's 1-based position in the reveal order. targetLetter:
 -- this tile's already-decided final letter for the current cycle. Returns the letter to
@@ -513,6 +520,15 @@ end
 
 function drawMenu()
   background(Color.bg)
+
+  -- Ambient season flecks: full screen, behind everything (they fade out while the haiku
+  -- shows, see TextGoPoof_flecksFade). Init lazily and rebuild whenever the season changes.
+  if seasonFlecksSeason ~= seasonIndex or #seasonFlecks == 0 then
+    initFlecks(HEIGHT * 0.5, HEIGHT)
+    seasonFlecksSeason = seasonIndex
+  end
+  updateFlecks(HEIGHT * 0.5, HEIGHT, TextGoPoof_state() == "A")
+  drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
 
   ------------------------------------------------------------
   -- LAYOUT CONSTANTS
@@ -561,16 +577,6 @@ function drawMenu()
     w  = innerW,
     h  = areaH
   }
-
-  -- Ambient season flecks, drifting around the word (behind it).
-  -- Init lazily and rebuild whenever the season changes.
-  if seasonFlecksSeason ~= seasonIndex or #seasonFlecks == 0 then
-    initFlecks(seasonRect.cy, seasonRect.h)
-    seasonFlecksSeason = seasonIndex
-  end
-  local fleckRecycle = (TextGoPoof_state() == "A")
-  updateFlecks(seasonRect.cy, seasonRect.h, fleckRecycle)
-  drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
 
   drawMenuSeasonPoof(seasonRect)
 
@@ -720,9 +726,9 @@ function drawMenu()
   translate(diceRowCx, cy3)
   rotate(diceAngle)  -- negative base means CW tilt in Codea coordinates
 
-  -- Cycle to a new SOWPODS word once per spin cycle (was: once per whole second) — in sync
-  -- with the board preview, since both derive from the same menuSpinCycleClock().
-  local diceSpinCycleIndex, diceSpinCycleT = menuSpinCycleClock()
+  -- Cycle to a new SOWPODS word once per dice spin cycle — on its own clock, independent of
+  -- the board preview's.
+  local diceSpinCycleIndex, diceSpinCycleT = menuSpinCycleClock(MENU_DICE_SPIN_CYCLE, MENU_DICE_SPIN_OFFSET)
   if menuDiceWordSec ~= diceSpinCycleIndex or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
     menuDiceWordSec = diceSpinCycleIndex
     menuDiceDisplayWord = randomMenuDiceWord(MIN_WORD_LEN)

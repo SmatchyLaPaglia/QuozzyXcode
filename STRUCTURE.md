@@ -1761,3 +1761,6 @@ points — may look soft on retina.
 - vsOpenMatchEntry keeps the vs overlay up (touches swallowed via vsOpeningSince) until the async match load finishes,
   then closes it on the same frame enterQMatch changes state — no menu flash.
 - Quick-start badge cycles QUICK_START_PHRASES (Badges.lua), advancing each hop.
+- 2026-10-10 (later): flecks are full-screen, updated/drawn at the top of drawMenu (POOL=130); board and min-length dice spin on
+  independent clocks (menuSpinCycleClock(period, offset); MENU_DICE_SPIN_CYCLE/OFFSET); quick-start badge text no longer rotates;
+  end-screen "updating" only fires on a REAL opponent change (opponentSlotWouldChange now treats nil==false; history views don't poll).

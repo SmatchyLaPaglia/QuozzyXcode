@@ -28,7 +28,7 @@ seasonFlecksSeason = seasonFlecksSeason or nil  -- season index the pool was bui
 seasonFleckWindDir = seasonFleckWindDir or 1    -- +1 = drifts left->right, -1 = right->left;
                                                  -- re-rolled each time initFlecks runs
 
-local POOL   = 80
+local POOL   = 130   -- full-screen field (was 80 in the title band alone: roughly 1/3 the old density)
 local MARGIN = 60   -- how far past each screen edge a fleck spawns/despawns, in points
 
 local function _buildFleck(x, bandCy, bandH)
@@ -39,7 +39,7 @@ local function _buildFleck(x, bandCy, bandH)
     windSpeed = dir * (0.8 + math.random() * 0.8),   -- px/frame; ~9-19s to cross a ~900pt screen
     lPhase    = math.random() * math.pi * 2,
     lFreq     = 0.004 + math.random() * 0.006,
-    lAmp      = bandH * (0.04 + math.random() * 0.10),  -- gentle vertical wander, scaled to the band
+    lAmp      = math.min(bandH, 400) * (0.04 + math.random() * 0.10),  -- gentle vertical wander, scaled to the band
     fPhase    = math.random() * math.pi * 2,
     fFreq     = 0.008 + math.random() * 0.013,
     fAmp      = 6     + math.random() * 18,
