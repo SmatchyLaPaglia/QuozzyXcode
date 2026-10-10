@@ -523,9 +523,12 @@ function drawMenu()
 
   -- Ambient season flecks: full screen, behind everything (they fade out while the haiku
   -- shows, see TextGoPoof_flecksFade). Init lazily and rebuild whenever the season changes.
-  if seasonFlecksSeason ~= seasonIndex or #seasonFlecks == 0 then
+  -- (Also rebuilt when the band height changes, so a pool built for the old title-band-only
+  -- area, or for a different screen size, never survives a code reload or rotation.)
+  if seasonFlecksSeason ~= seasonIndex or #seasonFlecks == 0 or seasonFlecksBandH ~= HEIGHT then
     initFlecks(HEIGHT * 0.5, HEIGHT)
     seasonFlecksSeason = seasonIndex
+    seasonFlecksBandH = HEIGHT
   end
   updateFlecks(HEIGHT * 0.5, HEIGHT, TextGoPoof_state() == "A")
   drawFlecks(seasons[seasonIndex], TextGoPoof_flecksFade())
