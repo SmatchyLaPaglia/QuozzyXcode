@@ -525,16 +525,83 @@ function CTBM:vernacularForTurnOwner()
   return "opponent"
 end
 
+-- GKTurnBasedMatch.remove only succeeds once the match has ended for every
+-- participant (Apple docs: "Do not call this method until... status is
+-- ended"). A match still in progress has to be quit out from under it first
+-- (in-turn vs out-of-turn use different GameKit calls) so "clear all" really
+-- means all, not just the already-finished ones.
+function CTBM:_quitThenRemoveMatch(m, localId)
+  local function doRemove()
+    m:removeWithCompletionHandler_(function(o__err)
+      if o__err then
+        self:log("CTBM: remove error:", m.matchID, o__err.localizedDescription)
+      else
+        self:log("CTBM: removed match", m.matchID)
+      end
+    end)
+  end
+
+  if self:_isMatchEnded(m) then
+    doRemove()
+    return
+  end
+
+  local cp = m.currentParticipant
+  local isMyTurn = cp and cp.playerID == localId
+
+  if isMyTurn then
+    local nextParticipants = {}
+    for _, p in ipairs(m.participants or {}) do
+      if p and p.playerID ~= localId then
+        nextParticipants[#nextParticipants + 1] = p
+      end
+    end
+
+    m:participantQuitInTurnWithOutcome_nextParticipants_turnTimeout_matchData_completionHandler_(
+    objc.enum.GKTurnBasedMatchOutcome.quit,
+    nextParticipants,
+    0,
+    m.matchData,
+    function(o__Error)
+      if o__Error then
+        self:log("CTBM: quit-in-turn error:", m.matchID, o__Error.localizedDescription)
+      else
+        self:log("CTBM: quit-in-turn sent", m.matchID)
+      end
+      doRemove()
+    end
+    )
+  else
+    m:participantQuitOutOfTurnWithOutcome_withCompletionHandler_(
+    objc.enum.GKTurnBasedMatchOutcome.quit,
+    function(o__Error)
+      if o__Error then
+        self:log("CTBM: quit-out-of-turn error:", m.matchID, o__Error.localizedDescription)
+      else
+        self:log("CTBM: quit-out-of-turn sent", m.matchID)
+      end
+      doRemove()
+    end
+    )
+  end
+end
+
 function CTBM:clearAllMatches()
   self:log("CTBM: clearAllMatches requested")
-  
+  -- Quitting/removing a match makes GameKit fire an incoming-turn event for
+  -- it; without this, Main.lua's onReceivingTurn jumps the player onto the
+  -- end screen of the very match being deleted (confirmed on device).
+  -- Time-boxed rather than a flag, so a failed removal can't leave turn
+  -- events suppressed forever.
+  self.suppressTurnNavigationUntil = os.time() + 20
+
   objc.GKTurnBasedMatch:loadMatchesWithCompletionHandler_(
   function(o__matches, o__error)
     if o__error then
       self:log("CTBM: loadMatches error:", o__error.localizedDescription)
       return
     end
-    
+
     if not o__matches or #o__matches == 0 then
       self:log("CTBM: no matches to clear")
       if self._onMatchesCleared then
@@ -542,21 +609,18 @@ function CTBM:clearAllMatches()
       end
       return
     end
-    
+
     local count = #o__matches
     self:log("CTBM: clearing", count, "matches")
-    
+
+    local localId = self.localPlayer.playerID
+
     for i = 1, count do
       local m = o__matches[i]
-      self:log("CTBM: removing match", m.matchID)
-      
-      m:removeWithCompletionHandler_(function(o__err)
-        if o__err then
-          self:log("CTBM: remove error:", o__err.localizedDescription)
-        end
-      end)
+      self:log("CTBM: clearing match", m.matchID)
+      self:_quitThenRemoveMatch(m, localId)
     end
-    
+
     if self._onMatchesCleared then
       self._onMatchesCleared(count)
       self:log("CTBM: ran callback self._onMatchesCleared")

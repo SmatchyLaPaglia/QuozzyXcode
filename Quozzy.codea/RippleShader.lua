@@ -11,8 +11,12 @@
 -- and "RippleDemo.lua" for the full account. RippleDemo.lua and its standalone corner badge
 -- are removed now that this has taken its place — this file is the one used in production.
 --
--- drawShaderRipple(cx, cy, t, maxRadius, ripColor) -> true if it drew, false if the shader
--- isn't available (caller should fall back to drawWaterRipple, the CPU version).
+-- drawShaderRipple(originX, originY, t, maxRadius, ripColor) -> true if it drew, false if
+-- the shader isn't available (caller should fall back to drawWaterRipple, the CPU version).
+-- The mesh always covers the full WIDTH x HEIGHT screen (the badge is a droplet hitting a
+-- pond that's the whole menu, not just a small disc around itself); originX/originY is the
+-- droplet's impact point in absolute screen coordinates, and distance is computed per-pixel
+-- from that point, not from the quad's center.
 
 local RippleS = {
   vertexShader = [[
@@ -33,6 +37,7 @@ local RippleS = {
   fragmentShader = [[
   precision highp float;
   uniform highp vec2 uSize;
+  uniform highp vec2 uOrigin;
   uniform highp float uRippleTime;
   uniform highp float uMaxRadius;
   uniform highp vec4 uColor;
@@ -42,7 +47,7 @@ local RippleS = {
   varying highp vec2 vTexCoord;
 
   void main() {
-    vec2 p = (vTexCoord - 0.5) * uSize;
+    vec2 p = vTexCoord * uSize - uOrigin;
     float angle = atan(p.y, p.x);
     float wobble = 1.0 + 0.035 * sin(angle * 5.0 + uRippleTime * 1.3)
                        + 0.02  * sin(angle * 9.0 - uRippleTime * 0.8);
@@ -85,20 +90,21 @@ local function _getRippleMesh()
   return nil
 end
 
-function drawShaderRipple(cx, cy, t, maxRadius, ripColor)
+function drawShaderRipple(originX, originY, t, maxRadius, ripColor, ringSpeed, ringSpacing)
   local m = _getRippleMesh()
   if not m then return false end
 
-  local side = maxRadius * 2.3
+  local w, h = WIDTH, HEIGHT
   local sh = m.shader
-  sh.uSize        = vec2(side, side)
+  sh.uSize        = vec2(w, h)
+  sh.uOrigin      = vec2(originX, originY)
   sh.uRippleTime  = t
   sh.uMaxRadius   = maxRadius
   sh.uColor       = ripColor
-  sh.uRingSpeed   = 130
-  sh.uRingSpacing = 34
+  sh.uRingSpeed   = ringSpeed or 130
+  sh.uRingSpacing = ringSpacing or 34
   sh.uRingWidth   = 10
-  m:setRect(1, cx, cy, side, side)
+  m:setRect(1, w * 0.5, h * 0.5, w, h)
   m:draw()
   return true
 end

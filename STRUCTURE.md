@@ -1598,29 +1598,57 @@ unforced activation path (a fake actionable vs match, not manually poking quickS
 and over multiple ripple phases via DevRemote screenshots, with no hang over an extended
 poll. This is what ships.
 
-## Ripple Picker debug overlay (RipplePicker.lua, 2026-09-27)
-SHOW_DEBUG_BUTTON (Main.lua) is back on, and the 🐛 button (HaikuMenu.lua debugDialog) now
-opens RipplePicker.lua's overlay instead of the balloon mockup (still reachable — see the
-comment at that call site). Shows 6 candidate "droplet hits still water" entrance animations
-for the match-ready badge side by side, all driven by one shared clock (RIPPLE_PICKER_LOOP,
-so they animate in lockstep for a fair comparison) and restarting together every loop.
+## Debug Menu (RipplePicker.lua) — now a "Clear All Matches" panel (2026-10-08)
+SHOW_DEBUG_BUTTON (Main.lua) is on and committed (not a temporary toggle — the user wants the
+🐛 button reachable for their own use, not just dev verification; flip off before App
+Store/TestFlight builds per the "Before an App Store / TestFlight Build" CLAUDE.md checklist).
+The 🐛 button (HaikuMenu.lua debugDialog) opens RipplePicker.lua's overlay instead of the
+balloon mockup (still reachable — see the comment at that call site).
 
-Concept, per feedback: the badge currently just appears at full size and THEN ripples start.
-Preferred instead: start as a small point (like a droplet impact), grow into the full badge
-(the growth itself reads as the first wave), and once full size, ripples continue spreading
-outward exactly as before. drawGrowingRipple() implements this: while t < growDuration, the
-disc radius eases from 0 to r (no separate ring — the growing disc edge IS the first wave);
-once grown, it switches into the same continuous mod-wrapped ring loop the shipped ripple
-already uses, with the phase clock starting fresh at 0 so ring 0 begins exactly at the disc's
-settled edge.
+RipplePicker.lua's ORIGINAL content (SUPERSEDED, 2026-09-27 — kept here for history only, the
+code itself is gone): a 6-candidate side-by-side comparison of "droplet hits still water"
+entrance animations for the match-ready badge (grow-from-a-point instead of appear-then-
+ripple), each variant varying growth easing/duration plus two optional flourishes (pre-impact
+flash, edge glow during growth). That comparison is DONE — the winning behavior shipped into
+RippleShader.lua's drawShaderRipple (see "Match-ready badge ripple" / "Confetti depth-blur"-
+adjacent history above), so the grid, its 6 RIPPLE_PICKER_VARIANTS, the easing-function
+helpers, and drawGrowingRipple/drawSoftRing were all deleted outright (not just disabled) once
+superseded — kept names/globals that OTHER files still reference (ripplePickerOverlay,
+openRipplePickerOverlay, drawRipplePickerOverlay, handleRipplePickerTouch) so HaikuMenu.lua,
+Main.lua's touch routing, and Badges.lua's overlay-suppression check (`badgeSuppressed()`
+reads ripplePickerOverlay) didn't need to change.
 
-The 6 variants vary the growth easing curve, duration, and two optional flourishes (a tiny
-pre-impact flash pulse before growth starts; a soft glow ring hugging the disc's edge WHILE
-it's still growing) — see RIPPLE_PICKER_VARIANTS for exact parameters. CPU-drawn (the
-RIPPLE_PICKER_SOFT_LAYERS layered-stroke technique, same idea as Badges.lua drawWaterRipple)
-since this is a fast-iteration comparison tool, not committed production code.
+Current content: title "Debug Menu" + one centered "Clear All Matches" button + a status line
+beneath it + "Close". drawRipplePickerOverlay()/handleRipplePickerTouch() (RipplePicker.lua) —
+panel height now fixed at 320 (was HEIGHT-110, sized for the 6-row grid) since there's only
+one control to lay out. clearMatchesBtnRect/closeBtnRect (file-local) hold the frame's hit
+rects; clearMatchesStatus is a plain global (survives hot-reload same as ripplePickerOverlay)
+so the status line persists across draw frames without re-plumbing.
 
-Once a favorite is picked, port its growDuration/ease/prePulse/edgeGlow into the real badge
-(Badges.lua drawQuickStart) — either as a new CPU function alongside drawWaterRipple, or into
-RippleShader.lua's drawShaderRipple (would need a uGrowRadius-style uniform added, since the
-shader currently assumes the badge is already at full size before any ripple math runs).
+Tapping Clear All Matches calls tbm:clearAllMatches() (CodeaTurnBasedMatches.lua) and
+registers tbm:onMatchesCleared(fn) to flip the status line to "Cleared N matches" once the
+count callback fires. Verified LIVE on both the iPad Air (M4) simulator (GC unauthenticated
+there — load-matches errors server-side with "local player has not been authenticated",
+status sticks on "Clearing matches..." forever in that environment specifically, which is
+expected/non-fatal, not a bug) AND on two real GC-authenticated physical devices via
+tools/dbg.sh dbgTap (DBG_DEVICE=<coredevice-id>, menuHitRects.debugDialog for the 🐛 button's
+coords, then replicating drawRipplePickerOverlay's own panelW/panelH/clampPanelTopToSafeArea
+math via a one-off dbg.sh snippet to get the Clear-All-Matches button's exact coords per
+device's screen size) — cleared 26 real matches on one device, 16 on the other, both apps
+stayed alive afterward with no crash/Lua error. That live run is also what proved
+CTBM:_quitThenRemoveMatch's in-progress-match path actually works end to end (see below),
+since the simulator can't authenticate to create matches that would exercise it.
+
+CTBM:clearAllMatches() was also changed the same day (CodeaTurnBasedMatches.lua): it used to
+  call removeWithCompletionHandler_ on every match unconditionally, but GKTurnBasedMatch.remove
+  only succeeds once a match has ENDED for every participant (Apple's own doc note) — any
+  match still in progress silently failed to be removed. CTBM:_quitThenRemoveMatch(m, localId)
+  now checks _isMatchEnded(m) first; if not ended, it quits the local player out of the match
+  before removing — participantQuitInTurnWithOutcome_nextParticipants_turnTimeout_matchData_
+  completionHandler_ (building nextParticipants same as _notifyGameCenterOfGameEnd's QUIT
+  branch) when m.currentParticipant is the local player, else
+  participantQuitOutOfTurnWithOutcome_withCompletionHandler_. Remove is attempted in the quit
+  completion handler either way. Confirmed live (see above) against real in-progress matches
+  across two accounts — both the in-turn and out-of-turn quit branches got exercised given the
+  match counts involved (26 + 16), not just the in-turn path _notifyGameCenterOfGameEnd already
+  covered elsewhere.

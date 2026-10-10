@@ -244,14 +244,28 @@ end
 -- also turned out unreliable in this environment, this plain 2D version is the one that
 -- ships — reliable beats fancy here. See STRUCTURE.md "match-ready ripple" for the full
 -- account if revisiting this.
-RIPPLE_RING_SPEED   = 130   -- points/second each wavefront's radius grows
-RIPPLE_RING_SPACING = 34    -- points between successive staggered wavefronts
-RIPPLE_RING_COUNT   = 4     -- how many staggered wavefronts are in flight at once
+-- Tuned for a full-screen sweep (see drawQuickStart): the badge is the droplet impact
+-- point, and these wavefronts travel all the way to the screen's farthest corner, not just
+-- a small ring around the badge — so speed/spacing are scaled up accordingly from the
+-- original badge-local values (130/34/4).
+RIPPLE_RING_SPEED   = 420   -- points/second each wavefront's radius grows
+RIPPLE_RING_SPACING = 110   -- points between successive staggered wavefronts
+RIPPLE_RING_COUNT   = 4     -- how many staggered wavefronts are in flight at once — must match
+                             -- the shader's hardcoded GLSL loop bound (RippleShader.lua), which
+                             -- is a fixed constant rather than a uniform-driven loop count
 local RIPPLE_SOFT_LAYERS = {  -- {radius offset, stroke width, alpha fraction} per band
   { -6, 3, 0.30 },
   {  0, 4, 1.00 },
   {  6, 3, 0.30 },
 }
+
+-- How far a wavefront centered at (x, y) must travel to clear the farthest screen corner —
+-- the badge hops to a new spot each cycle, so this is recomputed per-hop, not fixed.
+local function _distanceToFarthestCorner(x, y)
+  local dx = math.max(x, WIDTH - x)
+  local dy = math.max(y, HEIGHT - y)
+  return math.sqrt(dx * dx + dy * dy)
+end
 
 local function drawWaterRipple(cx, cy, t, maxRadius, ripColor)
   local cycle = maxRadius + RIPPLE_RING_SPACING * RIPPLE_RING_COUNT
@@ -318,22 +332,27 @@ function drawQuickStart()
     scale = 1.0
   end
 
+  -- Water-ripple wavefronts: the badge is a droplet hitting the whole menu, which reads as
+  -- the surface of a pond — so the wavefronts sweep the entire screen, not just a small ring
+  -- around the badge. Drawn in absolute screen coordinates (outside the badge's own
+  -- translate/rotate below) with the origin pinned to the badge's actual (x, y) and the
+  -- max radius reaching the farthest screen corner from there. The real shader
+  -- (RippleShader.lua drawShaderRipple) is primary; falls back to the CPU version
+  -- (drawWaterRipple, above) if the shader isn't available. t resets to 0 each time the
+  -- badge pops in (and hops to a new spot), so every appearance reads as a fresh drop.
+  if t < visibleDur - disappear then
+    local ripColor   = color(230, 40, 40, alpha)
+    local maxRadius  = _distanceToFarthestCorner(x, y)
+    if not (drawShaderRipple and drawShaderRipple(x, y, t, maxRadius, ripColor,
+                                                   RIPPLE_RING_SPEED, RIPPLE_RING_SPACING)) then
+      drawWaterRipple(x, y, t, maxRadius, ripColor)
+    end
+  end
+
   pushStyle()
   pushMatrix()
   translate(x, y)
   rotate(qs.rotation or 0)
-
-  -- Water-ripple wavefronts: the real shader (RippleShader.lua drawShaderRipple), promoted
-  -- from its standalone RippleDemo.lua proof once confirmed working (see STRUCTURE.md
-  -- "Match-ready badge ripple" / "RippleShader.lua reinstated"). Falls back to the CPU
-  -- version (drawWaterRipple, above) if the shader isn't available for any reason. t resets
-  -- to 0 each time the badge pops in, so every appearance reads as a fresh drop.
-  if t < visibleDur - disappear then
-    local ripColor = color(230, 40, 40, alpha)
-    if not (drawShaderRipple and drawShaderRipple(0, 0, t, r * 3.2, ripColor)) then
-      drawWaterRipple(0, 0, t, r * 3.2, ripColor)
-    end
-  end
 
   noStroke()
   fill(230, 40, 40, alpha)

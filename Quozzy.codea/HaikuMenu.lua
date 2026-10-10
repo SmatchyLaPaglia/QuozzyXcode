@@ -1138,11 +1138,11 @@ function handleMenuTouch(t)
     openInfoOverlay()
 
   elseif key == "debugDialog" then
-    -- Opens the Ripple Picker (RipplePicker.lua) — 6 candidate "droplet hits still water"
-    -- entrance animations for the match-ready badge, compared side by side. The balloon
-    -- mockup that used to live here is still available — see drawBalloonMockupOverlay,
-    -- EndScreenFP.lua — just not wired to this button by default anymore; set
-    -- balloonMockupOverlay = true directly (e.g. from here) to reopen it.
+    -- Opens the Debug Menu (RipplePicker.lua) — currently just a "Clear All Matches"
+    -- button. The balloon mockup that used to live here is still available — see
+    -- drawBalloonMockupOverlay, EndScreenFP.lua — just not wired to this button by
+    -- default anymore; set balloonMockupOverlay = true directly (e.g. from here) to
+    -- reopen it.
     openRipplePickerOverlay()
   end
 end
