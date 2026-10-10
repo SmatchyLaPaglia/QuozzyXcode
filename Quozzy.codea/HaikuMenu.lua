@@ -66,6 +66,58 @@ end
 ------------------------------------------------------------
 -- ONE AND ONLY MENU POOF RENDERER
 ------------------------------------------------------------
+-- Records (notebook) and info ("i") menu buttons, centered at (cx, cy), diameter d.
+-- Shared by the menu and the Debug Menu's layout mockup.
+function drawMenuRecordsButton(cx, cy, d, pressed)
+  pushStyle()
+  drawDie(cx, cy, d, d, d * 0.5, pressed and Color.uiAccent2 or Color.uiAccent, 0)  -- r = D/2 -> circle
+  pushMatrix()
+  translate(cx, cy)
+  local iconH = d * 0.7
+  local iconW = d * 0.55
+  local ir    = iconW * 0.15
+  drawRoundedRect(0, 0, iconW, iconH, ir, color(255, 255, 255, 255), color(255, 255, 255, 255))
+  stroke(Color.uiAccent)
+  strokeWidth(1.5)
+  noFill()
+  for i = 1, 3 do
+    local ly = -iconH * 0.25 + (i - 1) * iconH * 0.25
+    line(-iconW * 0.35, ly, iconW * 0.35, ly)
+  end
+  popMatrix()
+  popStyle()
+end
+
+function drawMenuInfoButton(cx, cy, d, pressed)
+  pushStyle()
+  drawDie(cx, cy, d, d, d * 0.5, pressed and Color.uiAccent2 or Color.uiAccent, 0)
+  fill(255, 255, 255, 255)
+  font("Georgia-Bold")
+  fontSize(d * 0.6)
+  textMode(CENTER)
+  textAlign(CENTER)
+  text("i", cx, cy)
+  popStyle()
+end
+
+-- Red badge for a circular button: sits on the circle's upper-right edge (45°),
+-- not the bounding box corner, which would float off a round button.
+-- Gap between the info and records buttons, as a fraction of a button's diameter.
+MENU_RECORDS_INFO_GAP = 0.15
+
+-- Same radius as the vs-button dot (drawVsButtonBadge, Badges.lua), so every
+-- menu badge matches.
+function menuBadgeRadius()
+  local v = menuHitRects and menuHitRects.vs
+  if v and v.w and v.h then return math.max(8, math.min(v.w, v.h) * 0.12) end
+  return 10
+end
+
+function drawCircleButtonBadge(cx, cy, d)
+  local R = d * 0.5
+  drawRedBadgeDot(cx + R * 0.7071, cy + R * 0.7071, menuBadgeRadius())
+end
+
 function drawMenuSeasonPoof(r)
 
   ----------------------------------------------------------
@@ -860,10 +912,11 @@ function drawMenu()
   local h5   = HEIGHT * infoRow
   local pad  = math.max(5, math.min((h5 - 2) * 0.5, 10))
   local btnD = h5 - pad * 2
-  local hGap = math.min(math.max(h5 * 0.5, 20), 60)
   local midX = WIDTH * 0.5
-  local leftBtnCx  = midX - hGap * 0.5
-  local rightBtnCx = midX + hGap * 0.5
+  -- Side by side (not overlapping) so the records badge has room at its upper right.
+  local centerDist = btnD * (1 + MENU_RECORDS_INFO_GAP)
+  local leftBtnCx  = midX - centerDist * 0.5
+  local rightBtnCx = midX + centerDist * 0.5
   local btn5Cy     = midY(5)
 
   -- Debug button (far left) — opens the balloon mockup overlay. Dev-only: gated by
@@ -887,42 +940,15 @@ function drawMenu()
     menuHitRects.debugDialog = { cx = debugBtnCx, cy = btn5Cy, w = debugBtnD, h = debugBtnD }
   end
 
-  -- Left button (records) — circular
-  local recordsFill = (pressedButton == "records") and Color.uiAccent2 or Color.uiAccent
-  drawDie(leftBtnCx, btn5Cy, btnD, btnD, btnD * 0.5, recordsFill, 0)  -- r = D/2 -> circle
-
-  -- Notebook icon inside left button
-  pushMatrix()
-  translate(leftBtnCx, btn5Cy)
-  local iconH = btnD * 0.7
-  local iconW = btnD * 0.55
-  local ir    = iconW * 0.15
-  drawRoundedRect(0, 0, iconW, iconH, ir, color(255, 255, 255, 255), color(255, 255, 255, 255))
-  -- horizontal lines
-  stroke(Color.uiAccent)
-  strokeWidth(1.5)
-  noFill()
-  for i = 1, 3 do
-    local ly = -iconH * 0.25 + (i - 1) * iconH * 0.25
-    line(-iconW * 0.35, ly, iconW * 0.35, ly)
+  drawMenuInfoButton(leftBtnCx, btn5Cy, btnD, pressedButton == "info")
+  drawMenuRecordsButton(rightBtnCx, btn5Cy, btnD, pressedButton == "records")
+  if recordsHasUnseen and not (badgeSuppressed and badgeSuppressed()) then
+    drawCircleButtonBadge(rightBtnCx, btn5Cy, btnD)
   end
-  popMatrix()
-
-  -- Right button (info) — circular
-  local infoFill = (pressedButton == "info") and Color.uiAccent2 or Color.uiAccent
-  drawDie(rightBtnCx, btn5Cy, btnD, btnD, btnD * 0.5, infoFill, 0)
-
-  -- "i" label
-  fill(255, 255, 255, 255)
-  font("Georgia-Bold")
-  fontSize(btnD * 0.6)
-  textMode(CENTER)
-  textAlign(CENTER)
-  text("i", rightBtnCx, btn5Cy)
 
   -- Store hit rects
-  menuHitRects.records = { cx = leftBtnCx,  cy = btn5Cy, w = btnD, h = btnD }
-  menuHitRects.info    = { cx = rightBtnCx, cy = btn5Cy, w = btnD, h = btnD }
+  menuHitRects.info    = { cx = leftBtnCx,  cy = btn5Cy, w = btnD, h = btnD }
+  menuHitRects.records = { cx = rightBtnCx, cy = btn5Cy, w = btnD, h = btnD }
 
   popStyle()
 

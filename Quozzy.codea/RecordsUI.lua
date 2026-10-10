@@ -52,7 +52,18 @@ function markRecordsViewedForOpponent(oppKey)
 end
 
 function recordsMatchesForOpponent(oppKey)
-    -- Return matches for this opponent from the history store (newest first)
+    -- Unseen completed matches (live, from GameKit) first, then the history store
+    -- (newest first). Rebuilt each call; draw and tap both call it, so indexes agree.
+    local unseen = recordsUnseenMatchesFor and recordsUnseenMatchesFor(oppKey) or {}
+    local history = recordsHistoryForOpponent(oppKey)
+    if #unseen == 0 then return history end
+    local ids, out = {}, {}
+    for _, m in ipairs(unseen) do ids[m.id] = true; out[#out + 1] = m end
+    for _, m in ipairs(history) do if not ids[m.id] then out[#out + 1] = m end end
+    return out
+end
+
+function recordsHistoryForOpponent(oppKey)
     local store = matchHistoryByOpponent
     local list = store and store[oppKey]
     if type(list) ~= "table" then return {} end
@@ -325,6 +336,9 @@ end
 -- "opponent commented" (a contrasting dot, drawn further in so both can show
 -- at once). Both are pure presence checks against the sets
 -- refreshMatchStoryBadges (Badges.lua) last populated — no polling here.
+-- Row dots in Records match the vs list's row dots.
+function recordsRowBadgeRadius() return 9 end
+
 local function _drawMatchStoryBadgeDots(cx, cy, hasEnded, hasCommented)
     if not (hasEnded or hasCommented) then return end
     pushStyle()
@@ -480,6 +494,17 @@ function drawRecordsOpponentsList(b)
             lastActivity = opponentLastActivity and opponentLastActivity(id) or 0,
         }
     end
+    -- An opponent whose only completed match hasn't been viewed yet has no record
+    -- entry yet -- still list them so the unseen match is reachable.
+    local listed = {}
+    for _, e in ipairs(entries) do listed[e.id] = true end
+    for _, ue in ipairs(recordsUnseenEntries or {}) do
+        if ue.oppId and not listed[ue.oppId] then
+            listed[ue.oppId] = true
+            entries[#entries + 1] = { id = ue.oppId, alias = ue.oppName or ue.oppId,
+                wins = 0, losses = 0, ties = 0, lastActivity = ue.sortTs or 0 }
+        end
+    end
     -- Most recently played first; alias breaks ties (e.g. records with no timestamps).
     table.sort(entries, function(a, b2)
         if a.lastActivity ~= b2.lastActivity then return a.lastActivity > b2.lastActivity end
@@ -543,6 +568,11 @@ function drawRecordsOpponentsList(b)
             fontSize(14)
             text(_truncateWithEllipsis(stats, textMaxW), textX, cardCy - 20)
             popStyle()
+
+            if recordsUnseenMatchesFor and #recordsUnseenMatchesFor(e.id) > 0 and drawRedBadgeDot then
+                local br = recordsRowBadgeRadius()
+                drawRedBadgeDot(b.innerLeft + b.listWidth - br - 6, cardCy + cardH * 0.5 - br - 6, br)
+            end
 
             recordsRowRects[#recordsRowRects + 1] = {
                 x = b.innerLeft, y = cardCy - cardH * 0.5, w = b.listWidth, h = cardH, oppId = e.id,
@@ -627,8 +657,13 @@ function drawRecordsMatchesList(b)
         if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
             local cardCx = b.innerLeft + b.listWidth * 0.5
             _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
-            _drawMatchStoryBadgeDots(cardCx + b.listWidth * 0.5 - 16, cardCy + cardH * 0.5 - 16,
-                endedMatchBadgeIds and endedMatchBadgeIds[m.id], commentMatchBadgeIds and commentMatchBadgeIds[m.id])
+            if m.unseenEntry and drawRedBadgeDot then
+                local br = recordsRowBadgeRadius()
+                drawRedBadgeDot(cardCx + b.listWidth * 0.5 - br - 6, cardCy + cardH * 0.5 - br - 6, br)
+            else
+                _drawMatchStoryBadgeDots(cardCx + b.listWidth * 0.5 - 16, cardCy + cardH * 0.5 - 16,
+                    endedMatchBadgeIds and endedMatchBadgeIds[m.id], commentMatchBadgeIds and commentMatchBadgeIds[m.id])
+            end
 
             -- board preview: nearly the full card height (square), hard against the left
             local boardPx = cardH - BOARD_MARGIN * 2
@@ -883,7 +918,12 @@ function handleRecordsTouch(t)
                         if t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h then
                             local matches = recordsMatchesForOpponent(recordsSelectedOppKey)
                             local m = matches[r.matchIndex]
-                            if m then openHistoricalMatchEndScreen(m) end
+                            if m and m.unseenEntry then
+                                -- Not in history yet: open it live (marks it viewed;
+                                -- the end screen then records the snapshot).
+                                closeRecordsOverlay()
+                                vsOpenMatchEntry(m.unseenEntry)
+                            elseif m then openHistoricalMatchEndScreen(m) end
                             return true
                         end
                     end

@@ -10,6 +10,10 @@ vsListEntries      = vsListEntries      or {}
 vsListLoading      = vsListLoading      or false
 vsHasActionable    = vsHasActionable    or false    -- drives the vs-button red badge (playable or new result)
 vsHasPlayable      = vsHasPlayable      or false    -- drives the quick-start badge (a round I can play)
+-- Completed (both scores in -- the "apparent end") but not yet viewed. These live in
+-- Records, not the vs list; they drive the records-button badge and Records row dots.
+recordsUnseenEntries = recordsUnseenEntries or {}
+recordsHasUnseen     = recordsHasUnseen     or false
 vsFriendsEntries   = vsFriendsEntries   or {}
 vsFriendsLoading   = vsFriendsLoading   or false
 vsFriendsLoadError = vsFriendsLoadError or nil
@@ -172,10 +176,37 @@ function recomputeVsBadgeFlags()
   vsHasActionable, vsHasPlayable = false, false
   for _, e in ipairs(vsListEntries or {}) do
     e.playable, e.newInfo = computeVsEntryFlags(e.ended, e.localDidPlay, e.oppDidPlay, e.viewed)
-    e.needsAction = e.playable or e.newInfo
-    if e.needsAction then vsHasActionable = true end
-    if e.playable then vsHasPlayable = true end
+    e.needsAction = e.playable
+    if e.playable then vsHasActionable = true; vsHasPlayable = true end
   end
+  local kept = {}
+  for _, e in ipairs(recordsUnseenEntries or {}) do
+    if not e.viewed then kept[#kept + 1] = e end
+  end
+  recordsUnseenEntries = kept
+  recordsHasUnseen = #kept > 0
+end
+
+-- Unseen completed matches for one opponent, shaped like matchHistoryByOpponent
+-- entries (RecordsUI.lua draws them with the same row code), newest first.
+-- unseenEntry is the live vs entry used to open the match.
+function recordsUnseenMatchesFor(oppId)
+  local out = {}
+  for _, e in ipairs(recordsUnseenEntries or {}) do
+    if e.oppId == oppId and not e.viewed then
+      local q = e.q or {}
+      local me = q.players and q.players[localPID()] or {}
+      local opp = q.players and q.players[oppId] or {}
+      out[#out + 1] = {
+        id = e.id, oppId = oppId, complete = true, unseenEntry = e,
+        localScore = tonumber(me.score) or 0, oppScore = tonumber(opp.score) or 0,
+        endedAt = e.sortTs, boardTiles = q.boardTiles, boardSize = q.boardSize,
+        localComment = me.comment or "", oppComment = opp.comment or "",
+      }
+    end
+  end
+  table.sort(out, function(a, b) return (a.endedAt or 0) > (b.endedAt or 0) end)
+  return out
 end
 
 -- endGameRound calls this: the match I just finished is no longer playable,
@@ -195,6 +226,7 @@ function refreshVsMatchesList(reason)
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated and GKTurnBasedMatch) then
     vsListEntries, vsHasActionable, vsHasPlayable = {}, false, false
+    recordsUnseenEntries, recordsHasUnseen = {}, false
     return
   end
   vsListLoading = true
@@ -208,6 +240,7 @@ function refreshVsMatchesList(reason)
             return
           end
           local list = {}
+          local unseen = {}
           local liveMatches = {}  -- every decoded match, for computeMatchBadges
           local n = _vsSafeArrayCount(o__matches)
           for i = 1, n do
@@ -236,7 +269,7 @@ function refreshVsMatchesList(reason)
                 local ended = endedState ~= nil
                 local finished = ended or (me and me.didPlay == true and oppData and oppData.didPlay == true)
                 local viewed = finished and vsMatchAlreadyViewed(q.id, oppId) or false
-                if not (ended and viewed) then
+                if not (finished and viewed) then
                   local entry = {
                     id = q.id, gkMatch = m, dataTable = dataTable, q = q,
                     oppId = oppId, oppName = q.opponentName or "Opponent",
@@ -247,7 +280,13 @@ function refreshVsMatchesList(reason)
                     sortTs = q.lastUpdated or 0,
                     avatar = nil,
                   }
-                  list[#list + 1] = entry
+                  if finished then
+                    -- Completed matches belong to Records; only unseen ones are kept
+                    -- here (for its badges and rows), viewed ones live in match history.
+                    if not viewed then unseen[#unseen + 1] = entry end
+                  else
+                    list[#list + 1] = entry
+                  end
                   -- entry.avatar is resolved in _drawVsMatchesList, NOT here: readImage inside
                   -- this GameKit callback returns a blank image (and caches it for good).
                 end
@@ -256,6 +295,7 @@ function refreshVsMatchesList(reason)
           end
           table.sort(list, function(a, b) return (a.sortTs or 0) > (b.sortTs or 0) end)
           vsListEntries = list
+          recordsUnseenEntries = unseen
           recomputeVsBadgeFlags()
           local ended, commented = {}, {}
           if computeMatchBadges then
