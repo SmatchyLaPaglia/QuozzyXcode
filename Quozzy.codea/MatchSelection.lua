@@ -101,11 +101,23 @@ vsViewedMatchIds = vsViewedMatchIds or nil   -- loaded dict: [matchId] = true
 function loadVsViewedMatches()
   if vsViewedMatchIds ~= nil then return end
   local raw = readLocalData(VS_VIEWED_MATCHES_KEY)
+  vsViewedMatchIds = {}
   if raw and raw ~= "" then
     local ok, t = pcall(json.decode, raw)
-    if ok and type(t) == "table" then vsViewedMatchIds = t; return end
+    if ok and type(t) == "table" then vsViewedMatchIds = t end
   end
-  vsViewedMatchIds = {}
+  -- One-time: Records history is now filled from live data too (not only by
+  -- opening an end screen), so it no longer implies "viewed". Everything already
+  -- complete in history before this change was seen the old way -- keep it seen.
+  if not readLocalData("QB_VS_VIEWED_MIGRATED_V2") then
+    for _, list in pairs(matchHistoryByOpponent or {}) do
+      for _, m in ipairs(type(list) == "table" and list or {}) do
+        if m.id and m.complete then vsViewedMatchIds[m.id] = true end
+      end
+    end
+    saveLocalData("QB_VS_VIEWED_MIGRATED_V2", true)
+    persistVsViewedMatches()
+  end
 end
 
 function persistVsViewedMatches()
@@ -125,17 +137,7 @@ end
 function vsMatchAlreadyViewed(matchId, oppId)
   if not matchId then return false end
   loadVsViewedMatches()
-  if vsViewedMatchIds[matchId] then return true end
-
-  if oppId and matchHistoryByOpponent then
-    local list = matchHistoryByOpponent[oppId]
-    if type(list) == "table" then
-      for _, m in ipairs(list) do
-        if m.id == matchId and m.complete then return true end
-      end
-    end
-  end
-  return false
+  return vsViewedMatchIds[matchId] == true
 end
 
 function vsStatusTextForEntry(e)
@@ -180,11 +182,55 @@ function recomputeVsBadgeFlags()
     if e.playable then vsHasActionable = true; vsHasPlayable = true end
   end
   local kept = {}
+  loadRecordsButtonAck()
+  recordsHasUnseen = false
   for _, e in ipairs(recordsUnseenEntries or {}) do
-    if not e.viewed then kept[#kept + 1] = e end
+    if not e.viewed then
+      kept[#kept + 1] = e
+      if not recordsButtonAckIds[e.id] then recordsHasUnseen = true end
+    end
   end
   recordsUnseenEntries = kept
-  recordsHasUnseen = #kept > 0
+end
+
+-- Records-button badge: cleared by tapping the button itself (unseen results it
+-- has already announced), even if nothing inside Records is opened.
+RECORDS_BUTTON_ACK_KEY = "QB_RECORDS_BUTTON_ACK_V1"
+recordsButtonAckIds = recordsButtonAckIds or nil
+function loadRecordsButtonAck()
+  if recordsButtonAckIds ~= nil then return end
+  local ok, t = pcall(json.decode, readLocalData(RECORDS_BUTTON_ACK_KEY) or "")
+  recordsButtonAckIds = (ok and type(t) == "table") and t or {}
+end
+function ackRecordsButton()
+  loadRecordsButtonAck()
+  for _, e in ipairs(recordsUnseenEntries or {}) do recordsButtonAckIds[e.id] = true end
+  local ok, s = pcall(json.encode, recordsButtonAckIds)
+  if ok and s then saveLocalData(RECORDS_BUTTON_ACK_KEY, s) end
+  recomputeVsBadgeFlags()
+end
+
+-- Opponent-row level: does this opponent have a completed match not yet viewed?
+function recordsOpponentHasUnseen(oppId)
+  for _, e in ipairs(recordsUnseenEntries or {}) do
+    if e.oppId == oppId and not e.viewed then return true end
+  end
+  return false
+end
+
+-- Tapping an opponent row views all their unseen matches; returns their ids so
+-- the match list can show the dots for this one visit.
+function recordsTakeUnseenForOpponent(oppId)
+  local ids = {}
+  for _, e in ipairs(recordsUnseenEntries or {}) do
+    if e.oppId == oppId and not e.viewed then
+      ids[e.id] = true
+      e.viewed = true
+      if markVsMatchViewed then markVsMatchViewed(e.id) end
+    end
+  end
+  recomputeVsBadgeFlags()
+  return ids
 end
 
 -- Unseen completed matches for one opponent, shaped like matchHistoryByOpponent
@@ -280,6 +326,10 @@ function refreshVsMatchesList(reason)
                     sortTs = q.lastUpdated or 0,
                     avatar = nil,
                   }
+                  if finished and recordMatchSnapshot and snapshotFromQMatch then
+                    local snap = snapshotFromQMatch(q, oppId, q.opponentName)
+                    if snap then recordMatchSnapshot(snap) end
+                  end
                   if finished then
                     -- Completed matches belong to Records; only unseen ones are kept
                     -- here (for its badges and rows), viewed ones live in match history.
@@ -344,15 +394,32 @@ function vsOpenMatchEntry(entry)
     entry.viewed = true
     recomputeVsBadgeFlags()
   end
-  if tbm and tbm._setCurrentMatch then
-    tbm:_setCurrentMatch(entry.gkMatch, "vs-list-open")
+  -- Reload the match first: the list's copy can predate an exchange the opponent
+  -- sent moments ago (their score would be missing from the end screen). Falls
+  -- back to the list's copy if the load fails.
+  local function openWith(gk, dataTable)
+    if tbm and tbm._setCurrentMatch then
+      tbm:_setCurrentMatch(gk, "vs-list-open")
+    end
+    if not dataTable and tbm and tbm._matchWithNSDataToDataTable then
+      dataTable = tbm:_matchWithNSDataToDataTable(gk)
+    end
+    local q = makeQMatchFromGK and makeQMatchFromGK(gk, dataTable) or nil
+    if q and enterQMatch then enterQMatch(q) end
+    -- An opponent exchange this device never answered (the push can be missed)
+    -- stays "active", and the turn holder can't merge it until it's answered.
+    if tbm and tbm.replyToActiveExchanges then tbm:replyToActiveExchanges(nil, function() end) end
   end
-  local dataTable = entry.dataTable
-  if not dataTable and tbm and tbm._matchWithNSDataToDataTable then
-    dataTable = tbm:_matchWithNSDataToDataTable(entry.gkMatch)
-  end
-  local q = makeQMatchFromGK and makeQMatchFromGK(entry.gkMatch, dataTable) or nil
-  if q and enterQMatch then enterQMatch(q) end
+  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
+  local ok = GKTurnBasedMatch and pcall(function()
+    GKTurnBasedMatch:loadMatchWithID_withCompletionHandler_(entry.id, function(o__match, o__err)
+      objc.async(function()
+        if o__match and not o__err then openWith(o__match, nil)
+        else openWith(entry.gkMatch, entry.dataTable) end
+      end)
+    end)
+  end)
+  if not ok then openWith(entry.gkMatch, entry.dataTable) end
 end
 
 function vsOpenFriendPicker()

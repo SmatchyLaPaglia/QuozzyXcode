@@ -831,27 +831,41 @@ local function updateCommentField(i, rect, shown, fontSize, textEntryEnabled)
   local F = commentFields[i]
   local tv = F.tv
   if not tv then return end
+  -- Only write a UITextView property when its value actually changes: this runs
+  -- every frame, and re-setting textColor/tintColor/frame each frame makes UIKit
+  -- re-apply the text attributes, which snaps the cursor back to the end (the
+  -- player could drag the caret with the magnifier, but it jumped back on lift).
   if shown and rect then
-    tv.hidden = false
+    if F.cHidden ~= false then tv.hidden = false; F.cHidden = false end
     local enabled = (textEntryEnabled ~= false)
-    tv.userInteractionEnabled = enabled
-    if not enabled then
+    if F.cEnabled ~= enabled then tv.userInteractionEnabled = enabled; F.cEnabled = enabled end
+    if not enabled and F.focused then
       tv:resignFirstResponder_()
       F.focused = false
     end
     -- visible native text in the balloon's seasonal text color — or RED while the
     -- line-cap flash timer is active (set when an over-limit keystroke was blocked).
     local tc = (currentBalloonColorScheme().text) or Color.panelBG or color(245, 242, 232, 255)
-    if (F.flash or 0) > 0 then
-      tv.textColor = color(224, 48, 48, 255)
-    else
-      tv.textColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255)
+    local r, g, b = tc.r or 245, tc.g or 242, tc.b or 232
+    if (F.flash or 0) > 0 then r, g, b = 224, 48, 48 end
+    local colorKey = r .. "," .. g .. "," .. b
+    if F.cColor ~= colorKey then tv.textColor = color(r, g, b, 255); F.cColor = colorKey end
+    local tintKey = (tc.r or 245) .. "," .. (tc.g or 242) .. "," .. (tc.b or 232)
+    if F.cTint ~= tintKey then
+      pcall(function() tv.tintColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255) end)
+      F.cTint = tintKey
     end
-    pcall(function() tv.tintColor = color(tc.r or 245, tc.g or 242, tc.b or 232, 255) end)
-    tv.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
+    local frameKey = string.format("%.1f,%.1f,%.1f,%.1f", rect.x, rect.y, rect.w, rect.h)
+    if F.cFrame ~= frameKey then
+      tv.frame = codeaToUIKitRect(rect.x, rect.y, rect.w, rect.h)
+      F.cFrame = frameKey
+    end
   else
-    tv.hidden = true
-    tv:resignFirstResponder_()
+    if F.cHidden ~= true then
+      tv.hidden = true
+      tv:resignFirstResponder_()
+      F.cHidden = true
+    end
     F.focused = false
   end
 end
@@ -1590,6 +1604,7 @@ function buildEndScreenModel()
     if snap.id and snap.oppId and snap.boardTiles then
       recordMatchSnapshot(snap)
     end
+    if complete and snap.id and markVsMatchViewed then markVsMatchViewed(snap.id) end
   end
 
   -- While composing, the balloon shows the live draft (or a placeholder so it

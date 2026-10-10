@@ -500,6 +500,14 @@ end
 -- match that the turn holder hasn't merged into matchData yet (merged ones
 -- disappear from gkMatch.exchanges). nil if none.
 function latestOwnExchangeSlot(gkMatch, localId)
+  return latestExchangeSlot(gkMatch, localId)
+end
+
+-- The newest player slot `senderId` sent about themselves in an exchange still on
+-- this match (not yet merged into matchData). Works for my own exchanges and for
+-- the opponent's ones I received.
+function latestExchangeSlot(gkMatch, senderId)
+  local localId = senderId
   local best, bestTs = nil, -1
   pcall(function()
     local ex = gkMatch.exchanges
@@ -611,6 +619,19 @@ function makeQMatchFromGK(gkMatch, dataTable)
       mine.scoreSent = true
       mine.commentSent = mine.commentDecided == true
       q.players[localId] = mine
+    end
+  end
+
+  -- Same for the opponent: their score/comment sent by exchange while I wasn't
+  -- looking at this match is on the GK match even though matchData doesn't have
+  -- it yet (it only lands there when the turn holder merges). Without this, a
+  -- match the opponent finished long ago opened showing only my side.
+  if opponentId then
+    local theirs = latestExchangeSlot(gkMatch, opponentId)
+    local serverOpp = q.players[opponentId]
+    if theirs and theirs.didPlay == true and not (serverOpp and serverOpp.didPlay == true
+        and (serverOpp.commentDecided == true or theirs.commentDecided ~= true)) then
+      q.players[opponentId] = theirs
     end
   end
 

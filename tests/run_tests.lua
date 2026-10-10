@@ -1292,6 +1292,22 @@ test("background turn events never change the screen", function()
   check("explicit open shows end screen", state == STATE_END, "state="..tostring(state))
 end)
 
+test("makeQMatchFromGK: opponent's score/comment from their unmerged exchange shows up", function()
+  useTurnBased = true
+  tbm._exchangeDataToDataTable = function(self, x) return x._data end
+  local gk = { matchID = "mx",
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } },
+    exchanges = { { sender = { player = { gamePlayerID = "opp" } },
+      _data = { lastUpdated = 5, players = { ["opp"] = { didPlay = true, score = 4, words = {"DOG"}, commentDecided = true, comment = "gg" } } } } } }
+  local stale = { boardSize = 4, minWordLen = 3, boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"},
+    players = { ["local-player-id"] = { didPlay = true, score = 2, words = {"CAT"} }, ["opp"] = { didPlay = false } } }
+  local q = makeQMatchFromGK(gk, stale)
+  check("opponent shown as played", q.players["opp"].didPlay == true and q.players["opp"].score == 4)
+  check("opponent comment shown", q.players["opp"].comment == "gg")
+  local snap = snapshotFromQMatch(q, "opp", "Opp")
+  check("records snapshot complete with comment", snap and snap.complete == true and snap.oppComment == "gg")
+end)
+
 -- =========================================================== summary =====
 
 print(string.format("\n%d passed, %d failed", pass, fail))

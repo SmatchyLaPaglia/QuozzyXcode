@@ -54,13 +54,7 @@ end
 function recordsMatchesForOpponent(oppKey)
     -- Unseen completed matches (live, from GameKit) first, then the history store
     -- (newest first). Rebuilt each call; draw and tap both call it, so indexes agree.
-    local unseen = recordsUnseenMatchesFor and recordsUnseenMatchesFor(oppKey) or {}
-    local history = recordsHistoryForOpponent(oppKey)
-    if #unseen == 0 then return history end
-    local ids, out = {}, {}
-    for _, m in ipairs(unseen) do ids[m.id] = true; out[#out + 1] = m end
-    for _, m in ipairs(history) do if not ids[m.id] then out[#out + 1] = m end end
-    return out
+    return recordsHistoryForOpponent(oppKey)
 end
 
 function recordsHistoryForOpponent(oppKey)
@@ -156,6 +150,8 @@ function getRecordsBoardThumb(m, px)
 end
 
 function openRecordsOverlay()
+    if ackRecordsButton then ackRecordsButton() end
+    recordsDetailBadgeIds = {}
     recordsOverlay = true
     recordsOverlayMode = "grid"
     recordsSelectedOppKey = nil
@@ -338,6 +334,21 @@ end
 -- refreshMatchStoryBadges (Badges.lua) last populated — no polling here.
 -- Row dots in Records match the vs list's row dots.
 function recordsRowBadgeRadius() return 9 end
+
+-- Red dots for row cards (corner radius 16), drawn AFTER the list's clip() so
+-- they can straddle the card edge: centered on the rounded corner's arc at 45°,
+-- half inside the card and half outside. Only for rows whose top corner is on screen.
+local RECORDS_CARD_R = 16
+local function _drawRowCornerDots(dots, b)
+    if not drawRedBadgeDot then return end
+    local off = RECORDS_CARD_R * (1 - 0.7071)
+    for _, d in ipairs(dots) do
+        local x, y = d[1] - off, d[2] - off
+        if y <= b.listTop + 1 and y >= b.listBottom then
+            drawRedBadgeDot(x, y, recordsRowBadgeRadius())
+        end
+    end
+end
 
 local function _drawMatchStoryBadgeDots(cx, cy, hasEnded, hasCommented)
     if not (hasEnded or hasCommented) then return end
@@ -529,6 +540,7 @@ function drawRecordsOpponentsList(b)
             or unknownPlayerAvatar(avSize, Color.uiAccent)
     end
 
+    local rowDots = {}
     clip(b.innerLeft, b.listBottom, b.listWidth, b.listHeight)
 
     for i, e in ipairs(entries) do
@@ -541,10 +553,6 @@ function drawRecordsOpponentsList(b)
             -- avatar (left), thin margin
             local avCx = b.innerLeft + 8 + avSize * 0.5
             drawAvatarCircle(entryAvatars[i], avCx, cardCy, avSize, "O")
-            do
-                local hasEnded, hasCommented = _opponentHasMatchStoryBadge(e.id)
-                _drawMatchStoryBadgeDots(avCx + avSize * 0.32, cardCy - avSize * 0.32, hasEnded, hasCommented)
-            end
 
             -- text block: name (top, larger) + stats (bottom, smaller/dimmer)
             local textX = avCx + avSize * 0.5 + 12
@@ -569,9 +577,8 @@ function drawRecordsOpponentsList(b)
             text(_truncateWithEllipsis(stats, textMaxW), textX, cardCy - 20)
             popStyle()
 
-            if recordsUnseenMatchesFor and #recordsUnseenMatchesFor(e.id) > 0 and drawRedBadgeDot then
-                local br = recordsRowBadgeRadius()
-                drawRedBadgeDot(b.innerLeft + b.listWidth - br - 6, cardCy + cardH * 0.5 - br - 6, br)
+            if recordsOpponentHasUnseen and recordsOpponentHasUnseen(e.id) then
+                rowDots[#rowDots + 1] = { b.innerLeft + b.listWidth, cardCy + cardH * 0.5 }
             end
 
             recordsRowRects[#recordsRowRects + 1] = {
@@ -581,6 +588,7 @@ function drawRecordsOpponentsList(b)
     end
 
     clip()
+    _drawRowCornerDots(rowDots, b)
 
     -- empty state
     if #entries == 0 then
@@ -649,6 +657,7 @@ function drawRecordsMatchesList(b)
         matchThumbs[i] = getRecordsBoardThumb(m, 200)
     end
 
+    local rowDots = {}
     clip(b.innerLeft, b.listBottom, b.listWidth, b.listHeight)
 
     for i, m in ipairs(matches) do
@@ -657,12 +666,8 @@ function drawRecordsMatchesList(b)
         if (cardCy + cardH * 0.5) > b.listBottom and (cardCy - cardH * 0.5) < b.listTop then
             local cardCx = b.innerLeft + b.listWidth * 0.5
             _drawRowCard(cardCx, cardCy, b.listWidth, cardH, 16, borderCol, 2)
-            if m.unseenEntry and drawRedBadgeDot then
-                local br = recordsRowBadgeRadius()
-                drawRedBadgeDot(cardCx + b.listWidth * 0.5 - br - 6, cardCy + cardH * 0.5 - br - 6, br)
-            else
-                _drawMatchStoryBadgeDots(cardCx + b.listWidth * 0.5 - 16, cardCy + cardH * 0.5 - 16,
-                    endedMatchBadgeIds and endedMatchBadgeIds[m.id], commentMatchBadgeIds and commentMatchBadgeIds[m.id])
+            if recordsDetailBadgeIds and recordsDetailBadgeIds[m.id] then
+                rowDots[#rowDots + 1] = { b.innerLeft + b.listWidth, cardCy + cardH * 0.5 }
             end
 
             -- board preview: nearly the full card height (square), hard against the left
@@ -711,6 +716,7 @@ function drawRecordsMatchesList(b)
     end
 
     clip()
+    _drawRowCornerDots(rowDots, b)
 
     if #matches == 0 then
         pushStyle()
@@ -864,6 +870,11 @@ function handleRecordsTouch(t)
         return true
     end
 
+    if t.state == BEGAN and g.isDetail then
+        -- Match-row dots are shown for one visit: gone after the next thing you do.
+        recordsDetailBadgeIds = {}
+    end
+
     if t.state == BEGAN then
         -- Bottom button (Close in grid / Back in detail): act immediately.
         if pointInRect(t.x, t.y, g.btnX, g.btnY, g.btnW, g.btnH) then
@@ -918,12 +929,7 @@ function handleRecordsTouch(t)
                         if t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h then
                             local matches = recordsMatchesForOpponent(recordsSelectedOppKey)
                             local m = matches[r.matchIndex]
-                            if m and m.unseenEntry then
-                                -- Not in history yet: open it live (marks it viewed;
-                                -- the end screen then records the snapshot).
-                                closeRecordsOverlay()
-                                vsOpenMatchEntry(m.unseenEntry)
-                            elseif m then openHistoricalMatchEndScreen(m) end
+                            if m then openHistoricalMatchEndScreen(m) end
                             return true
                         end
                     end
@@ -933,6 +939,8 @@ function handleRecordsTouch(t)
                             recordsGridScrollY = recordsScrollY
                             recordsOverlayMode = "detail"
                             recordsSelectedOppKey = r.oppId
+                            recordsDetailBadgeIds = recordsTakeUnseenForOpponent
+                                and recordsTakeUnseenForOpponent(r.oppId) or {}
                             recordsScrollY = 0
                             if markRecordsViewedForOpponent then
                                 markRecordsViewedForOpponent(r.oppId)

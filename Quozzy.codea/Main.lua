@@ -1207,9 +1207,26 @@ end
 -- from disk checks this flag and defers to the next frame (see getOpponentRecordAvatar).
 CODEA_RENDER_PASS = false
 
+-- Any Lua error escaping draw()/touched() silently kills Codea's render thread in the
+-- exported app: the last frame stays on screen and no touch is ever handled again
+-- (confirmed on device via lldb -- the render thread was simply gone). Catch
+-- everything here, log the traceback (it lands in Documents:devlog_live.txt), and
+-- keep the app alive.
+local function _fatalLog(where, err)
+  local msg = tostring(err)
+  if msg ~= _lastFatalMsg then
+    _lastFatalMsg = msg
+    devLog("FATAL in " .. where .. ": " .. msg, "state=", tostring(state))
+  end
+end
+
 function draw()
   CODEA_RENDER_PASS = true
-  drawFrame()
+  local ok, err = xpcall(drawFrame, debug.traceback)
+  if not ok then
+    _fatalLog("draw", err)
+    pcall(function() setContext(); clip() end)  -- don't leave a half-drawn frame's state behind
+  end
   CODEA_RENDER_PASS = false
 end
 
@@ -1397,7 +1414,8 @@ end
 function touched(t)
   _lastTouchDebug = string.format("%s@%.0f,%.0f %s", tostring(t.state), t.x or 0, t.y or 0, os.date("!%H:%M:%S"))
   CODEA_RENDER_PASS = true
-  touchedFrame(t)
+  local ok, err = xpcall(touchedFrame, debug.traceback, t)
+  if not ok then _fatalLog("touched", err) end
   CODEA_RENDER_PASS = false
 end
 

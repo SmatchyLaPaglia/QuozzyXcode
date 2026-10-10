@@ -438,3 +438,32 @@ function computeMatchBadges(liveMatches)
   end
   return ended, commented
 end
+
+
+-- A history snapshot built straight from a decoded live match, so Records rows
+-- get the opponent's score and comment as soon as they arrive -- not only once
+-- an end screen showing them has been opened. Same shape EndScreenFP records.
+function snapshotFromQMatch(q, oppId, oppAlias)
+  local myId = localPID and localPID()
+  if not (q and q.id and q.players and oppId and myId and q.boardTiles) then return nil end
+  local me, opp = q.players[myId], q.players[oppId]
+  if not (me and me.didPlay) then return nil end
+  local complete = (opp and opp.didPlay == true) or false
+  local localScore, oppScore = tonumber(me.score) or 0, tonumber(opp and opp.score) or 0
+  if complete and reconcileCompetitiveWordResults then
+    local ok, r = pcall(reconcileCompetitiveWordResults, me.words or {}, opp.words or {})
+    if ok and r then localScore, oppScore = r.scoreA or localScore, r.scoreB or oppScore end
+  end
+  local snap = {
+    id = q.id, oppId = oppId, oppAlias = oppAlias or "",
+    boardSize = q.boardSize, minWordLen = q.minWordLen, boardTiles = q.boardTiles,
+    endedAt = math.floor(tonumber(q.lastUpdated) or os.time()),
+    complete = complete, localScore = localScore, oppScore = oppScore,
+    localWords = me.words or {}, oppWords = (opp and opp.words) or {},
+    localComment = me.comment or "", oppComment = (opp and opp.comment) or "",
+  }
+  if complete then
+    snap.outcome = (localScore > oppScore and "win") or (localScore < oppScore and "loss") or "tie"
+  end
+  return snap
+end
