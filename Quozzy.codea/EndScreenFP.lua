@@ -2123,8 +2123,10 @@ function drawEndScreenUpdateIndicator()
   pushStyle()
   rectMode(CENTER)
   noStroke()
-  fill(0, 0, 0, 150)
-  drawRoundedRect(cx, cy, 170, 92, 18, color(0, 0, 0, 150), color(0, 0, 0, 150))
+  -- Opaque: drawRoundedRect builds corners from overlapping shapes, so a
+  -- translucent fill shows the overlaps as darker blotches.
+  local bg = color(58, 54, 50, 255)
+  drawRoundedRect(cx, cy, 170, 92, 18, bg, bg)
   local n, r = 8, 16
   local spin = (ElapsedTime or 0) * 7
   ellipseMode(CENTER)
