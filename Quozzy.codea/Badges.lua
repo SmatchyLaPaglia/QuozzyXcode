@@ -117,6 +117,25 @@ local function _quickStartInsideAvoidRect(px, py)
   return false
 end
 
+-- One word per line; the badge advances to the next phrase on every hop.
+QUICK_START_PHRASES = QUICK_START_PHRASES or {
+  { "QUICK", "START", "NEXT", "MATCH" },
+  { "PROVE", "YOU'RE", "MAD", "FIT!" },
+  { "JUMP", "IN!", "PLAY", "NOW!" },
+  { "DON'T", "LET", "BULLIES", "WIN" },
+  { "TAP", "HERE", "TO", "RUMBLE!" },
+  { "SHAKE", "THEM", "DICE", "BRA!" },
+  { "TAP", "AND", "THROW", "DOWN" },
+  { "DANCE", "WITH", "THE", "DEVIL!" },
+  { "HUNT", "DOWN", "SOME", "WORDS!" },
+  { "SHOW", "THEM", "THEY", "STINK" },
+}
+quickStartPhraseIdx = quickStartPhraseIdx or 0
+
+local function _advanceQuickStartPhrase()
+  quickStartPhraseIdx = quickStartPhraseIdx % #QUICK_START_PHRASES + 1
+end
+
 local function _pickQuickStartPosition()
   local qs  = quickStart
   local r   = qs.radius
@@ -169,6 +188,7 @@ local function _activateQuickStart()
   quickStart.phase     = "visible"
   quickStart.phaseTime = 0
   quickStart.rippled   = false
+  _advanceQuickStartPhrase()
   _pickQuickStartPosition()
 end
 
@@ -226,6 +246,7 @@ function updateQuickStart(dt)
       quickStart.phase     = "visible"
       quickStart.phaseTime = 0
       quickStart.rippled   = false
+      _advanceQuickStartPhrase()
       _pickQuickStartPosition()
     end
   end
@@ -277,7 +298,7 @@ function drawQuickStartBadgeAt(x, y, t, visibleDur)
   font("Baskerville-SemiBold")
   -- One text() per line so each word is centered on its own (textAlign is unreliable
   -- inside a textMode(CENTER) multi-line block).
-  local lines = { "QUICK", "START", "NEXT", "MATCH" }
+  local lines = QUICK_START_PHRASES[math.max(quickStartPhraseIdx, 1)]
   local lineH = 14 * scale * 1.05
   for i, line in ipairs(lines) do
     text(line, 0, (#lines + 1) * 0.5 * lineH - i * lineH)

@@ -387,6 +387,11 @@ function calculateEndScreenDimensions()
   
   g.singleListRect = { x = innerLeft, y = listBot, w = contentW, h = listH2 }
   g.playAgainRect  = { x = innerLeft, y = innerBottom, w = contentW, h = buttonH }
+  -- Unified bottom pair: "Again!" (left) + "Close"/"Send" (right)
+  local btnGap = 12
+  local btnW   = (contentW - btnGap) * 0.5
+  g.againRect  = { x = innerLeft, y = innerBottom, w = btnW, h = buttonH }
+  g.closeRect  = { x = innerLeft + btnW + btnGap, y = innerBottom, w = btnW, h = buttonH }
 end
 
 function ensureEndScreenLayout()
@@ -889,16 +894,14 @@ function handleEndScreenTouch(t)
     end
   end
   
-  -- 2P button area
-  if t.state == ENDED and endScreen2PButtonRect then
-    local r = endScreen2PButtonRect
-    if t.x >= r.x and t.x <= r.x+r.w and
-    t.y >= r.y and t.y <= r.y+r.h then
-      
-      if endScreenButtonAction then
-        endScreenButtonAction()
+  -- Bottom button pair (Again! / Close-Send), registered each frame by drawEndScreenButton
+  if t.state == ENDED and endScreenButtons then
+    for _, b in ipairs(endScreenButtons) do
+      local r = b.rect
+      if t.x >= r.x and t.x <= r.x+r.w and t.y >= r.y and t.y <= r.y+r.h then
+        if b.action then b.action() end
+        return true
       end
-      return true
     end
   end
   

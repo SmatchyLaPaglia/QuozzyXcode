@@ -389,7 +389,9 @@ end
 
 function vsOpenMatchEntry(entry)
   if not entry or not entry.gkMatch then return end
-  closeVsOverlay()
+  -- Don't close the vs overlay yet: the match loads asynchronously, and closing now exposed the
+  -- menu for the duration of the load. openWith() closes it on the same frame the screen changes.
+  vsOpeningSince = ElapsedTime
   -- Mark it viewed the moment it's opened, independent of anything that happens after —
   -- see vsMatchAlreadyViewed above for why this can't just rely on a Records snapshot.
   if (entry.ended or (entry.localDidPlay and entry.oppDidPlay)) and markVsMatchViewed then
@@ -401,6 +403,8 @@ function vsOpenMatchEntry(entry)
   -- sent moments ago (their score would be missing from the end screen). Falls
   -- back to the list's copy if the load fails.
   local function openWith(gk, dataTable)
+    vsOpeningSince = nil
+    closeVsOverlay()
     if tbm and tbm._setCurrentMatch then
       tbm:_setCurrentMatch(gk, "vs-list-open")
     end
@@ -856,6 +860,9 @@ end
 ------------------------------------------------------------
 function handleVsOverlayTouch(t)
   if not vsOverlay then return false end
+  -- A row was tapped and its match is still loading: the overlay stays up (so the menu never
+  -- shows through) and swallows touches until the end screen replaces it. 5s safety valve.
+  if vsOpeningSince and ElapsedTime - vsOpeningSince < 5 then return true end
   local g = vsOverlayGeom
   if not g then
     if t.state == ENDED then closeVsOverlay() end

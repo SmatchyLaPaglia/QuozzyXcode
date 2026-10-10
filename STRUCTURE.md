@@ -1747,3 +1747,17 @@ points — may look soft on retina.
 - Debug overlay (RipplePicker.lua): -/+ steppers per setting, "Reset ripple", and "Test Ripple" which draws a demo
   badge (drawQuickStartBadgeAt, extracted from drawQuickStart) at screen center ON TOP of the panel and fires the
   ripple from it after the Delay. Each nudge prints the new value.
+
+## Session 2026-10-10 (laptop): end-screen buttons, name handles, season persistence
+- End-screen bottom row: layout.againRect + layout.closeRect (EndScreen.lua calculateEndScreenDimensions).
+  drawEndScreenButton appends to `endScreenButtons` (reset each frame in drawEndScreenFP); handleEndScreenTouch
+  loops it. "Again!" = offerEndScreenRematch (2P, any state incl. waiting/history; same confirm dialog as menu)
+  or startEndScreenSoloAgain (solo). Right button = disposeEndScreenAndReturnToMenu, labelled "Send" when a draft exists.
+  Hidden only for 2P with no assigned opponent. × button kept. Old endScreen2PButtonRect/endScreenButtonAction gone.
+- Balloon name handles: drawBalloonNameHandle (EndScreenFP.lua) on rim upper-left; names from model.commentUI.oppName/localName
+  ("You"). Records detail uses the same mini balloons elsewhere, not this renderer, so no handles there.
+- Season persists via saveLocalData (saveSeasonIndex, Themes.lua) — saveProjectData does NOT survive relaunch in the
+  Xcode export. First launch (no saved value) picks a random season.
+- vsOpenMatchEntry keeps the vs overlay up (touches swallowed via vsOpeningSince) until the async match load finishes,
+  then closes it on the same frame enterQMatch changes state — no menu flash.
+- Quick-start badge cycles QUICK_START_PHRASES (Badges.lua), advancing each hop.

@@ -1,3 +1,12 @@
+  endScreenButtons = {}
+  local composing = model.commentUI and model.commentUI.canCompose
+    and (endScreenCommentDraft or "") ~= ""
+  if model.rematch and model.rematch.canOffer then
+    local againAction = model.rematch.versus and offerEndScreenRematch or startEndScreenSoloAgain
+    drawEndScreenButton(layout.againRect, "Again!", againAction)
+  end
+  drawEndScreenButton(layout.closeRect, composing and "Send" or "Close", disposeEndScreenAndReturnToMenu)
+
 endScreenMissedWordsJob = endScreenMissedWordsJob or nil
 endScreenMissedWordsJobMatchId = endScreenMissedWordsJobMatchId or nil
 endScreenCommentDraft = endScreenCommentDraft or ""
@@ -598,6 +607,37 @@ function currentBalloonColorScheme()
   return entry.build(Color)
 end
 
+-- Little rounded-pill name tag straddling a balloon's upper-left rim, so it's clear who said
+-- what (more so once 3+ players share a screen). End screen only — not used on record details.
+local function drawBalloonNameHandle(rect, name, balloonFill, balloonStroke, alphaMul)
+  if not name or name == "" or alphaMul <= 0.01 then return end
+  local fs, padX, h, halo = 13, 11, 22, 3
+  local maxW = math.max(60, rect.w * 0.5)
+  pushStyle()
+  font("HelveticaNeue-Bold")
+  fontSize(fs)
+  -- Truncate by whole characters (never mid-UTF-8) until it fits.
+  local chars = {}
+  for ch in tostring(name):gmatch("[%z\1-\127\194-\244][\128-\191]*") do chars[#chars + 1] = ch end
+  local label = table.concat(chars)
+  while #chars > 1 and (textSize(label)) + padX * 2 > maxW do
+    chars[#chars] = nil
+    label = table.concat(chars) .. "…"
+  end
+  local tw = textSize(label)
+  local w  = tw + padX * 2
+  local cx = rect.x + 20 + w * 0.5
+  local cy = rect.y + rect.h + 1
+  local function withA(c) return color(c.r, c.g, c.b, math.floor((c.a or 255) * alphaMul)) end
+  drawRoundedRect(cx, cy, w + halo * 2, h + halo * 2, (h + halo * 2) * 0.5, withA(balloonFill), withA(balloonFill))
+  drawRoundedRect(cx, cy, w, h, h * 0.5, withA(balloonStroke), withA(balloonStroke))
+  fill(withA(balloonFill))
+  textMode(CENTER)
+  textAlign(CENTER)
+  text(label, cx, cy)
+  popStyle()
+end
+
 local function drawEndScreenSpeechBalloons(model, layout)
   local ui = model and model.commentUI
   endScreenOppBalloonRect = nil
@@ -721,6 +761,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
         maxLines = maxBalloonLines,
       })
     endScreenOppBalloonRect = oppRect
+    drawBalloonNameHandle(oppRect, ui.oppName, oppFill, oppStroke, oppAlpha)
   end
 
   -- Local (responder) balloon — stacked below opponent, tail points at local avatar.
@@ -740,7 +781,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
     -- balloon, on top of the normal 14 stacking gap — only meaningful when oppRect
     -- exists (mockup scenario 2: paired with centerBothBalloons/suppressLocalTail
     -- so the two don't read as a merged block).
-    local localGap = 14 + (ui.localGapExtra or 0)
+    local localGap = 14 + (ui.localGapExtra or 0) + (ui.localName and 8 or 0)  -- room for the name handle
     local localRect = {
       -- ui.localBodyXNudge (default 0) shifts the BODY only — localTailX above stays
       -- put, so the tail doesn't move with it.
@@ -765,6 +806,7 @@ local function drawEndScreenSpeechBalloons(model, layout)
         maxLines = maxBalloonLines,
       })
     endScreenLocalBalloonRect = localRect
+    drawBalloonNameHandle(localRect, ui.localName, localFill, localStroke, localAlpha)
   end
 end
 
@@ -1370,6 +1412,16 @@ function offerEndScreenRematch()
   end)
 end
 
+-- Solo "Again!": same settings, new round (no confirmation — there's no opponent to ask).
+function startEndScreenSoloAgain()
+  if teardownEndScreenCommentField then teardownEndScreenCommentField() end
+  justFinishedLiveGame = false
+  rotatePlayAgainLabel()
+  currentQMatch = nil
+  if endWordList then endWordList.scroll, endWordList.vel, endWordList.dragId = 0, 0, nil end
+  startRoundFromCurrentSettings()
+end
+
 local function clearMissedWordsJob()
   endScreenMissedWordsJob = nil
   endScreenMissedWordsJobMatchId = nil
@@ -1626,13 +1678,9 @@ function buildEndScreenModel()
   local composingOffFill   = placeholderScheme.placeholderFill
   local composingOffStroke = placeholderScheme.placeholderStroke
 
-  local rematchInfo = nil
-  if is2P and complete and assignedOpponent then
-    rematchInfo = {
-      canOffer = true,
-      label = "Play " .. (oppDisplayName ~= "" and oppDisplayName or "them") .. " again?",
-    }
-  end
+  -- "Again!" works in every state: solo replays solo; a 2-player match (finished OR still
+  -- waiting on the opponent) starts a fresh match against the same opponent.
+  local rematchInfo = { canOffer = (not is2P) or assignedOpponent, versus = (is2P and assignedOpponent) and true or false }
 
   return {
     missedWords = missedWords,
@@ -1689,6 +1737,8 @@ function buildEndScreenModel()
         or localComment,
       opponentComment = opponentComment,
       showBalloons = endScreenSpeechBalloonsVisible,
+      oppName = (oppDisplayName ~= "" and oppDisplayName) or "Opponent",
+      localName = "You",
       hasAnyComment = (localComment ~= "" or opponentComment ~= "" or canComposeComment),
       suppressLocalText   = canComposeComment,
       localFillOverride   = (canComposeComment and not composingActive) and composingOffFill   or nil,
@@ -2066,7 +2116,8 @@ function renderList(listObject, rect, entries, model)
 end
 
 function drawEndScreenButton(rect, label, action)
-  endScreen2PButtonRect = rect
+  endScreenButtons = endScreenButtons or {}
+  endScreenButtons[#endScreenButtons + 1] = { rect = rect, action = action }
   
   drawRoundedRect(
   rect.x + rect.w*0.5,
@@ -2085,8 +2136,6 @@ function drawEndScreenButton(rect, label, action)
   fontSize(rect.h * 0.32)
   text(label, rect.x + rect.w*0.5, rect.y + rect.h*0.5)
   popStyle()
-  
-  endScreenButtonAction = action
 end
 
 function keyboard(key)

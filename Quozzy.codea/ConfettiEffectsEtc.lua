@@ -279,7 +279,7 @@ function updateSeasonTransition(dt)
     if not tr.switched and t >= 1 then
         seasonIndex = tr.toIndex
         rebuildOverlayPanelsForSeason()
-        saveProjectData(SEASON_KEY, seasonIndex)
+        saveSeasonIndex(seasonIndex)
         tr.switched = true
         nextHaiku()
         state = STATE_MENU

@@ -128,14 +128,24 @@ function applySeasonPalette()
     rebuildOverlayPanelsForSeason()
 end
 
+-- Persisted via saveLocalData (NSUserDefaults): in the Xcode-exported app projectData does
+-- not survive a relaunch (see qMatch_qPlayer.lua header). First launch picks a random season.
+function saveSeasonIndex(idx)
+    saveLocalData(SEASON_KEY, idx)
+end
+
 function applyStartingSeason()
-    local idx = readProjectData(SEASON_KEY)
-    if type(idx) == "number" then
+    math.randomseed(os.time())
+    local idx = tonumber(readLocalData(SEASON_KEY))
+    if idx then
         idx = math.floor(idx)
         if idx < 1 or idx > #seasons then
-            idx = 1
+            idx = math.random(#seasons)
         end
-        seasonIndex = idx
+    else
+        idx = math.random(#seasons)
+        saveSeasonIndex(idx)
     end
+    seasonIndex = idx
     applySeasonPalette()
 end
