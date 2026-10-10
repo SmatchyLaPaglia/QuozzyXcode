@@ -632,7 +632,7 @@ function CTBM:_makeLocalPlayerListener()
     o__player,
     o__match,
     bDidBecomeActive
-    )
+    ) handOff(function(o__player, o__match, bDidBecomeActive)
     thisCTBM:_logMatchmakingEvent(
     "PLAYER_LISTENER_RECEIVED_TURN",
     o__match,
@@ -661,19 +661,19 @@ function CTBM:_makeLocalPlayerListener()
     thisCTBM:log(
     "CTBM: reached end of player_receivedTurnEventForMatch_didBecomeActive_"
     )
-  end
+  end, o__player, o__match, bDidBecomeActive) end
 
   -- Fires when another participant sends an exchange to me, independent of turn
-  -- position (see MULTIPLAYER_DESIGN.md "GameKit exchange trial"). Same
-  -- no-async-wrapper style as the turn-event listener above -- this protocol's
-  -- callbacks arrive already on the main run loop, unlike explicit completion
-  -- handlers elsewhere in this file.
+  -- position (see MULTIPLAYER_DESIGN.md "GameKit exchange trial"). Like every
+  -- objc callback, its body only hands off (handOff): arriving "on the main run
+  -- loop" does NOT make it safe -- it can still be delivered while draw() is
+  -- mid-bridge-call, and doing the work right here froze the app.
   function PlayerListener:
     player_receivedExchangeRequest_forMatch_(
     o__player,
     o__exchange,
     o__match
-    )
+    ) handOff(function(o__player, o__exchange, o__match)
     thisCTBM:_logMatchmakingEvent("PLAYER_LISTENER_RECEIVED_EXCHANGE_REQUEST", o__match)
     if not o__match then
       thisCTBM:log("CTBM: exchange request with nil match")
@@ -687,7 +687,7 @@ function CTBM:_makeLocalPlayerListener()
     thisCTBM.currentMatch = o__match
     thisCTBM.isMyTurn = thisCTBM:vernacularForTurnOwner() == "me" or false
     thisCTBM._onReceivedExchangeRequest(o__match, o__exchange)
-  end
+  end, o__player, o__exchange, o__match) end
 
   -- Fires once all recipients of an exchange I sent have replied (or it was
   -- otherwise completed) -- sent to both the original sender and the current
@@ -698,7 +698,7 @@ function CTBM:_makeLocalPlayerListener()
     o__replies,
     o__exchange,
     o__match
-    )
+    ) handOff(function(o__player, o__replies, o__exchange, o__match)
     thisCTBM:_logMatchmakingEvent("PLAYER_LISTENER_RECEIVED_EXCHANGE_REPLIES", o__match)
     if not o__match then
       thisCTBM:log("CTBM: exchange replies with nil match")
@@ -707,7 +707,7 @@ function CTBM:_makeLocalPlayerListener()
     thisCTBM.currentMatch = o__match
     thisCTBM.isMyTurn = thisCTBM:vernacularForTurnOwner() == "me" or false
     thisCTBM._onReceivedExchangeReplies(o__match, o__exchange)
-  end
+  end, o__player, o__replies, o__exchange, o__match) end
 
   return PlayerListener()
 end
@@ -734,12 +734,12 @@ function CTBM:_makeDeprecatedTurnBasedHandler()
   
   local this = self
   
-  function Delegate:handleTurnEventForMatch_(oMatch)
+  function Delegate:handleTurnEventForMatch_(oMatch) handOff(function(oMatch)
     this:log("EVENTHANDLER: handleTurnEventForMatch",
     oMatch and oMatch.matchID)
-  end
+  end, oMatch) end
   
-  function Delegate:handleMatchEnded_(oMatch)
+  function Delegate:handleMatchEnded_(oMatch) handOff(function(oMatch)
     this:log("EVENTHANDLER: handleMatchEnded",
     oMatch and oMatch.matchID)
     
@@ -749,11 +749,11 @@ function CTBM:_makeDeprecatedTurnBasedHandler()
     local endState = this:_getEndStateFromMatch(oMatch)
     
     this:_finalizeGameEnd(oMatch, data, endState)
-  end
+  end, oMatch) end
   
-  function Delegate:handleInviteFromGameCenter_(oPlayers)
+  function Delegate:handleInviteFromGameCenter_(oPlayers) handOff(function(oPlayers)
     this:log("EVENTHANDLER: invite received")
-  end
+  end, oPlayers) end
   
   local delegate = Delegate()
   if not delegate then

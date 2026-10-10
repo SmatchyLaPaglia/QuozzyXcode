@@ -792,14 +792,14 @@ local function ensureCommentFieldDelegate()
   -- Callbacks ONLY set Lua flags — never call UIKit/Codea from an objc callback (it can
   -- crash the draw cycle). Actual text mutation / resignFirstResponder happens in draw()
   -- (enforceCommentFieldLineCap), driven by these flags. Params use type-prefixed names (o=object).
-  function Delegate:textViewDidBeginEditing_(oTV)
+  function Delegate:textViewDidBeginEditing_(oTV) handOff(function(oTV)
     local i = tonumber(oTV.tag) or 0
     if commentFields[i] then commentFields[i].focused = true end
-  end
-  function Delegate:textViewDidEndEditing_(oTV)
+  end, oTV) end
+  function Delegate:textViewDidEndEditing_(oTV) handOff(function(oTV)
     local i = tonumber(oTV.tag) or 0
     if commentFields[i] then commentFields[i].focused = false end
-  end
+  end, oTV) end
   commentFieldDelegate = Delegate()
   return commentFieldDelegate
 end

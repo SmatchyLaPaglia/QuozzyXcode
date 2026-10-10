@@ -552,9 +552,9 @@ function vsOpenNativeGameCenterFriends()
     vc.viewState = viewState
     local Delegate = objc.class("VsGCFriendsDelegate")
     local vcRef = tbm.viewController
-    function Delegate:gameCenterViewControllerDidFinish_(o__vc)
+    function Delegate:gameCenterViewControllerDidFinish_(o__vc) handOff(function(o__vc)
       vcRef:dismissModalViewControllerAnimated_(true, nil)
-    end
+    end, o__vc) end
     vc.gameCenterDelegate = Delegate()
     tbm.viewController:presentModalViewController_animated_(vc, true)
   end)

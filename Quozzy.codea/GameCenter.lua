@@ -7,28 +7,28 @@
 _deferredWork = _deferredWork or {}
 
 -- Plain table writes only (no C calls), so safe even mid-bridge-call.
-function deferToDraw(fn, a, b, c)
-  _deferredWork[#_deferredWork + 1] = { fn = fn, a = a, b = b, c = c }
+function deferToDraw(fn, a, b, c, d)
+  _deferredWork[#_deferredWork + 1] = { fn = fn, a = a, b = b, c = c, d = d }
 end
 
-local function _runGuarded(fn, a, b, c)
-  local ok, err = xpcall(fn, debug.traceback, a, b, c)
+local function _runGuarded(fn, a, b, c, d)
+  local ok, err = xpcall(fn, debug.traceback, a, b, c, d)
   if not ok and devLog then devLog("callback work failed:", tostring(err)) end
 end
 
 -- While the app is drawing, queue the work for the next frame. While it isn't
 -- (backgrounded/asleep -- e.g. woken by a GameKit push), draw() won't run to
 -- drain the queue, but nothing can be mid-bridge-call either, so run it now.
-function handOff(fn, a, b, c)
+function handOff(fn, a, b, c, d)
   local drawing = CODEA_RENDER_PASS or (_lastDrawAt and os.time() - _lastDrawAt <= 1)
-  if drawing then deferToDraw(fn, a, b, c) else _runGuarded(fn, a, b, c) end
+  if drawing then deferToDraw(fn, a, b, c, d) else _runGuarded(fn, a, b, c, d) end
 end
 
 function drainDeferredWork()
   if #_deferredWork == 0 then return end
   local work = _deferredWork
   _deferredWork = {}
-  for _, w in ipairs(work) do _runGuarded(w.fn, w.a, w.b, w.c) end
+  for _, w in ipairs(work) do _runGuarded(w.fn, w.a, w.b, w.c, w.d) end
 end
 
 GameCenter = GameCenter or {}
