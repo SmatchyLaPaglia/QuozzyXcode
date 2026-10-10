@@ -20,9 +20,11 @@ end
 
 -- Strip comments and string contents (keep newlines so line numbers survive).
 local function strip(src)
-  src = src:gsub("%-%-%[(=*)%[.-%]%1%]", function(s) return (s:gsub("[^\n]", " ")) end)
+  -- outer capture so the callback gets the whole match (with only the inner
+  -- (=*) capture, gsub passes just that and the replaced text loses its newlines)
+  src = src:gsub("(%-%-%[(=*)%[.-%]%2%])", function(s) return (s:gsub("[^\n]", " ")) end)
   src = src:gsub("%-%-[^\n]*", "")
-  src = src:gsub("%[(=*)%[.-%]%1%]", function(s) return (s:gsub("[^\n]", " ")) end)
+  src = src:gsub("(%[(=*)%[.-%]%2%])", function(s) return (s:gsub("[^\n]", " ")) end)
   src = src:gsub('"[^"\n]*"', '""'):gsub("'[^'\n]*'", "''")
   return src
 end
@@ -72,19 +74,29 @@ local violations = {}
 for _, path in ipairs(listLua()) do
   local f = io.open(path); local raw = f:read("a"); f:close()
   local src = strip(raw)
-  local name = path:match("([^/]+)$")
+  local fname = path:match("([^/]+)$")
+  local delegateObjects = {}
+  for obj in src:gmatch("local%s+([%w_]+)%s*=%s*objc%.delegate%s*%(") do delegateObjects[obj] = true end
+  for obj in src:gmatch("local%s+([%w_]+)%s*=%s*objc%.class%s*%(") do delegateObjects[obj] = true end
   local pos = 1
   while true do
-    local s, e, params = src:find("function%s*%(([^%)]*)%)", pos)
+    -- anonymous `function(...)` AND named methods on objc delegate objects,
+    -- `function Listener:method_(...)` -- possibly split across lines.
+    local s, e, name, params = src:find("function([%w_%.:%s]-)%(([^%)]*)%)", pos)
     if not s then break end
     local prev = s > 1 and src:sub(s - 1, s - 1) or " "
+    local owner = name:match("^%s*([%w_]+)%s*[:%.]")
+    local namedNonDelegate = owner and not delegateObjects[owner]
+    local namedPlain = name:match("%S") and not owner
     local before = src:sub(math.max(1, s - 40), s - 1)
     local handedOff = before:find("handOff%s*%(%s*$") or before:find("deferToDraw%s*%(%s*$")
-    if not prev:match("[%w_]") and isCallbackParams(params) and not handedOff then
+    local isDelegateMethod = owner and delegateObjects[owner]
+    if not prev:match("[%w_]") and not namedNonDelegate and not namedPlain
+       and (isDelegateMethod or isCallbackParams(params)) and not handedOff then
       local bs, be = bodyRange(src, e + 1)
       if bs and not bodyIsHandoverOnly(src:sub(bs, be)) then
         local line = select(2, src:sub(1, s):gsub("\n", "")) + 1
-        violations[#violations + 1] = name .. ":" .. line
+        violations[#violations + 1] = fname .. ":" .. line
       end
     end
     pos = e + 1
@@ -93,7 +105,7 @@ for _, path in ipairs(listLua()) do
   for line_no, line in (function() local i = 0; local it = src:gmatch("([^\n]*)\n?")
       return function() local l = it(); if l == nil then return nil end; i = i + 1; return i, l end end)() do
     if line:find("objc%.async%s*%(") and not line:find("nativeAsync") then
-      violations[#violations + 1] = name .. ":" .. line_no .. " (objc.async)"
+      violations[#violations + 1] = fname .. ":" .. line_no .. " (objc.async)"
     end
   end
 end
