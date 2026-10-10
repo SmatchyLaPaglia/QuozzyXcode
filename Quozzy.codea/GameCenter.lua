@@ -935,12 +935,14 @@ function scheduleCommentTimeoutNotification(matchId, delaySeconds, opponentName)
     local identifier = "commentTimeout-" .. tostring(matchId)
     local request = objc.UNNotificationRequest:requestWithIdentifier_content_trigger_(identifier, content, trigger)
 
-    -- The completion block must do NOTHING. iOS answers this request almost
-    -- instantly, so the block can be delivered into Lua while the round-end code
-    -- is still inside another bridge call; objc.async there then got the wrong
-    -- argument and threw, unwinding LuaKit while it held the render thread's lock
-    -- -- the frozen-app bug (traceback from the Xcode console, 2026-10-10).
-    center:addNotificationRequest_withCompletionHandler_(request, function(o__err) end)
+    -- NO completion block at all (nil). iOS answers this almost instantly, so the
+    -- block would be run by LuaKit re-entrantly while the render thread waits on
+    -- its next bridge call (endGameRound's GameKit calls), and in that state LuaKit
+    -- can't even invoke it: the Lua stack holds the property key where the function
+    -- should be ("attempt to call a string value" / "bad argument to 'async'"),
+    -- which wedges the render thread -- the frozen-app bug. An empty function still
+    -- crashed (console capture 2026-10-10 09:38:56); only nil is safe.
+    center:addNotificationRequest_withCompletionHandler_(request, nil)
     devLog("scheduleCommentTimeoutNotification requested", matchId)
   end)
   if not ok then
