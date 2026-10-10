@@ -76,6 +76,18 @@ function _flushLogBuffer()
   if ok then
     saveLocalData("DevLogBuffer", encoded)
   end
+  -- Hang forensics: NSUserDefaults reaches disk lazily (a pulled plist lagged
+  -- minutes behind), so also write the buffer as a plain file, which lands
+  -- immediately. The first line is a heartbeat: when it stops advancing,
+  -- draw() stopped at that moment, in that state, after that touch.
+  pcall(function()
+    local hb = string.format("HEARTBEAT %s state=%s overlays=%s lastTouch=%s",
+      os.date("!%H:%M:%S"), tostring(state),
+      table.concat({ vsOverlay and "vs" or "", recordsOverlay and "records" or "",
+        replayMatchmakingBusy and "BUSY" or "", ripplePickerOverlay and "debug" or "" }, ","),
+      tostring(_lastTouchDebug))
+    saveText("Documents:devlog_live.txt", hb .. "\n" .. table.concat(DEV_LOG_BUFFER, "\n"))
+  end)
 end
 
 function devLog(...)
@@ -1383,6 +1395,7 @@ function handlePreviewTouch(t)
 end
 
 function touched(t)
+  _lastTouchDebug = string.format("%s@%.0f,%.0f %s", tostring(t.state), t.x or 0, t.y or 0, os.date("!%H:%M:%S"))
   CODEA_RENDER_PASS = true
   touchedFrame(t)
   CODEA_RENDER_PASS = false
