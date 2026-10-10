@@ -1154,7 +1154,7 @@ function handleMenuTouch(t)
       return
     end
 
-    if tbm.localPlayer and tbm.localPlayer.authenticated == true then
+    if gcIsAuthenticated() then
       openVsOverlay()
     else
       openGCSignInOverlay()

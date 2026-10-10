@@ -438,8 +438,21 @@ end
 -- "re" button and the end-screen rematch button. onConfirmed() is only
 -- called if the user taps "heck yeah"; it does NOT start matchmaking itself
 -- (callers decide when/how, since the end screen must dispose of itself first).
+-- Single "is Game Center signed in" test for the vs / play-again gates. Lenient on purpose: the
+-- bridge's BOOL can arrive as 1, and localPlayer.authenticated can blip false while GameKit
+-- re-authenticates after a foreground; tbm._authFired is sticky once sign-in was detected.
+-- (A play-again tap right after a working vs match used to raise the sign-in warning.)
+function gcIsAuthenticated()
+  if not tbm then return false end
+  local lp = tbm.localPlayer
+  local a = lp and lp.authenticated
+  if a == true or a == 1 then return true end
+  return tbm._authFired == true
+end
+
 function confirmRematchAgainstLastOpponent(onConfirmed)
-  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true) then
+  if not gcIsAuthenticated() then
+    devLog("DBG_PA rematch gate: not authenticated; authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated), "authFired=", tostring(tbm and tbm._authFired))
     openGCSignInOverlay()
     return
   end

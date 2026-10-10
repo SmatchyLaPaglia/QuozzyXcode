@@ -461,7 +461,7 @@ function drawGCSignInOverlay()
   if not gcSignInOverlay then return end
   -- The message is only true while Game Center is signed out. If authentication lands while it's
   -- up (tapped vs/play-again a moment before sign-in finished), it's stale: drop it silently.
-  if tbm and tbm.localPlayer and tbm.localPlayer.authenticated == true then
+  if gcIsAuthenticated and gcIsAuthenticated() then
     closeGCSignInOverlay()
     return
   end
