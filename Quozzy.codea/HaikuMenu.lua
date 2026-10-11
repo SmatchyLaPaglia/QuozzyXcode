@@ -327,6 +327,7 @@ end
 --   showGenericAlert({
 --     message = "Are you sure?",
 --     avatar  = someSpriteOrNil,
+--     margin = 28, panelWidthFrac = 0.86, panelMaxW = 560,   -- optional: widen/tighten the panel
 --     buttons = {
 --       { text = "yes", callback = function() ... end, isPrimary = true },
 --       { text = "no",  callback = function() end },
@@ -366,8 +367,8 @@ function drawGenericAlert()
   rect(0, 0, WIDTH, HEIGHT)
 
   -- Panel
-  local margin  = 28
-  local panelW  = math.min(WIDTH * 0.86, 560)
+  local margin  = config.margin or 28
+  local panelW  = math.min(WIDTH * (config.panelWidthFrac or 0.86), config.panelMaxW or 560)
   local innerW  = panelW - margin * 2
   local panelX  = WIDTH / 2
   local panelY  = HEIGHT / 2

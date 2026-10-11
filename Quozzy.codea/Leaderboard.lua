@@ -18,8 +18,9 @@ function openSoloChoiceDialog()
   showGenericAlert({
     message = "Play at your current settings, or a daily leaderboard game (5×5 board, 4-letter minimum)?\n\ntap outside to cancel",
     btnFont = 17,
+    margin = 16, panelWidthFrac = 0.96, panelMaxW = 640,
     buttons = {
-      { text = "my settings", isPrimary = false, callback = function()
+      { text = "current settings", isPrimary = false, callback = function()
           setTurnBasedEnabled(false)
           startRoundFromCurrentSettings()
         end },
