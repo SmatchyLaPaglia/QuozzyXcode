@@ -471,6 +471,10 @@ function drawRecordsOverlay()
         lbBtn = { x = panelX - (btnW + gap) / 2, y = btnY, w = btnW, h = btnH }
         drawButton(lbBtn.x, btnY, btnW, btnH, "Leaderboard", false)
         drawButton(btnX, btnY, btnW, btnH, "Close", false)
+        if leaderboardHasUnseen then
+            local r = 10
+            drawRedBadgeDot(lbBtn.x + lbBtn.w/2 - r * 0.6, btnY + btnH/2 - r * 0.6, r)
+        end
     end
 
     recordsOverlayGeom = {

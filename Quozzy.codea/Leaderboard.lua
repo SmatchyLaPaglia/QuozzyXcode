@@ -74,6 +74,7 @@ local leaderboardDelegate = nil
 
 -- Present Apple's leaderboard UI. Call from touched()/draw() only (UIKit work).
 function showLeaderboard()
+  markLeaderboardSeen()
   if not gcIsAuthenticated() then
     if state == STATE_MENU then openGCSignInOverlay() end
     return
@@ -95,4 +96,132 @@ function showLeaderboard()
     presenter:presentModalViewController_animated_(vc, true)
   end)
   if not ok then devLog("leaderboard: present failed", tostring(err)) end
+end
+
+--############################################################
+-- "Friends posted something new" badge
+--############################################################
+-- Game Center sends no push for leaderboard changes, so while the menu is up we poll every
+-- LB_POLL_INTERVAL seconds: friends list -> leaderboard object -> those friends' entries
+-- (loadEntriesForPlayers, so no NSRange). Each entry is keyed "playerID:score"; any key not in
+-- the persisted "seen" set means something new. Tapping a leaderboard button marks the latest
+-- fetch as seen (markLeaderboardSeen). Every callback below only hands off; the work runs in draw().
+
+LB_POLL_INTERVAL = 60
+LB_SEEN_KEY = "LeaderboardSeen"
+
+leaderboardHasUnseen = leaderboardHasUnseen or false
+local lbLatestKeys = nil        -- set {["id:score"]=true} from the last successful fetch
+local lbSeenKeys = nil          -- persisted set
+local lbBusy, lbBusySince = false, 0
+local lbLastPollAt = -1e9
+
+local function lbLoadSeen()
+  if lbSeenKeys then return end
+  lbSeenKeys = {}
+  local ok, list = pcall(function() return json.decode(readLocalData(LB_SEEN_KEY) or "[]") end)
+  if ok and type(list) == "table" then
+    for _, k in ipairs(list) do lbSeenKeys[k] = true end
+  end
+end
+
+local function lbRecomputeUnseen()
+  lbLoadSeen()
+  local any = false
+  for k in pairs(lbLatestKeys or {}) do
+    if not lbSeenKeys[k] then any = true break end
+  end
+  leaderboardHasUnseen = any
+end
+
+function markLeaderboardSeen()
+  lbLoadSeen()
+  for k in pairs(lbLatestKeys or {}) do lbSeenKeys[k] = true end
+  local list = {}
+  for k in pairs(lbSeenKeys) do list[#list + 1] = k end
+  saveLocalData(LB_SEEN_KEY, json.encode(list))
+  leaderboardHasUnseen = false
+end
+
+local function lbCount(arr)
+  if not arr then return 0 end
+  if type(arr) == "table" then return #arr end
+  local ok, n = pcall(function() return tonumber(arr.count) or tonumber(arr:count()) or 0 end)
+  return ok and n or 0
+end
+
+local function lbGet(arr, i)
+  if type(arr) == "table" then return arr[i] end
+  local ok, v = pcall(function() return arr:objectAtIndex_(i - 1) end)
+  return ok and v or nil
+end
+
+local function lbDone(why)
+  lbBusy = false
+  if why then devLog("leaderboard poll:", why) end
+end
+
+local function lbOnEntries(oEntries, oError)
+  if oError then return lbDone("entries error " .. tostring(oError.localizedDescription)) end
+  local keys = {}
+  for i = 1, lbCount(oEntries) do
+    local e = lbGet(oEntries, i)
+    local p = e and e.player
+    local id = p and (p.gamePlayerID or p.playerID)
+    if id then keys[tostring(id) .. ":" .. tostring(math.floor(tonumber(e.score) or 0))] = true end
+  end
+  lbLatestKeys = keys
+  lbRecomputeUnseen()
+  lbDone("friend entries=" .. lbCount(oEntries) .. " unseen=" .. tostring(leaderboardHasUnseen))
+end
+
+local lbFriends = nil
+
+local function lbOnFriends(oPlayers, oError)
+  if oError or lbCount(oPlayers) == 0 then
+    lbLatestKeys = {}
+    lbRecomputeUnseen()
+    return lbDone("no friends " .. tostring(oError and oError.localizedDescription))
+  end
+  lbFriends = oPlayers
+  objc.GKLeaderboard:loadLeaderboardsWithIDs_completionHandler_({ LEADERBOARD_ID },
+    function(oBoards, oError2) handOff(function(oBoards, oError2)
+      if oError2 or lbCount(oBoards) == 0 then return lbDone("no leaderboard " .. tostring(oError2 and oError2.localizedDescription)) end
+      local board = lbGet(oBoards, 1)
+      local ok, err = pcall(function()
+        board:loadEntriesForPlayers_timeScope_completionHandler_(lbFriends, 0,
+          function(oLocal, oEntries, oError3) handOff(function(oEntries, oError3)
+            lbOnEntries(oEntries, oError3)
+          end, oEntries, oError3) end)
+      end)
+      if not ok then lbDone("entries call failed " .. tostring(err)) end
+    end, oBoards, oError2) end)
+end
+
+local function lbStart()
+  lbBusy, lbBusySince, lbLastPollAt = true, ElapsedTime, ElapsedTime
+  local lp = objc.GKLocalPlayer and objc.GKLocalPlayer.localPlayer
+  local ok, err = pcall(function()
+    lp:loadFriendPlayersWithCompletionHandler_(function(oPlayers, oError)
+      handOff(function(oPlayers, oError) lbOnFriends(oPlayers, oError) end, oPlayers, oError)
+    end)
+  end)
+  if not ok then lbDone("friends call failed " .. tostring(err)) end
+end
+
+-- Called every frame from the menu block in Main.lua.
+function leaderboardBadgePoll()
+  if state ~= STATE_MENU or not gcIsAuthenticated() then return end
+  if lbBusy and ElapsedTime - lbBusySince > 30 then lbBusy = false end   -- a lost callback must not wedge polling
+  if lbBusy or ElapsedTime - lbLastPollAt < LB_POLL_INTERVAL then return end
+  lbLoadSeen()
+  lbStart()
+end
+
+-- Dot on the menu's Records button (rect = menuHitRects.records).
+function drawLeaderboardRecordsBadge(rect)
+  if not rect or not leaderboardHasUnseen then return end
+  if state ~= STATE_MENU or badgeSuppressed() then return end
+  local r = math.max(8, math.min(rect.w, rect.h) * 0.12)
+  drawRedBadgeDot(rect.cx + rect.w * 0.5 - r * 0.6, rect.cy + rect.h * 0.5 - r * 0.6, r)
 end
