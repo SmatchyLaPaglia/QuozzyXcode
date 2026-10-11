@@ -119,16 +119,16 @@ end
 
 -- One word per line; the badge advances to the next phrase on every hop.
 QUICK_START_PHRASES = QUICK_START_PHRASES or {
-  { "QUICK", "START", "NEXT", "MATCH" },
-  { "PROVE", "YOU'RE", "MAD", "FIT!" },
-  { "JUMP", "IN!", "PLAY", "NOW!" },
-  { "DON'T", "LET", "BULLIES", "WIN" },
-  { "TAP", "HERE", "TO", "RUMBLE!" },
-  { "SHAKE", "THEM", "DICE", "BRA!" },
-  { "TAP", "AND", "THROW", "DOWN" },
-  { "DANCE", "WITH", "THE", "DEVIL!" },
-  { "HUNT", "DOWN", "SOME", "WORDS!" },
-  { "SHOW", "THEM", "THEY", "STINK" },
+  { "MATCH", "READY", "TAP", "HERE" },
+  { "QUICK", "START", "MATCH" },
+  { "JUMP", "IN", "PLAY", "NOW" },
+  { "HUNT", "YOU", "WORDS", "PRONTO" },
+  { "SPELL", "THINGS", "AND", "WIN" },
+  { "TAP", "TO", "START", "WORDING" },
+  { "START", "MATCH", "RIGHT", "AWAY" },
+  { "TAP", "TAP", "TAP", "TAP" },
+  { "PLAY", "NEXT", "MATCH" },
+  { "SHOW", "THEM", "WHO'S", "BOSS" },
 }
 quickStartPhraseIdx = quickStartPhraseIdx or 0
 
