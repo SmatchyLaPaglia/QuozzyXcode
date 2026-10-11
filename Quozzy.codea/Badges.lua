@@ -114,6 +114,13 @@ local function _quickStartInsideAvoidRect(px, py)
       if (px - nx)^2 + (py - ny)^2 < clear * clear then return true end
     end
   end
+  if menuPanelAvoidRects then
+    for _, b in ipairs(menuPanelAvoidRects()) do
+      local nx = math.max(b.cx - b.w * 0.5, math.min(px, b.cx + b.w * 0.5))
+      local ny = math.max(b.cy - b.h * 0.5, math.min(py, b.cy + b.h * 0.5))
+      if (px - nx)^2 + (py - ny)^2 < clear * clear then return true end
+    end
+  end
   return false
 end
 
@@ -285,7 +292,7 @@ function drawQuickStartBadgeAt(x, y, t, visibleDur)
   pushStyle()
   pushMatrix()
   translate(x, y)
-  -- text stays level (the disc is round, so rotating only ever tilted the words)
+  rotate(qs.rotation or 0)   -- slight alternating tilt of the words, re-rolled each hop
 
   noStroke()
   fill(230, 40, 40, alpha)

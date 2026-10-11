@@ -111,6 +111,24 @@ function menuPanelSeasonCenter()
   return cx, cy
 end
 
+-- Codea-space bounding boxes (cx, cy, w, h) of the visible board / min. letters / game types
+-- plates, grown to cover their tilt. Quick Start uses these to keep its badge off them.
+function menuPanelAvoidRects()
+  local c = menuPanelCfg()
+  local out = {}
+  local function add(show, x, y, w, h, tilt)
+    if not show then return end
+    local cx, cy, W, H = mpRect(x, y, w, h)
+    local a = math.rad(math.abs(tilt or 0))
+    local ca, sa = math.cos(a), math.sin(a)
+    out[#out + 1] = { cx = cx, cy = cy, w = W * ca + H * sa, h = W * sa + H * ca }
+  end
+  add(c.showBoard, c.bx, c.by, c.bw, c.bh, c.btilt)
+  add(c.showDice,  c.dx, c.dy, c.dw, c.dh, c.dtilt)
+  add(c.showGame,  c.gx, c.gy, c.gw, c.gh, c.gtilt)
+  return out
+end
+
 -- Play-button adjustments, applied by drawMenu (HaikuMenu.lua section 4).
 function menuPanelButtonAdjust()
   local c = menuPanelCfg()
