@@ -349,6 +349,78 @@ function dismissGenericAlert()
   genericAlertRects = nil
 end
 
+-- Vertical stack layout: config.sections = { {title=, body=, button={text=, isPrimary=}}, ... }.
+-- config.buttons must hold the same buttons in the same order (touch handling reads it).
+-- Wrapped text is measured with textSize and laid out top-down; y-up coordinates throughout.
+function drawGenericAlertSections(config)
+  local margin = config.margin or 20
+  local panelW = math.min(WIDTH * (config.panelWidthFrac or 0.9), config.panelMaxW or 560)
+  local innerW = panelW - margin * 2
+  local titleSize, bodySize, btnH = config.titleFont or 24, config.bodyFont or 16, 46
+  local titleGap, bodyGap, sectionGap = 4, 10, 22
+
+  textMode(CORNER)
+  textAlign(LEFT)
+  local measured, totalH = {}, margin * 2
+  for i, sec in ipairs(config.sections) do
+    font("Georgia-Bold"); fontSize(titleSize)
+    local _, th = textSize(sec.title or "")
+    font("Georgia"); fontSize(bodySize); textWrapWidth(innerW)
+    local _, bh = textSize(sec.body or "")
+    measured[i] = { th = th, bh = bh }
+    totalH = totalH + th + titleGap + bh + bodyGap + btnH + (i > 1 and sectionGap or 0)
+  end
+
+  local panelX, panelY = WIDTH / 2, HEIGHT / 2
+  local panelH
+  panelY, panelH = clampPanelTopToSafeArea(panelY, totalH)
+  local left = panelX - panelW / 2 + margin
+  local cursor = panelY + panelH / 2 - margin
+
+  rectMode(CENTER); noStroke()
+  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
+
+  local newRects = {}
+  for i, sec in ipairs(config.sections) do
+    if i > 1 then cursor = cursor - sectionGap end
+    local m = measured[i]
+    textMode(CORNER); textAlign(LEFT)
+    fill(Color.tileText or color(255))
+
+    font("Georgia-Bold"); fontSize(titleSize); textWrapWidth(innerW)
+    cursor = cursor - m.th
+    text(sec.title or "", left, cursor)
+    cursor = cursor - titleGap
+
+    font("Georgia"); fontSize(bodySize); textWrapWidth(innerW)
+    cursor = cursor - m.bh
+    text(sec.body or "", left, cursor)
+    cursor = cursor - bodyGap
+
+    local btn = sec.button or {}
+    local btnKey = "btn" .. i
+    local isPressed = (pressedButton == btnKey)
+    local fillCol
+    if btn.isPrimary ~= false then
+      fillCol = isPressed and Color.uiAccent2 or Color.uiAccent
+    else
+      local a2, bg = Color.uiAccent2, Color.panelBG
+      fillCol = isPressed and a2 or color(a2.r * 0.65 + bg.r * 0.35, a2.g * 0.65 + bg.g * 0.35, a2.b * 0.65 + bg.b * 0.35, 255)
+    end
+    local btnCy = cursor - btnH / 2
+    rectMode(CENTER)
+    drawRoundedRect(panelX, btnCy, innerW, btnH, 12, fillCol, fillCol)
+    fill(255, 255, 255, 255)
+    font("Georgia-Bold"); fontSize(config.btnFont or 20)
+    textMode(CENTER); textAlign(CENTER); textWrapWidth(0)
+    text(btn.text or "", panelX, btnCy)
+    newRects[btnKey] = { cx = panelX, cy = btnCy, w = innerW, h = btnH, index = i }
+    cursor = cursor - btnH
+  end
+  genericAlertRects = newRects
+end
+
 function drawGenericAlert()
   if not genericAlertActive then return end
 
@@ -365,6 +437,12 @@ function drawGenericAlert()
   noStroke()
   rectMode(CORNER)
   rect(0, 0, WIDTH, HEIGHT)
+
+  if config.sections then
+    drawGenericAlertSections(config)
+    popStyle()
+    return
+  end
 
   -- Panel
   local margin  = config.margin or 28

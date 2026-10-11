@@ -15,19 +15,24 @@ leaderboardSavedSettings = leaderboardSavedSettings or nil
 -- Solo button tap: pick between a regular round and a leaderboard round.
 -- Tapping anywhere outside the buttons cancels (generic alert behavior).
 function openSoloChoiceDialog()
+  local lbButton = { text = "Leaderboard game", isPrimary = true, callback = function()
+      startLeaderboardGame()
+    end }
+  local soloButton = { text = "Solo game", isPrimary = false, callback = function()
+      setTurnBasedEnabled(false)
+      startRoundFromCurrentSettings()
+    end }
   showGenericAlert({
-    message = "Play at your current settings, or a daily leaderboard game (5×5 board, 4-letter minimum)?\n\ntap outside to cancel",
-    btnFont = 17,
-    margin = 16, panelWidthFrac = 0.96, panelMaxW = 640,
-    buttons = {
-      { text = "current settings", isPrimary = false, callback = function()
-          setTurnBasedEnabled(false)
-          startRoundFromCurrentSettings()
-        end },
-      { text = "leaderboard", isPrimary = true, callback = function()
-          startLeaderboardGame()
-        end },
+    message = "solo",   -- unused in sections layout; keeps the generic-alert guard happy
+    sections = {
+      { title = "Play leaderboard?",
+        body = "See how you do against friends and the world. Resets daily!",
+        button = lbButton },
+      { title = "True Solo",
+        body = "Start a game using the board size and minimum word length currently set in the main screen.",
+        button = soloButton },
     },
+    buttons = { lbButton, soloButton },
   })
 end
 
