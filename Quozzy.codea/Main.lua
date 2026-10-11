@@ -1278,7 +1278,24 @@ if objc and objc.async and not _objcAsyncWrapped then
 end
 
 
+-- Native boot cover (QuozzyViewController.swift: launch art shown over the black Metal view while
+-- Lua's setup() runs). Remove it once the menu is actually drawing. UIKit work, so draw() only.
+local bootCoverRemoved = false
+local bootCoverMenuFrames = 0
+local function removeBootCover()
+  bootCoverRemoved = true
+  pcall(function()
+    local win = objc.UIApplication.sharedApplication.keyWindow
+    local cover = win and win:viewWithTag_(9731)
+    if cover then cover:removeFromSuperview() end
+  end)
+end
+
 function drawFrame()
+  if not bootCoverRemoved and state == STATE_MENU then
+    bootCoverMenuFrames = bootCoverMenuFrames + 1
+    if bootCoverMenuFrames > 3 then removeBootCover() end   -- let a few menu frames reach the screen first
+  end
   devRemotePoll()
   drainDeferredWork()
   if tbm and tbm.pollAuth then tbm:pollAuth() end
