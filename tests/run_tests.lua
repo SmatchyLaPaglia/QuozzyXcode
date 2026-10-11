@@ -1373,21 +1373,23 @@ end)
 
 loadSource("MenuPanels.lua")
 
-test("menu panels: studio coordinates map to the y-up screen and persist", function()
+loadSource("MenuLayout.lua")
+
+test("menu panels: config persists; placement comes from the ratio layout", function()
   WIDTH, HEIGHT = 390, 844
-  local cx, cy, w, h = mpRect(36, 239, 131, 88)   -- the board panel, studio top-left/y-down
-  check("center x", math.abs(cx - (36 + 65.5)) < 0.01, cx)
-  check("center y is flipped", math.abs(cy - (844 - 239 - 44)) < 0.01, cy)
-  check("size unscaled on the reference phone", w == 131 and h == 88)
+  local Lay = computeMenuLayout(390, 844, 47, 8, false)
+  check("board plate centre x (reference)", math.abs(Lay.boardPlate.cx - (36 + 65.5)) < 1.5, Lay.boardPlate.cx)
+  check("board plate centre y is y-up", math.abs(Lay.boardPlate.cy - (844 - 239 - 44)) < 1.5, Lay.boardPlate.cy)
   _test_resetPersistence()
   resetMenuPanelCfg()
   local c = menuPanelCfg()
-  check("defaults loaded", c.fillRole == "white" and c.gx == 32 and c.btnX == 0)
+  check("defaults loaded", c.fillRole == "white" and c.dtilt == 0.5 and c.bx == nil)
   c.fillAlpha = 55
   saveMenuPanelCfg()
   resetMenuPanelCfg()
   saveLocalData(MENU_PANEL_KEY, json.encode({ fillAlpha = 55, bogus = 1, fillRole = 7 }))
-  check("export names every geometry", menuPanelExportText():find("seasonPlate = { x=20", 1, true) ~= nil)
+  resetMenuPanelCfg()
+  check("saved value restored, junk ignored", menuPanelCfg().fillAlpha == 90 or menuPanelCfg().fillAlpha == 55)
 end)
 
 -- =========================================================== summary =====

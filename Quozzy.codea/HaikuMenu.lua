@@ -278,10 +278,10 @@ end
 -- Six named globals for section height fractions (Codea hot-reload safe with "or")
 titleRow       = titleRow       or (0.22)   -- Section 1: Title & Season height fraction (3/4 of original 0.29)
 boardRow       = boardRow       or (0.33)   -- Section 2: Board Area height fraction
-minLettersRow  = minLettersRow  or (0.14)   -- Section 3: Minimum Dice Area height fraction (3/4 of previous 0.19)
-startGameRow   = startGameRow   or (0.13)   -- Section 4: Play Modes height fraction
-infoRow        = infoRow        or (0.07)   -- Section 5: Records / Info height fraction
-disclaimerRow  = disclaimerRow  or (0.06)   -- Section 6: Disclaimer height fraction
+minLettersRow  = minLettersRow  or MENU_ROWS.dice   -- Section 3: Minimum Dice Area height fraction (3/4 of previous 0.19)
+startGameRow   = startGameRow   or MENU_ROWS.play   -- Section 4: Play Modes height fraction
+infoRow        = infoRow        or MENU_ROWS.info   -- Section 5: Records / Info height fraction
+disclaimerRow  = disclaimerRow  or MENU_ROWS.disclaimer   -- Section 6: Disclaimer height fraction
 showRowDividers = false  -- toggle pink section boundary lines (off in production)
 
 -- Board preview controls for Section 2 (Codea hot-reload safe with "or")
@@ -632,6 +632,11 @@ function drawMenu()
   -- Section Y boundaries from named globals
   local s = getSectionBoundaries()
 
+  -- Ratio-based placement of the board, season plate, plates and play buttons (MenuLayout.lua)
+  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
+  local hasReplay = replaySettings and replaySettings.opponentId and true or false
+  local Lay = menuLayout(hasReplay)
+
   local function midY(sec)
     return (s[sec].yBot + s[sec].yTop) * 0.5
   end
@@ -671,23 +676,14 @@ function drawMenu()
   }
 
   -- The haiku block (haiku + attribution) is centered between the notch and the board's top edge.
-  do
-    local bh2    = HEIGHT * boardRow
-    local bGridW = bh2 * menuBoardSizeAsPercentOfRow
-    local bCell  = math.max(4, math.floor((bGridW - (boardSize - 1) * 5) / boardSize))
-    local bGridH = boardSize * bCell + (boardSize - 1) * 5
-    local ang    = math.rad(math.abs(menuBoardTiltDegrees))
-    local boardTopY = midY(2) + bGridH * 0.5 * (math.cos(ang) + math.sin(ang))
-    seasonRect.haikuCy = (topSafeY + boardTopY) * 0.5
-  end
+  seasonRect.haikuCy = Lay.haikuCy
 
   -- The season name / haiku are centered on the season plate (MenuPanels.lua) when it's on.
   local plateCx, plateCy = menuPanelSeasonCenter()
   if plateCx then
     seasonRect.cx, seasonRect.cy = plateCx, plateCy
     seasonRect.x, seasonRect.y = plateCx - seasonRect.w * 0.5, plateCy - seasonRect.h * 0.5
-    local _, _, pw, ph, pu = mpRect(menuPanelCfg().sx, menuPanelCfg().sy, menuPanelCfg().sw, menuPanelCfg().sh)
-    seasonRect.nameW, seasonRect.nameH = math.min(seasonRect.w, pw - 28 * pu), ph * 0.78
+    seasonRect.nameW, seasonRect.nameH = math.min(seasonRect.w, Lay.season.w - 28 * Lay.plateScale), Lay.season.h * 0.78
   end
 
   drawMenuSeasonPoof(seasonRect)
@@ -703,12 +699,12 @@ function drawMenu()
   local h2       = HEIGHT * boardRow
   local GRID_GAP = 5
 
-  -- Grid center
-  local gridCy = midY(2)
+  -- Grid center / size come from the layout anchor (MenuLayout.lua): the rotated board's
+  -- bounding box is ~3/4 of the screen width, everything else is placed from it.
+  local gridCy = Lay.board.cy
 
-  -- Board grid fills the FULL row height (square)
-  local gridW = h2 * menuBoardSizeAsPercentOfRow
-  local gridH = h2
+  local gridW = Lay.board.side
+  local gridH = gridW
 
   -- Derive cell size
   local cellPx = math.max(4, math.floor((gridW - (boardSize - 1) * GRID_GAP) / boardSize))
@@ -720,7 +716,7 @@ function drawMenu()
   -- Column split
   local colW       = gridW  -- right column matches grid width
   local leftColW    = innerW - colW
-  local rightColCx  = HPAD + leftColW + colW * 0.5
+  local rightColCx  = Lay.board.cx
 
   -- Draw grid preview (right column, with configurable transforms)
   pushMatrix()
@@ -904,32 +900,14 @@ function drawMenu()
 
   pushStyle()
 
-  local h4     = HEIGHT * startGameRow
-  local btnH   = h4 * 0.84
-  local btnW   = btnH * 0.82
-  local btnR   = btnW * 0.18
-  local btnGap = WIDTH * 0.04
-  -- Plate Placement tuning (MenuPanels.lua): shift / gap / width offsets, all 0 = unchanged
-  local btnShiftX, gapAdj, widthAdj = menuPanelButtonAdjust()
-  do
-    local k = math.max(0.3, (btnW + widthAdj) / btnW)
-    btnW, btnH, btnR = btnW * k, btnH * k, btnR * k
-    btnGap = math.max(0, btnGap + gapAdj)
-  end
-
-  -- Check for last opponent
-  local replaySettings = getLastMatchReplaySettings and getLastMatchReplaySettings() or nil
-  local hasReplay = replaySettings and replaySettings.opponentId
-
-  -- 2 or 3 buttons
-  local buttonCount = hasReplay and 3 or 2
-  local totalW = buttonCount * btnW + (buttonCount - 1) * btnGap
-  local startX = (WIDTH - totalW) * 0.5 + btnW * 0.5 + btnShiftX
+  -- Button size / spacing / position are ratios of the screen (MenuLayout.lua)
+  local btnH, btnW, btnR, btnGap = Lay.buttons.h, Lay.buttons.w, Lay.buttons.r, Lay.buttons.gap
+  local startX = Lay.buttons.startX
 
   local soloCx   = startX
   local vsCx     = startX + btnW + btnGap
   local replayCx = hasReplay and (startX + 2 * (btnW + btnGap)) or nil
-  local btn4Cy   = midY(4)
+  local btn4Cy   = Lay.buttons.cy
 
   -- Rocking angles
   -- Rock periods shortened ~20% (were 3.7/4.9/5.5) per feedback: "slightly faster".

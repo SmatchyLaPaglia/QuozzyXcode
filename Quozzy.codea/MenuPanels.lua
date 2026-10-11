@@ -7,9 +7,9 @@
 -- Debug Menu > Plate Placement (drawPlatePlacementOverlay, below). Tuned values persist via
 -- saveLocalData (MENU_PANEL_KEY) and "Copy" exports them in the studio's paste format.
 --
--- COORDINATES: panel x/y/w/h are STUDIO points — a 390 x 844 phone, origin TOP-LEFT, y DOWN —
--- converted here to Codea's y-up screen (mpRect). Positions scale with the screen; sizes and
--- fonts scale uniformly by min(WIDTH/390, HEIGHT/844). Tilt is degrees, clockwise-positive.
+-- PLACEMENT: sizes and positions come from MenuLayout.lua (ratios anchored on the game board), not
+-- from this file; fonts and line widths scale with the board (plateScale). Only the LOOK (fill,
+-- line, shadow, text, tilt, stacking) is configured here. Tilt is degrees, clockwise-positive.
 --
 -- DRAWING: every shape is a mesh with per-vertex alpha (fill fan, inner-line ring, outer
 -- hairline ring, soft shadow ring). drawRoundedRect can't be used for translucent shapes: it
@@ -33,12 +33,7 @@ menuPanelDefaults = {
   textRole = "ink", labelSize = 14, numSize = 32, layout = "stack", gap = 4,
   diceLabel = "min. letters", gameLabel = "game types", gameSize = 20,
   haikuPlate = "fade",
-  bx = 36,  by = 239, bw = 131, bh = 88, btilt = 0,
-  sx = 20,  sy = 60,  sw = 350, sh = 137, stilt = 0,
-  gx = 32,  gy = 607, gw = 137, gh = 47, gtilt = 0,
-  dx = 203, dy = 504, dw = 131, dh = 89, dtilt = 0.5,
-  -- play buttons: offsets from the menu's own layout (0 = exactly as before)
-  btnX = 0, btnGapDelta = 0, btnWDelta = 0,
+  btilt = 0, stilt = 0, gtilt = 0, dtilt = 0.5,
 }
 
 local _cfg = nil
@@ -81,18 +76,6 @@ local function roleColor(role)
   return Color.tileText   -- "ink"
 end
 
-local function mpScale()
-  local fx, fy = WIDTH / 390, HEIGHT / 844
-  return fx, fy, math.min(fx, fy)
-end
-
--- Studio rect (top-left origin, y down) -> Codea center x, center y, w, h, uniform scale.
-function mpRect(x, y, w, h)
-  local fx, fy, u = mpScale()
-  local W, H = w * u, h * u
-  return x * fx + W * 0.5, HEIGHT - y * fy - H * 0.5, W, H, u
-end
-
 function menuPanelShown(id)
   local c = menuPanelCfg()
   if id == "season" then return c.showSeason end
@@ -107,15 +90,8 @@ end
 function menuPanelSeasonCenter()
   local c = menuPanelCfg()
   if not c.showSeason then return nil end
-  local cx, cy = mpRect(c.sx, c.sy, c.sw, c.sh)
-  return cx, cy
-end
-
--- Play-button adjustments, applied by drawMenu (HaikuMenu.lua section 4).
-function menuPanelButtonAdjust()
-  local c = menuPanelCfg()
-  local fx, _, u = mpScale()
-  return c.btnX * fx, c.btnGapDelta * u, c.btnWDelta * u
+  local Lay = menuLayout(menuHasReplay())
+  return Lay.season.cx, Lay.season.cy
 end
 
 ------------------------------------------------------------
@@ -246,21 +222,23 @@ end
 
 local function panelSpecs()
   local c = menuPanelCfg()
+  local Lay = menuLayout(menuHasReplay())
+  local u = Lay.plateScale
   return {
-    { id = "season", show = c.showSeason, z = c.zSeason, x = c.sx, y = c.sy, w = c.sw, h = c.sh, tilt = c.stilt,
+    { id = "season", show = c.showSeason, z = c.zSeason, r = Lay.season, u = u, tilt = c.stilt,
       fades = (c.haikuPlate == "fade") },   -- fades via TextGoPoof_quickFade (see drawMenuPanelsLayer)
-    { id = "board", show = c.showBoard, z = c.zBoard, x = c.bx, y = c.by, w = c.bw, h = c.bh, tilt = c.btilt,
+    { id = "board", show = c.showBoard, z = c.zBoard, r = Lay.boardPlate, u = u, tilt = c.btilt,
       label = "board", num = boardSize .. " × " .. boardSize },
-    { id = "dice", show = c.showDice, z = c.zDice, x = c.dx, y = c.dy, w = c.dw, h = c.dh, tilt = c.dtilt,
+    { id = "dice", show = c.showDice, z = c.zDice, r = Lay.dicePlate, u = u, tilt = c.dtilt,
       label = c.diceLabel, num = tostring(MIN_WORD_LEN) },
-    { id = "game", show = c.showGame, z = c.zGame, x = c.gx, y = c.gy, w = c.gw, h = c.gh, tilt = c.gtilt,
+    { id = "game", show = c.showGame, z = c.zGame, r = Lay.gamePlate, u = u, tilt = c.gtilt,
       label = c.gameLabel, lsize = c.gameSize },
   }
 end
 
 local function drawPlate(sp, alphaMul)
   local c = menuPanelCfg()
-  local cx, cy, W, H, u = mpRect(sp.x, sp.y, sp.w, sp.h)
+  local cx, cy, W, H, u = sp.r.cx, sp.r.cy, sp.r.w, sp.r.h, sp.u
   local m = panelMeshes(W, H, u, c, alphaMul)
   pushMatrix()
   translate(cx, cy)
@@ -275,7 +253,7 @@ end
 local function drawPanelText(sp, alphaMul)
   if not (sp.label or sp.num) then return end
   local c = menuPanelCfg()
-  local cx, cy, _, _, u = mpRect(sp.x, sp.y, sp.w, sp.h)
+  local cx, cy, u = sp.r.cx, sp.r.cy, sp.u
   local tc = roleColor(c.textRole)
   local lsz = (sp.lsize or c.labelSize) * u
   local nsz = c.numSize * u
@@ -352,14 +330,8 @@ function menuPanelExportText()
     if type(v) == "string" then v = '"' .. v .. '"' elseif type(v) == "number" then v = fmtNum(v) else v = tostring(v) end
     L[#L + 1] = "panel." .. k .. " = " .. v
   end
-  L[#L + 1] = "-- positions are points from the phone's top-left (y down, 390 x 844 reference)"
-  local function geo(name, p)
-    L[#L + 1] = string.format("%s = { x=%s, y=%s, w=%s, h=%s, tilt=%s }", name,
-      fmtNum(c[p .. "x"]), fmtNum(c[p .. "y"]), fmtNum(c[p .. "w"]), fmtNum(c[p .. "h"]), fmtNum(c[p .. "tilt"]))
-  end
-  geo("boardPanel ", "b"); geo("seasonPlate", "s"); geo("gameLabel  ", "g"); geo("dicePanel  ", "d")
-  L[#L + 1] = string.format("playButtons = { xOffset=%s, gapDelta=%s, widthDelta=%s }   -- 0 = the menu's own layout",
-    fmtNum(c.btnX), fmtNum(c.btnGapDelta), fmtNum(c.btnWDelta))
+  L[#L + 1] = string.format("tilts: board=%s season=%s game=%s dice=%s   (placement comes from MenuLayout.lua)",
+    fmtNum(c.btilt), fmtNum(c.stilt), fmtNum(c.gtilt), fmtNum(c.dtilt))
   return table.concat(L, "\n")
 end
 
@@ -412,35 +384,13 @@ local PP_TABS = {
     { k = "labelSize", t = "slider", label = "Label size", min = 9, max = 24, step = 1, u = "pt" },
     { k = "numSize", t = "slider", label = "Number size", min = 14, max = 56, step = 1, u = "pt" },
     { k = "gap", t = "slider", label = "Label-number gap", min = 0, max = 16, step = 1, u = "pt" } } },
-  { name = "Board", geo = "board", items = {
-    { k = "bx", t = "slider", label = "Left", min = 0, max = 300, step = 1, u = "pt" },
-    { k = "by", t = "slider", label = "Top", min = 150, max = 520, step = 1, u = "pt" },
-    { k = "bw", t = "slider", label = "Width", min = 70, max = 260, step = 1, u = "pt" },
-    { k = "bh", t = "slider", label = "Height", min = 30, max = 220, step = 1, u = "pt" },
-    { k = "btilt", t = "slider", label = "Tilt", min = -10, max = 10, step = 0.5, u = "°" } } },
-  { name = "Dice", geo = "dice", items = {
-    { k = "dx", t = "slider", label = "Left", min = 0, max = 300, step = 1, u = "pt" },
-    { k = "dy", t = "slider", label = "Top", min = 400, max = 660, step = 1, u = "pt" },
-    { k = "dw", t = "slider", label = "Width", min = 70, max = 260, step = 1, u = "pt" },
-    { k = "dh", t = "slider", label = "Height", min = 30, max = 220, step = 1, u = "pt" },
-    { k = "dtilt", t = "slider", label = "Tilt", min = -10, max = 10, step = 0.5, u = "°" } } },
-  { name = "Season", geo = "season", items = {
-    { k = "sx", t = "slider", label = "Left", min = -20, max = 200, step = 1, u = "pt" },
-    { k = "sy", t = "slider", label = "Top", min = -40, max = 200, step = 1, u = "pt" },
-    { k = "sw", t = "slider", label = "Width", min = 150, max = 410, step = 1, u = "pt" },
-    { k = "sh", t = "slider", label = "Height", min = 40, max = 220, step = 1, u = "pt" },
-    { k = "stilt", t = "slider", label = "Tilt", min = -10, max = 10, step = 0.5, u = "°" } } },
-  { name = "Game", geo = "game", items = {
-    { k = "gx", t = "slider", label = "Left", min = 0, max = 300, step = 1, u = "pt" },
-    { k = "gy", t = "slider", label = "Top", min = 560, max = 700, step = 1, u = "pt" },
-    { k = "gw", t = "slider", label = "Width", min = 70, max = 260, step = 1, u = "pt" },
-    { k = "gh", t = "slider", label = "Height", min = 30, max = 220, step = 1, u = "pt" },
-    { k = "gtilt", t = "slider", label = "Tilt", min = -10, max = 10, step = 0.5, u = "°" },
+  { name = "Tilt", items = {
+    { k = "btilt", t = "slider", label = "Board plate", min = -10, max = 10, step = 0.5, u = "°" },
+    { k = "dtilt", t = "slider", label = "Min. letters", min = -10, max = 10, step = 0.5, u = "°" },
+    { k = "stilt", t = "slider", label = "Season plate", min = -10, max = 10, step = 0.5, u = "°" },
+    { k = "gtilt", t = "slider", label = "Game types", min = -10, max = 10, step = 0.5, u = "°" } } },
+  { name = "Game text", items = {
     { k = "gameSize", t = "slider", label = "Text size", min = 12, max = 34, step = 1, u = "pt" } } },
-  { name = "Buttons", geo = "game", items = {
-    { k = "btnX", t = "slider", label = "Shift x", min = -80, max = 80, step = 1, u = "pt" },
-    { k = "btnGapDelta", t = "slider", label = "Gap +/-", min = -15, max = 30, step = 1, u = "pt" },
-    { k = "btnWDelta", t = "slider", label = "Width +/-", min = -20, max = 20, step = 1, u = "pt" } } },
 }
 
 function openPlatePlacementOverlay()
@@ -506,12 +456,6 @@ local function ppSheetLayout()
   local top = ppDock
   if top == nil then
     top = false
-    if tab.geo then
-      local c = menuPanelCfg()
-      local p = ({ board = "b", dice = "d", season = "s", game = "g" })[tab.geo]
-      local _, cy = mpRect(c[p .. "x"], c[p .. "y"], c[p .. "w"], c[p .. "h"])
-      top = cy < HEIGHT * 0.5
-    end
   end
   local x = 8
   local y
