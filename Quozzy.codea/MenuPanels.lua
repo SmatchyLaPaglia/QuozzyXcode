@@ -181,12 +181,13 @@ local function buildPanelMeshes(W, H, u, cfg, alphaMul)
 
   local outline = roundedPath(hw, hh, r, segs)
 
-  -- soft shadow: a ring fading from the edge outward, nudged down
+  -- soft shadow: a ring fading from the edge outward, centered on the plate. (It used to be
+  -- nudged down 3*u, which left a ~3u-wide gap between the plate's bottom edge and the ring.)
   if cfg.shadow > 0 then
     local V, C = {}, {}
     local blur = 12 * u
     addRing(V, C, outline, 0, blur,
-      color(0, 0, 0, 255 * cfg.shadow / 100 * 0.55 * alphaMul), color(0, 0, 0, 0), -3 * u)
+      color(0, 0, 0, 255 * cfg.shadow / 100 * 0.55 * alphaMul), color(0, 0, 0, 0))
     local m = mesh(); m.vertices = V; m.colors = C
     out.shadow = m
   end
