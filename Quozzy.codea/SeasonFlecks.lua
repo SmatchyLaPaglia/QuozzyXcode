@@ -28,7 +28,7 @@ seasonFlecksSeason = seasonFlecksSeason or nil  -- season index the pool was bui
 seasonFleckWindDir = seasonFleckWindDir or 1    -- +1 = drifts left->right, -1 = right->left;
                                                  -- re-rolled each time initFlecks runs
 
-local POOL   = 130   -- full-screen field (was 80 in the title band alone: roughly 1/3 the old density)
+local POOL   = 390   -- full-screen field at the original title-band density (80 per band ≈ 390 per screen; 130 was the sparser pass)
 local MARGIN = 60   -- how far past each screen edge a fleck spawns/despawns, in points
 
 local function _buildFleck(x, bandCy, bandH)
