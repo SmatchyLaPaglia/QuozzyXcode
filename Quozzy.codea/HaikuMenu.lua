@@ -1188,8 +1188,7 @@ function handleMenuTouch(t)
     if persistGameplaySettings then persistGameplaySettings() end
 
   elseif key == "solo" then
-    setTurnBasedEnabled(false)
-    startRoundFromCurrentSettings()
+    openSoloChoiceDialog()
 
   elseif key == "vs" then
     devLog("DBG_MENU versus tapped: tbm=", tostring(tbm~=nil), "authenticated=", tostring(tbm and tbm.localPlayer and tbm.localPlayer.authenticated))

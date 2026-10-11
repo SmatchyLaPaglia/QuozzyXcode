@@ -1093,6 +1093,7 @@ function endGameRound()
       q.players[pid].wordTimes = q.players[pid].wordTimes or {}
       q.players[pid].didPlay   = true
       q.lastUpdated            = os.time()
+      if q.leaderboardGame and submitLeaderboardScore then submitLeaderboardScore(score or 0) end
     end
     
     return

@@ -1780,3 +1780,9 @@ points — may look soft on retina.
 - Play buttons: menuPanelButtonAdjust() gives x shift / gap / width offsets (0 = the menu's own layout).
 - Debug Menu (🐛) > "Plate Placement" closes the debug overlay and opens drawPlatePlacementOverlay (translucent tabbed slider sheet; Copy exports
   the studio paste format; Reset clears overrides; Dock auto-moves away from the panel being tuned). platePlacementOverlay is in badgeSuppressed().
+
+## Daily solo leaderboard (Leaderboard.lua, 2026-10-11)
+- GC recurring leaderboard `LEADERBOARD_ID` ("solo_daily_5x5_4", must be created in App Store Connect: recurring, 24h, high-first). Solo tap -> openSoloChoiceDialog (generic alert: "my settings" / "leaderboard"; tap outside cancels).
+- startLeaderboardGame forces boardSize=5/MIN_WORD_LEN=4 WITHOUT persisting (stashes in leaderboardSavedSettings; restoreSettingsAfterLeaderboardGame runs before drawMenu in Main.lua), sets currentQMatch.leaderboardGame.
+- endGameRound (solo branch) -> submitLeaderboardScore(score) (GKLeaderboard submitScore, handOff-only completion). showLeaderboard() presents GKGameCenterViewController (initWithLeaderboardID...); unauthenticated -> sign-in overlay (menu only).
+- End screen left button reads "leaderboard" (model.leaderboardGame) instead of "Again!"; Records grid bottom row is [Leaderboard | Close] (g.lbBtn in recordsOverlayGeom). Detail mode keeps full-width Back.

@@ -1378,6 +1378,7 @@ function drawFrame()
       end
     end
 
+    if restoreSettingsAfterLeaderboardGame then restoreSettingsAfterLeaderboardGame() end
     drawMenu()
     drawRecordsOverlay()
     drawVsButtonBadge(menuHitRects and menuHitRects.vs)

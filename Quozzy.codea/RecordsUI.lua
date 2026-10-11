@@ -460,7 +460,18 @@ function drawRecordsOverlay()
     local btnW, btnH = listWidth, 60
     local btnX = panelX
     local btnY = innerBottom + btnH/2
-    drawButton(btnX, btnY, btnW, btnH, isDetail and "Back" or "Close", false)
+    local lbBtn = nil
+    if isDetail then
+        drawButton(btnX, btnY, btnW, btnH, "Back", false)
+    else
+        -- grid: [Leaderboard | Close]; btn* stays the Close button
+        local gap = 10
+        btnW = (listWidth - gap) / 2
+        btnX = panelX + (btnW + gap) / 2
+        lbBtn = { x = panelX - (btnW + gap) / 2, y = btnY, w = btnW, h = btnH }
+        drawButton(lbBtn.x, btnY, btnW, btnH, "Leaderboard", false)
+        drawButton(btnX, btnY, btnW, btnH, "Close", false)
+    end
 
     recordsOverlayGeom = {
         innerLeft   = innerLeft,
@@ -473,6 +484,7 @@ function drawRecordsOverlay()
         btnY        = btnY,
         btnW        = btnW,
         btnH        = btnH,
+        lbBtn       = lbBtn,
         isDetail    = isDetail,
     }
 end
@@ -876,6 +888,12 @@ function handleRecordsTouch(t)
     end
 
     if t.state == BEGAN then
+        if g.lbBtn and pointInRect(t.x, t.y, g.lbBtn.x, g.lbBtn.y, g.lbBtn.w, g.lbBtn.h) then
+            showLeaderboard()
+            recordsScrollTouchId = nil
+            return true
+        end
+
         -- Bottom button (Close in grid / Back in detail): act immediately.
         if pointInRect(t.x, t.y, g.btnX, g.btnY, g.btnW, g.btnH) then
             if g.isDetail then

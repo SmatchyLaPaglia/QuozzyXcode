@@ -1675,6 +1675,7 @@ function buildEndScreenModel()
 
   return {
     missedWords = missedWords,
+    leaderboardGame = (not is2P) and q ~= nil and q.leaderboardGame or false,
     missedWordsPending = matchComplete and (q ~= nil) and not (q and q.missedWords),
 
     dimColor = Color.panelDim,
@@ -1997,7 +1998,9 @@ function drawEndScreenWith(model, layout)
   endScreenButtons = {}
   local composing = model.commentUI and model.commentUI.canCompose
     and (endScreenCommentDraft or "") ~= ""
-  if model.rematch and model.rematch.canOffer then
+  if model.leaderboardGame then
+    drawEndScreenButton(layout.againRect, "leaderboard", showLeaderboard)
+  elseif model.rematch and model.rematch.canOffer then
     local againAction = model.rematch.versus and offerEndScreenRematch or startEndScreenSoloAgain
     drawEndScreenButton(layout.againRect, "Again!", againAction)
   end
