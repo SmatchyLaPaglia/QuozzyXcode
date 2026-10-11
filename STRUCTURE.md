@@ -214,8 +214,8 @@ Verified visually (screenshot, live Game Center data): renders correctly, ripple
   matchBadge and was tuned for the pre-vs-overhaul button layout — in one observed hop it
   landed close enough to the "re" button to visually overlap it. Same characteristic the old
   badge had; if it's worth tightening, the avoid rect is the first place to look.
-2026-10-10: hops also avoid the board / min. letters / game types plates (menuPanelAvoidRects() in
-  MenuPanels.lua, tilt-aware bounding boxes, checked in _quickStartInsideAvoidRect); badge text
+2026-10-10: plates are NOT avoided (free rein, by request); hops must land >=40% of the shorter
+  screen side from the previous spot (falls back to farthest candidate); badge text
   tilt restored (rotate(qs.rotation), +-rotationDegRange re-rolled per hop).
 ```
 

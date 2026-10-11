@@ -114,13 +114,6 @@ local function _quickStartInsideAvoidRect(px, py)
       if (px - nx)^2 + (py - ny)^2 < clear * clear then return true end
     end
   end
-  if menuPanelAvoidRects then
-    for _, b in ipairs(menuPanelAvoidRects()) do
-      local nx = math.max(b.cx - b.w * 0.5, math.min(px, b.cx + b.w * 0.5))
-      local ny = math.max(b.cy - b.h * 0.5, math.min(py, b.cy + b.h * 0.5))
-      if (px - nx)^2 + (py - ny)^2 < clear * clear then return true end
-    end
-  end
   return false
 end
 
@@ -157,24 +150,25 @@ local function _pickQuickStartPosition()
   local maxY = safeTop - r - 80
 
   local lastX, lastY = qs.x, qs.y
-  local minHopDist = r * 2 + 10
+  -- Reappear well away from the previous spot: at least ~40% of the shorter screen side.
+  local minHopDist = math.max(r * 2 + 10, math.min(WIDTH, HEIGHT) * 0.4)
+  local bestX, bestY, bestD = nil, nil, -1
 
-  for _ = 1, 40 do
+  for _ = 1, 60 do
     local x = math.random(minX, maxX)
     local y = math.random(minY, maxY)
     if not _quickStartInsideAvoidRect(x, y) then
-      if lastX == 0 and lastY == 0 then
-        qs.x, qs.y = x, y
+      local dx, dy = x - lastX, y - lastY
+      local d = dx*dx + dy*dy
+      if (lastX == 0 and lastY == 0) or d >= minHopDist * minHopDist then
+        bestX, bestY = x, y
         break
-      else
-        local dx, dy = x - lastX, y - lastY
-        if dx*dx + dy*dy >= minHopDist * minHopDist then
-          qs.x, qs.y = x, y
-          break
-        end
+      elseif d > bestD then
+        bestX, bestY, bestD = x, y, d   -- fallback: farthest legal candidate seen
       end
     end
   end
+  if bestX then qs.x, qs.y = bestX, bestY end
 
   local range = qs.rotationDegRange or 0
   if range > 0 then
