@@ -810,17 +810,12 @@ function drawMenu()
   local DICE_ROCK_AMP    = menuDiceRotationAnimationDegrees
   local DICE_ROCK_PERIOD = 5.1
 
-  -- Width constraint: full inner width (height cap controls max size)
-  local diceColW = innerW
-  local die5 = (diceColW - 4 * DICE_GAP) / 5
-  local die6 = (diceColW - 5 * DICE_GAP) / 6
-  local die4 = die5
-  local die3 = die4 * 1.13
-  local rawDie = ({ [3]=die3, [4]=die4, [5]=die5, [6]=die6 })[MIN_WORD_LEN]
-
-  -- Height cap: limit die size to percentage of row height
-  local maxFromH = h3 * menuDiceSizeAsPercentOfRow
-  local dicePx = math.max(4, math.floor(math.min(rawDie, maxFromH)))
+  -- Dice are exactly as big as the tiles of the board preview that has the same count of
+  -- tiles per side: 3 and 4 dice match the 4x4 board's tiles, 5 the 5x5's, 6 the 6x6's.
+  local function boardCellFor(n)
+    return math.max(4, math.floor((Lay.board.side - (n - 1) * 5) / n))
+  end
+  local dicePx = boardCellFor(math.max(4, MIN_WORD_LEN))
   local diceRowW = MIN_WORD_LEN * dicePx + (MIN_WORD_LEN - 1) * DICE_GAP
 
   -- Dice row rocking animation
