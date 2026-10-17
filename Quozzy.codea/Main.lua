@@ -895,10 +895,15 @@ local function requestNotificationPermissions()
       -- badge=1<<0, sound=1<<1, alert=1<<2 on iOS
       opts = 7
     end
-    -- No-op on purpose: answered instantly once permission was decided, so it
-    -- can land inside another bridge call -- see scheduleCommentTimeoutNotification
-    -- (GameCenter.lua) for how Lua work in such a block froze the app.
-    center:requestAuthorizationWithOptions_completionHandler_(opts, function(bGranted, oErr) end)
+    -- Must be nil, not even an empty function: answered instantly once
+    -- permission was decided, so it can land inside another bridge call
+    -- while the render thread is blocked -- LuaKit then invokes it
+    -- re-entrantly with a corrupted stack and the app freezes for good.
+    -- An empty function() end is NOT safe (confirmed live, 2026-10-17 --
+    -- this exact call froze the app on a fresh install's first launch);
+    -- only a literal nil is. See scheduleCommentTimeoutNotification
+    -- (GameCenter.lua) for the original instance of this bug class.
+    center:requestAuthorizationWithOptions_completionHandler_(opts, nil)
   end)
   if not ok then
     devLog("Notification permission request failed (bridge call)")
