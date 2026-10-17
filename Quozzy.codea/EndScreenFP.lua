@@ -1,5 +1,3 @@
-endScreenMissedWordsJob = endScreenMissedWordsJob or nil
-endScreenMissedWordsJobMatchId = endScreenMissedWordsJobMatchId or nil
 endScreenCommentDraft = endScreenCommentDraft or ""
 endScreenCommentMatchId = endScreenCommentMatchId or nil
 endScreenSpeechBalloonsVisible = endScreenSpeechBalloonsVisible ~= false
@@ -1413,75 +1411,6 @@ function startEndScreenSoloAgain()
   startRoundFromCurrentSettings()
 end
 
-local function clearMissedWordsJob()
-  endScreenMissedWordsJob = nil
-  endScreenMissedWordsJobMatchId = nil
-end
-
-local function beginMissedWordsJob(q)
-  if not q or not q.boardTiles or not createIncrementalBoardWordSolver then return end
-  local n = q.boardSize or inferBoardSizeFromTiles(q.boardTiles) or 4
-  local solver = createIncrementalBoardWordSolver(q.boardTiles, n, q.minWordLen or MIN_WORD_LEN)
-  if not solver then return end
-
-  ensureWordPathsForPlayers(q)
-
-  endScreenMissedWordsJobMatchId = q.id
-  endScreenMissedWordsJob = coroutine.create(function()
-    while not solver.done do
-      solver:step(250)
-      coroutine.yield(false)
-    end
-
-    local allWords, wordPaths = solver:getResults()
-    local foundSet = {}
-    if q.players then
-      for _, p in pairs(q.players) do
-        for _, entry in ipairs((p and p.words) or {}) do
-          local w = type(entry) == "table" and entry.word or tostring(entry or "")
-          if w ~= "" then
-            foundSet[string.upper(w)] = true
-          end
-        end
-      end
-    end
-
-    local missed = {}
-    for i = 1, #allWords do
-      local entry = allWords[i]
-      if not foundSet[entry.word] then
-        missed[#missed + 1] = entry
-      end
-    end
-
-    q.wordPaths = wordPaths
-    q.missedWords = missed
-    coroutine.yield(true)
-  end)
-end
-
-local function pumpMissedWordsJobIfNeeded(activeCard)
-  local q = currentQMatch
-  if not q or not activeCard or not activeCard.isMissedPlaceholder then return end
-  if q.missedWords then
-    clearMissedWordsJob()
-    return
-  end
-  if endScreenMissedWordsJobMatchId ~= q.id or not endScreenMissedWordsJob then
-    clearMissedWordsJob()
-    beginMissedWordsJob(q)
-  end
-  if not endScreenMissedWordsJob then return end
-  if coroutine.status(endScreenMissedWordsJob) == "dead" then
-    clearMissedWordsJob()
-    return
-  end
-  local ok = coroutine.resume(endScreenMissedWordsJob)
-  if not ok then
-    clearMissedWordsJob()
-  end
-end
-
 function buildEndScreenModel()
   local q = currentQMatch
   local localId = localPID()
@@ -1549,7 +1478,6 @@ function buildEndScreenModel()
   local singleList = nil
   local column1Words = nil
   local column2Words = nil
-  local missedWords = q and q.missedWords or nil
   local scoreAResolved = scoreA
   local scoreBResolved = scoreB
 
@@ -1572,10 +1500,6 @@ function buildEndScreenModel()
   else
     column1Words = buildSortedEndWordEntries and buildSortedEndWordEntries((pLocal and pLocal.words) or {}) or ((pLocal and pLocal.words) or {})
     column2Words = waitingWords
-  end
-
-  if missedWords and buildSortedEndWordEntries then
-    missedWords = buildSortedEndWordEntries(missedWords)
   end
 
   if complete then
@@ -1675,9 +1599,7 @@ function buildEndScreenModel()
   local rematchInfo = { canOffer = (not is2P) or assignedOpponent, versus = (is2P and assignedOpponent) and true or false }
 
   return {
-    missedWords = missedWords,
     leaderboardGame = (not is2P) and q ~= nil and q.leaderboardGame or false,
-    missedWordsPending = matchComplete and (q ~= nil) and not (q and q.missedWords),
 
     dimColor = Color.panelDim,
     
@@ -1769,7 +1691,6 @@ function drawEndScreenFP()
         endCardScrollLists[i].vel    = 0
       end
     end
-    clearMissedWordsJob()
   end
   ensureEndScreenLayout()
   -- Must run BEFORE buildEndScreenModel() so this frame's just-typed text
@@ -1794,41 +1715,7 @@ function buildEndScreenCards(model)
       cards[2] = { label = lbl, words = model.column2.words, isWaiting = model.column2.isWaitingCard, waitingText = model.column2.waitingText }
     end
   end
-  if model.missedWords then
-    cards[#cards + 1] = { label = "Missed", words = model.missedWords }
-  elseif model.missedWordsPending then
-    cards[#cards + 1] = { label = "Missed", words = {}, isMissedPlaceholder = true }
-  end
   return cards
-end
-
-local function drawMissedCardActivityIndicator(rect)
-  if not rect then return end
-  local cx = rect.x + rect.w * 0.5
-  local cy = rect.y + rect.h * 0.56
-  local ringR = math.min(rect.w, rect.h) * 0.12
-  local dotR = math.max(4, ringR * 0.16)
-  local phase = ElapsedTime * 2.8
-  local accent = Color.uiAccent or color(40, 80, 60, 255)
-  local textCol = Color.tileText or accent
-
-  pushStyle()
-  ellipseMode(CENTER)
-  noStroke()
-  for i = 1, 8 do
-    local a = phase + (i - 1) * (math.pi * 0.25)
-    local alpha = math.floor(45 + 210 * (i / 8))
-    fill(accent.r, accent.g, accent.b, alpha)
-    ellipse(cx + math.cos(a) * ringR, cy + math.sin(a) * ringR, dotR * 2, dotR * 2)
-  end
-
-  fill(textCol)
-  textAlign(CENTER)
-  textMode(CENTER)
-  font("Helvetica")
-  fontSize(math.max(20, rect.h * 0.065))
-  text("Finding missed words", cx, cy - ringR - rect.h * 0.10)
-  popStyle()
 end
 
 -- Shared panel backdrop: real sprite (baked per-season, see rebuildOverlayPanelsForSeason)
@@ -1888,7 +1775,6 @@ function drawEndScreenWith(model, layout)
   if endCardIndex > numCards then endCardIndex = numCards end
   if endCardIndex < 1        then endCardIndex = 1        end
   endScreenCurrentCardWords = (cards[endCardIndex] and cards[endCardIndex].words) or {}
-  pumpMissedWordsJobIfNeeded(cards[endCardIndex])
 
   -- Card header: centered label + word count for the currently visible card
   if layout.cardHeaderCY and numCards > 0 then
@@ -1943,9 +1829,7 @@ function drawEndScreenWith(model, layout)
       local xOff = (i - endCardIndex) * cw + off
       if math.abs(xOff) < cw * 1.5 then
         local cr = { x = lr.x + xOff, y = lr.y + padV, w = lr.w, h = lr.h - 2 * padV }
-        if cards[i].isMissedPlaceholder then
-          drawMissedCardActivityIndicator(cr)
-        elseif cards[i].isWaiting then
+        if cards[i].isWaiting then
           pushStyle()
           fill(model.headers and model.headers.color or (Color.tileText or color(40,80,60,255)))
           textAlign(CENTER)
