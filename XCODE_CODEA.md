@@ -156,3 +156,9 @@ xcrun simctl get_app_container $SIM $BUNDLE app    # app bundle (asset.documents
   Simulators → untick "Connect via network" / Unpair and re-trust. (Untested which works.)
 - Builds from Xcode have DevRemote off (source keeps `DEV_REMOTE_ENABLED = false`); to drive a
   device with tools/dbg.sh, build with it flipped on locally and don't commit the flip.
+- **Deployment target is iOS 16.6** — the Runtime package's CraftKit/RuntimeKit binaries are built minos 16.6
+  (`xcrun vtool -show-build`), so a lower app target would let devices install a build that can't load them.
+- **Framework dSYMs ("Upload Symbols Failed")**: the Runtime package's five xcframeworks ship without dSYMs or DWARF.
+  The Quozzy target's last build phase, "Generate Framework dSYMs", runs `dsymutil` on each embedded framework
+  on archive only (`ACTION=install`) into the archive's dSYMs folder. No line numbers, but UUIDs match and the
+  symbol tables give function names in crash reports.

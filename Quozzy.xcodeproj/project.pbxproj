@@ -191,6 +191,7 @@
 				DB83FB29223DBDA2005750D2 /* Frameworks */,
 				DB83FB2A223DBDA2005750D2 /* Resources */,
 				DB83FB4D223DBF0D005750D2 /* Embed Frameworks */,
+				4D5E6F708192A3B4C5D6E7F8 /* Generate Framework dSYMs */,
 			);
 			buildRules = (
 			);
@@ -256,6 +257,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		4D5E6F708192A3B4C5D6E7F8 /* Generate Framework dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Generate Framework dSYMs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Archive only: the Codea Runtime package ships its frameworks without dSYMs, so\n# App Store Connect reports \"Upload Symbols Failed\" for each. Generate a dSYM from\n# each embedded binary (no DWARF, but its symbol table gives function names in\n# crash reports; UUIDs match the binaries).\n[ \"$ACTION\" = \"install\" ] || exit 0\nfor fw in \"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH\"/*.framework; do\n  [ -d \"$fw\" ] || continue\n  name=$(basename \"$fw\" .framework)\n  out=\"$DWARF_DSYM_FOLDER_PATH/$name.framework.dSYM\"\n  [ -d \"$out\" ] && continue\n  xcrun dsymutil \"$fw/$name\" -o \"$out\" 2>/dev/null || echo \"warning: dSYM generation failed for $name.framework\"\ndone\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		DB83FB28223DBDA2005750D2 /* Sources */ = {
