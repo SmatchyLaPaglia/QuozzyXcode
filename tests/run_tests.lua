@@ -150,6 +150,37 @@ test("generateBoardTilesSeeded: well-formed, deterministic per (seed,n), varies 
     not eq(generateBoardTilesSeeded(123, 4), generateBoardTilesSeeded(456, 4)))
 end)
 
+-- ---- q.seed on the qMatch struct (Gate 2) ---------------------------------
+
+test("newQMatch: assigns a random seed when none given, uses an explicit one when given", function()
+  local q1 = newQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+  check("got a seed", type(q1.seed) == "number" and q1.seed >= 1 and q1.seed <= 2147483647)
+
+  local q2 = newQMatch("m2", "gameCenter", "me", "opp", "Opp", 4, 3, 777)
+  check("explicit seed used as-is", q2.seed == 777)
+end)
+
+test("makeQMatchFromGK: propagates seed from dataTable", function()
+  local gkMatch = {
+    matchID = "m1",
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } },
+  }
+  local dataTable = { boardSize = 4, minWordLen = 3, seed = 4242, players = {} }
+  local q = makeQMatchFromGK(gkMatch, dataTable)
+  check("seed propagated from dataTable", q.seed == 4242)
+end)
+
+test("ensureBoardTilesForQMatch: uses the seeded generator when q.seed is present, matches it exactly", function()
+  local q = { boardSize = 4, seed = 555 }
+  local tiles = ensureBoardTilesForQMatch(q)
+  check("matches generateBoardTilesSeeded exactly", eq(tiles, generateBoardTilesSeeded(555, 4)))
+  check("q.boardTiles set", eq(q.boardTiles, tiles))
+end)
+
+test("generateBoardTilesSeeded: same seed is byte-identical across independent calls", function()
+  check("identical", eq(generateBoardTilesSeeded(999, 5), generateBoardTilesSeeded(999, 5)))
+end)
+
 test("newQMatch/ensureQMatchPlayers: creates both player slots", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
   check("both slots exist", q.players["me"] and q.players["opp"])

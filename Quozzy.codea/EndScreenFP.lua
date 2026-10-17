@@ -1630,6 +1630,7 @@ function buildEndScreenModel()
       boardSize  = (q and q.boardSize) or boardSize,
       minWordLen = (q and q.minWordLen) or MIN_WORD_LEN,
       boardTiles = q and q.boardTiles,
+      seed       = q and q.seed,
       endedAt    = math.floor(tonumber(q and q.lastUpdated) or os.time()),
       complete   = complete and true or false,
       localScore = complete and scoreAResolved or ((pLocal and pLocal.score) or 0),

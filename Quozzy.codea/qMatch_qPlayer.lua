@@ -124,7 +124,7 @@ function loadReminderSent()
   reminderSentByMatchId = (ok and type(t)=="table") and t or {}
 end
 
-function newQMatch(id, source, localId, opponentId, opponentName, bSize, minLen)
+function newQMatch(id, source, localId, opponentId, opponentName, bSize, minLen, seed)
   local q = {
     id = id,
     source = source,
@@ -135,6 +135,14 @@ function newQMatch(id, source, localId, opponentId, opponentName, bSize, minLen)
     minWordLen = minLen,
     outcome = "pending",
     lastUpdated = os.time(),
+    -- Drives the board-reroll-on-word-found feature (board.lua's
+    -- computeRerollPlan/generateBoardTilesSeeded): the one true source for
+    -- this match's entire board history, initial tiles through every
+    -- reroll. Bounded to 31 bits so it round-trips through json.encode and
+    -- GameKit's data blob without float-precision risk. Picked here (the
+    -- one place a match is first created) rather than lazily, so it never
+    -- needs to be invented later for a match that should already have one.
+    seed = seed or math.random(1, 2147483647),
     players = {}
   }
   
@@ -573,7 +581,8 @@ function makeQMatchFromGK(gkMatch, dataTable)
   opponentId,
   opponentName,
   (dataTable and dataTable.boardSize) or requestedBoardSize,
-  (dataTable and dataTable.minWordLen) or requestedMinWordLen
+  (dataTable and dataTable.minWordLen) or requestedMinWordLen,
+  dataTable and dataTable.seed
   )
   
   q.opponentPlayerID = opponentPlayerID

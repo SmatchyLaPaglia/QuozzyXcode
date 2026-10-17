@@ -351,7 +351,8 @@ function ensureBoardTilesForQMatch(q)
     return q.boardTiles
   end
   
-  local tiles = generateBoardTiles(size, DICE_4x4, DICE_5x5, DICE_6x6)
+  local tiles = q.seed and generateBoardTilesSeeded(q.seed, size)
+    or generateBoardTiles(size, DICE_4x4, DICE_5x5, DICE_6x6)
   q.boardTiles = tiles
   q.boardSize = size
   return tiles
