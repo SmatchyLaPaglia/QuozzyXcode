@@ -15,6 +15,7 @@ loadSource("opponentRecords.lua")
 loadSource("MatchSelection.lua")
 ScrollList = ScrollList or { new = function() return {} end }  -- EndScreen.lua builds lists at load
 loadSource("EndScreen.lua")
+loadSource("Board.lua")
 
 -- ---------------------------------------------------------------- harness --
 local pass, fail = 0, 0
@@ -74,6 +75,80 @@ local function test(name, fn)
 end
 
 -- ============================================================ tests ======
+
+-- ---- Seeded reroll primitives (Board.lua, Gate 1 -- no behavior change) --
+
+test("seededValue: repeatable, varies with input, stays in (0,1)", function()
+  local a = seededValue(42, 3, "salt")
+  local b = seededValue(42, 3, "salt")
+  check("repeatable for identical inputs", a == b)
+  check("in range", a > 0 and a < 1)
+
+  check("differs by seed", seededValue(42, 3, "salt") ~= seededValue(43, 3, "salt"))
+  check("differs by k", seededValue(42, 3, "salt") ~= seededValue(42, 4, "salt"))
+  check("differs by salt", seededValue(42, 3, "salt") ~= seededValue(42, 3, "other"))
+end)
+
+test("seededValue: does not perturb math.random's own sequence", function()
+  math.randomseed(12345)
+  local baseline = {}
+  for i = 1, 20 do baseline[i] = math.random() end
+
+  math.randomseed(12345)
+  for i = 1, 1000 do seededValue(i, i * 7, "churn" .. i) end
+  local after = {}
+  for i = 1, 20 do after[i] = math.random() end
+
+  local same = true
+  for i = 1, 20 do if baseline[i] ~= after[i] then same = false end end
+  check("math.random sequence unaffected by seededValue calls", same)
+end)
+
+test("computeRerollPlan: count in range, no duplicate positions, repeatable", function()
+  for _, n in ipairs({4, 5, 6}) do
+    local total = n * n
+    local lo, hi = math.floor(total / 4), math.floor(total / 3)
+    for k = 1, 5 do
+      local plan = computeRerollPlan(999, n, k)
+      check("count in range n=" .. n .. " k=" .. k,
+        plan.count >= lo and plan.count <= hi,
+        "count=" .. tostring(plan.count) .. " lo=" .. lo .. " hi=" .. hi)
+      check("positions length matches count n=" .. n .. " k=" .. k,
+        #plan.positions == plan.count)
+      local seen = {}
+      local dup = false
+      for _, idx in ipairs(plan.positions) do
+        if seen[idx] then dup = true end
+        seen[idx] = true
+      end
+      check("no duplicate positions n=" .. n .. " k=" .. k, not dup)
+    end
+    local planAgain = computeRerollPlan(999, n, 2)
+    local plan2 = computeRerollPlan(999, n, 2)
+    check("repeatable for same (seed,n,k) n=" .. n, eq(planAgain, plan2))
+  end
+end)
+
+test("computeRerollPlan: different k produces a different plan", function()
+  local p1 = computeRerollPlan(999, 4, 1)
+  local p2 = computeRerollPlan(999, 4, 2)
+  check("plans differ across k", not eq(p1, p2))
+end)
+
+test("generateBoardTilesSeeded: well-formed, deterministic per (seed,n), varies by seed", function()
+  for _, n in ipairs({4, 5, 6}) do
+    local tiles = generateBoardTilesSeeded(123, n)
+    check("correct tile count n=" .. n, #tiles == n * n)
+    local allStrings = true
+    for _, t in ipairs(tiles) do if type(t) ~= "string" or t == "" then allStrings = false end end
+    check("all tiles are non-empty strings n=" .. n, allStrings)
+
+    local again = generateBoardTilesSeeded(123, n)
+    check("deterministic for same seed n=" .. n, eq(tiles, again))
+  end
+  check("different seeds produce different boards",
+    not eq(generateBoardTilesSeeded(123, 4), generateBoardTilesSeeded(456, 4)))
+end)
 
 test("newQMatch/ensureQMatchPlayers: creates both player slots", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)

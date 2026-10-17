@@ -205,6 +205,102 @@ function generateBoardTiles(n, dice4x4, dice5x5, dice6x6)
     return tiles
 end
 
+--####################################################################
+-- Seeded reroll primitives (board-reroll-on-word-found feature)
+--####################################################################
+-- Pure, independent of math.random's global state (shared with menu confetti,
+-- dice-rattle, etc. -- must not be entangled, since a reroll needs to be
+-- reproducible from (seed,k) alone, regardless of what else called
+-- math.random in between). MINSTD Lehmer generator built from only
+-- + * % math.floor -- exact on Lua 5.1 through 5.4 and LuaJIT, no bitwise
+-- ops, no version assumption.
+SEEDED_MODULUS    = 2147483647   -- 2^31 - 1
+SEEDED_MULTIPLIER = 48271        -- MINSTD
+
+local function seededHashString(s)
+  local h = 5381
+  for i = 1, #s do h = (h * 33 + string.byte(s, i)) % SEEDED_MODULUS end
+  return h
+end
+
+function seededValue(seed, k, salt)
+  local function step(a, b)
+    local x = (a + b) % SEEDED_MODULUS
+    if x == 0 then x = 1 end
+    return (x * SEEDED_MULTIPLIER) % SEEDED_MODULUS
+  end
+  local s  = math.floor(tonumber(seed) or 0) % SEEDED_MODULUS
+  local kk = math.floor(tonumber(k) or 0) % SEEDED_MODULUS
+  local saltN = (type(salt) == "string") and seededHashString(salt)
+             or (math.floor(tonumber(salt) or 0) % SEEDED_MODULUS)
+  local x = step(s, 0); x = step(x, kk); x = step(x, saltN)
+  return x / SEEDED_MODULUS
+end
+
+-- Seeded twin of shuffle(t) (above) -- copies first rather than mutating in
+-- place, since callers here always want a fresh array back.
+function seededShuffle(seed, k, saltPrefix, t)
+  local copy = {}
+  for i = 1, #t do copy[i] = t[i] end
+  for i = #copy, 2, -1 do
+    local j = math.floor(seededValue(seed, k, saltPrefix .. ":" .. i) * i) + 1
+    if j > i then j = i end
+    copy[i], copy[j] = copy[j], copy[i]
+  end
+  return copy
+end
+
+-- Seeded twin of generateBoardTiles (above). k=0 is reserved for "the
+-- initial board" so it never collides with a reroll k (which starts at 1).
+function generateBoardTilesSeeded(seed, n)
+  local dice = (n == 4 and DICE_4x4) or (n == 5 and DICE_5x5) or (n == 6 and DICE_6x6)
+  if not dice or #dice < n * n then return {} end
+  local diceCopy = seededShuffle(seed, 0, "initShuffle", dice)
+  local tiles = {}
+  for i = 1, n * n do
+    local die = diceCopy[i]
+    local faceIndex = math.floor(seededValue(seed, 0, "initFace" .. i) * #die) + 1
+    if faceIndex > #die then faceIndex = #die end
+    local ch = string.upper(die:sub(faceIndex, faceIndex))
+    tiles[i] = (ch == "Q") and "Qu" or ch
+  end
+  return tiles
+end
+
+-- The k-th reroll (k = the count of words THIS player has personally found
+-- so far, 1-based) for an n x n board, as a pure function of (seed, n, k).
+-- Both players in a head-to-head match compute the identical plan at the
+-- same k, independently, with no data ever crossing the wire for it.
+function computeRerollPlan(seed, n, k)
+  local total = n * n
+  local lo = math.floor(total / 4)
+  local hi = math.floor(total / 3)
+  local span = hi - lo
+  local count = lo + math.floor(seededValue(seed, k, "rerollCount") * (span + 1))
+  if count > hi then count = hi end
+  if count < lo then count = lo end
+
+  local allPositions = {}
+  for i = 1, total do allPositions[i] = i end
+  local shuffled = seededShuffle(seed, k, "rerollPos", allPositions)
+
+  local positions = {}
+  local letters = {}
+  for i = 1, count do
+    local idx = shuffled[i]
+    positions[i] = idx
+    local dice = (n == 4 and DICE_4x4) or (n == 5 and DICE_5x5) or (n == 6 and DICE_6x6)
+    local die = dice[math.floor(seededValue(seed, k, "rerollDie" .. idx) * #dice) + 1]
+    if not die then die = dice[#dice] end
+    local faceIndex = math.floor(seededValue(seed, k, "rerollFace" .. idx) * #die) + 1
+    if faceIndex > #die then faceIndex = #die end
+    local ch = string.upper(die:sub(faceIndex, faceIndex))
+    letters[idx] = (ch == "Q") and "Qu" or ch
+  end
+
+  return { count = count, positions = positions, letters = letters }
+end
+
 function inferBoardSizeFromTiles(tiles)
     if type(tiles) ~= "table" then return nil end
     local len = #tiles
