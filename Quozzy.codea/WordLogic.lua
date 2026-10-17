@@ -83,7 +83,16 @@ function finalizeWord()
         local words = ensureMyWordStore(currentQMatch)
         local idx = #words + 1
         words[idx] = { word = word, points = pts }
-        
+
+        -- Board reroll: idx is this player's own word count after the push
+        -- above, i.e. "the k-th word I personally found" -- exactly the k
+        -- computeRerollPlan expects. not useTurnBased scopes this to solo
+        -- only until Gate 6 (wire-protocol hardening) lands; removed in
+        -- Gate 7.
+        if applyBoardReroll and currentQMatch and not useTurnBased then
+            applyBoardReroll(currentQMatch, idx)
+        end
+
         -- pop animation for the newest *permanent* entry
         wordNewAnim = { index = idx, t = 0 }
         

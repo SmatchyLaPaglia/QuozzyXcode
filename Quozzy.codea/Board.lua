@@ -338,6 +338,30 @@ function buildBoardFromTiles(tiles, n)
     end
 end
 
+-- rerollAnim[r][c] = { oldLetter=, startTime= } -- cosmetic only (Gate 4
+-- draws it); the mutation below is synchronous and already live by the
+-- time this returns.
+rerollAnim = rerollAnim or {}
+
+-- Mutates the live board for the k-th word THIS player has personally
+-- found (k = 1-based count, matching computeRerollPlan's convention).
+-- board[r][c] and q.boardTiles are updated in lockstep so they never drift.
+function applyBoardReroll(q, k)
+  local n = (q and q.boardSize) or boardSize or 4
+  if not (q and q.boardTiles and board) then return end
+  local plan = computeRerollPlan(q.seed, n, k)
+  for _, idx in ipairs(plan.positions) do
+    local r = math.floor((idx - 1) / n) + 1
+    local c = ((idx - 1) % n) + 1
+    local oldLetter = board[r] and board[r][c]
+    local newLetter = plan.letters[idx]
+    q.boardTiles[idx] = newLetter
+    board[r][c] = newLetter
+    rerollAnim[r] = rerollAnim[r] or {}
+    rerollAnim[r][c] = { oldLetter = oldLetter, startTime = ElapsedTime }
+  end
+end
+
 function ensureBoardTilesForQMatch(q)
   local size = q.boardSize or boardSize or 4
   

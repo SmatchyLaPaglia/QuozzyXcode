@@ -181,6 +181,74 @@ test("generateBoardTilesSeeded: same seed is byte-identical across independent c
   check("identical", eq(generateBoardTilesSeeded(999, 5), generateBoardTilesSeeded(999, 5)))
 end)
 
+-- ---- applyBoardReroll (Gate 3) --------------------------------------------
+
+local function freshBoard(n)
+  local b = {}
+  for r = 1, n do
+    b[r] = {}
+    for c = 1, n do b[r][c] = "A" end
+  end
+  return b
+end
+
+test("applyBoardReroll: mutates board and q.boardTiles in lockstep, count in range", function()
+  local n = 4
+  board = freshBoard(n)
+  boardSize = n
+  local q = { boardSize = n, seed = 321, boardTiles = {} }
+  for i = 1, n * n do q.boardTiles[i] = "A" end
+
+  applyBoardReroll(q, 1)
+
+  local plan = computeRerollPlan(321, n, 1)
+  check("reroll count in expected range", plan.count >= math.floor(n*n/4) and plan.count <= math.floor(n*n/3))
+
+  local mismatches = 0
+  for idx = 1, n * n do
+    local r = math.floor((idx - 1) / n) + 1
+    local c = ((idx - 1) % n) + 1
+    if q.boardTiles[idx] ~= board[r][c] then mismatches = mismatches + 1 end
+  end
+  check("board and q.boardTiles stay in lockstep everywhere", mismatches == 0)
+
+  local changed = 0
+  for idx = 1, n * n do
+    if q.boardTiles[idx] ~= "A" or plan.letters[idx] then changed = changed + 1 end
+  end
+  -- plan.letters only has entries for rerolled positions; count exactly those.
+  local rerolledCount = 0
+  for _ in pairs(plan.letters) do rerolledCount = rerolledCount + 1 end
+  check("exactly the planned tiles changed", rerolledCount == plan.count)
+end)
+
+test("applyBoardReroll: records the old letter in rerollAnim before overwriting", function()
+  local n = 4
+  board = freshBoard(n)
+  boardSize = n
+  local q = { boardSize = n, seed = 321, boardTiles = {} }
+  for i = 1, n * n do q.boardTiles[i] = "A" end
+  rerollAnim = {}
+
+  applyBoardReroll(q, 1)
+
+  local plan = computeRerollPlan(321, n, 1)
+  local idx = plan.positions[1]
+  local r = math.floor((idx - 1) / n) + 1
+  local c = ((idx - 1) % n) + 1
+  check("old letter captured", rerollAnim[r] and rerollAnim[r][c] and rerollAnim[r][c].oldLetter == "A")
+end)
+
+test("applyBoardReroll: same (seed,k) reroll is identical across two fresh boards", function()
+  local n = 4
+  local q1 = { boardSize = n, seed = 321, boardTiles = {} }
+  local q2 = { boardSize = n, seed = 321, boardTiles = {} }
+  for i = 1, n * n do q1.boardTiles[i] = "A"; q2.boardTiles[i] = "A" end
+  board = freshBoard(n); applyBoardReroll(q1, 3)
+  board = freshBoard(n); applyBoardReroll(q2, 3)
+  check("identical outcome for identical (seed,k)", eq(q1.boardTiles, q2.boardTiles))
+end)
+
 test("newQMatch/ensureQMatchPlayers: creates both player slots", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
   check("both slots exist", q.players["me"] and q.players["opp"])
