@@ -342,6 +342,7 @@ end
 -- draws it); the mutation below is synchronous and already live by the
 -- time this returns.
 rerollAnim = rerollAnim or {}
+REROLL_ANIM_DURATION = 0.4  -- seconds; old letter's grow-and-fade over the new one
 
 -- Mutates the live board for the k-th word THIS player has personally
 -- found (k = 1-based count, matching computeRerollPlan's convention).
@@ -389,6 +390,7 @@ function generateBoard(currentQMatch)
     -- Keep global layout state aligned with the match we are rendering.
     boardSize = size
     buildBoardFromTiles(tiles, size)
+    rerollAnim = {}  -- never show a leftover ghost fade from a previous round
 end
 
 --####################################################################
@@ -622,9 +624,32 @@ function drawBoard()
                 fill(letterFill)
                 text(label, x + jx, y + jy)
             end
+
+            -- Reroll fade: the old letter grows and fades out on top of the
+            -- already-live new letter underneath (purely cosmetic -- never
+            -- gates gameplay, same spirit as boardSnapAnim below). Reuses
+            -- this tile's own jx/jy/angle from this frame so the fading
+            -- letter never drifts relative to the live tile beneath it.
+            local ranim = rerollAnim[r] and rerollAnim[r][c]
+            if ranim then
+                local u = (ElapsedTime - ranim.startTime) / REROLL_ANIM_DURATION
+                if u >= 1 then
+                    rerollAnim[r][c] = nil
+                else
+                    local growScale = 1.0 + 0.6 * u
+                    local fadeAlpha = 255 * (1 - u)
+                    pushMatrix()
+                    translate(x + jx, y + jy)
+                    if angle ~= 0 then rotate(angle) end
+                    scale(growScale)
+                    fill(letterFill.r, letterFill.g, letterFill.b, fadeAlpha)
+                    text(ranim.oldLetter, 0, 0)
+                    popMatrix()
+                end
+            end
         end
     end
-    
+
     popStyle()
 end
 
