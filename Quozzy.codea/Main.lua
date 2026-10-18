@@ -1443,6 +1443,19 @@ function drawFrame()
       endGameRound()
     end
   end
+
+  -- Board reroll's own countdown: when it reaches zero the board rerolls
+  -- on its own, whether or not a word was just found (finding a word
+  -- rerolls AND resets this same countdown -- see finalizeWord). Solo-only
+  -- for now, same gate as the word-triggered reroll (WordLogic.lua).
+  if state == STATE_PLAY and not useTurnBased and currentQMatch then
+    rerollCountdown = (rerollCountdown or AUTO_REROLL_SECONDS) - DeltaTime
+    if rerollCountdown <= 0 then
+      currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
+      if applyBoardReroll then applyBoardReroll(currentQMatch, currentQMatch.rerollK) end
+      rerollCountdown = AUTO_REROLL_SECONDS
+    end
+  end
   
   if state == STATE_READY then
     safeDrawCall("updateReadyRattle", updateReadyRattle)

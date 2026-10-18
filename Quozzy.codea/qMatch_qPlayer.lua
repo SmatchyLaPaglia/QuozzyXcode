@@ -391,7 +391,9 @@ function startRoundFromCurrentSettings()
     score, foundWords, foundWordsSet = 0, {}, {}
     lastWord, lastWordValid = "", false
     timeRemaining = timeOptions[timeOptionIndex]
-    
+    rerollCountdown = AUTO_REROLL_SECONDS
+    currentQMatch.rerollK = 0
+
     if resetWordListScroll then resetWordListScroll() end
     confetti, confettiActive = {}, false
     

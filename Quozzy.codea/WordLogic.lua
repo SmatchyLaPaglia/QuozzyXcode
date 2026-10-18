@@ -84,13 +84,18 @@ function finalizeWord()
         local idx = #words + 1
         words[idx] = { word = word, points = pts }
 
-        -- Board reroll: idx is this player's own word count after the push
-        -- above, i.e. "the k-th word I personally found" -- exactly the k
-        -- computeRerollPlan expects. not useTurnBased scopes this to solo
-        -- only until Gate 6 (wire-protocol hardening) lands; removed in
-        -- Gate 7.
+        -- Board reroll: k = this player's own reroll-event count so far,
+        -- shared with the auto-reroll countdown (Main.lua draw()) -- either
+        -- trigger advances the same sequence, so a word found right before
+        -- the countdown would have fired doesn't produce two conflicting
+        -- plans for the same k. Finding a word also resets the countdown,
+        -- same as the reroll it triggers. not useTurnBased scopes this to
+        -- solo only until Gate 6 (wire-protocol hardening) lands; removed
+        -- in Gate 7.
         if applyBoardReroll and currentQMatch and not useTurnBased then
-            applyBoardReroll(currentQMatch, idx)
+            currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
+            applyBoardReroll(currentQMatch, currentQMatch.rerollK)
+            rerollCountdown = AUTO_REROLL_SECONDS
         end
 
         -- pop animation for the newest *permanent* entry

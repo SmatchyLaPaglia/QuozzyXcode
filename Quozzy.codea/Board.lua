@@ -354,6 +354,14 @@ end
 rerollAnim = rerollAnim or {}
 REROLL_ANIM_DURATION = 0.4  -- seconds; old letter's grow-and-fade over the new one
 
+-- Auto-reroll countdown: ticked in Main.lua's draw() (STATE_PLAY, solo
+-- only); when it reaches zero the board rerolls on its own, whether or
+-- not a word was found. Finding a word (WordLogic.lua finalizeWord) also
+-- resets it, same as the reroll it triggers. drawBoard() renders it as a
+-- shrinking line above the board.
+AUTO_REROLL_SECONDS = 12
+rerollCountdown = rerollCountdown or AUTO_REROLL_SECONDS
+
 -- Mutates the live board for the k-th word THIS player has personally
 -- found (k = 1-based count, matching computeRerollPlan's convention).
 -- board[r][c] and q.boardTiles are updated in lockstep so they never drift.
@@ -582,7 +590,25 @@ function drawBoard()
     bgFill,
     bgStroke
     )
-    
+
+    -- Auto-reroll countdown: a line just above the board that drains from
+    -- full width down to nothing: left edge fixed, right edge creeps in.
+    -- Solo-only (matches where the countdown actually ticks, Main.lua).
+    if state == STATE_PLAY and not useTurnBased and currentQMatch then
+        local barH  = tileSize * 0.08
+        local barGap = tileSize * 0.12
+        local barY  = bgY + bgH / 2 + barGap + barH / 2
+        local frac  = math.max(0, math.min(1, (rerollCountdown or AUTO_REROLL_SECONDS) / AUTO_REROLL_SECONDS))
+        local barW  = bgW * frac
+        local barX  = (bgX - bgW / 2) + barW / 2
+        pushStyle()
+        rectMode(CENTER)
+        noStroke()
+        fill(Color.uiAccent or color(40, 80, 60, 255))
+        rect(barX, barY, barW, barH)
+        popStyle()
+    end
+
     for r = 1, boardSize do
         for c = 1, boardSize do
             local tr = tileRects[r][c]

@@ -269,6 +269,15 @@ test("applyBoardReroll: same (seed,k) reroll is identical across two fresh board
   check("identical outcome for identical (seed,k)", eq(q1.boardTiles, q2.boardTiles))
 end)
 
+test("startRoundFromCurrentSettings: initializes the auto-reroll countdown and per-match event counter", function()
+  useTurnBased = false
+  currentOpponentID = nil
+  startRoundFromCurrentSettings()
+  check("countdown reset to the full duration", rerollCountdown == AUTO_REROLL_SECONDS)
+  check("reroll event counter reset to zero", currentQMatch.rerollK == 0)
+  check("lands on the ready screen", state == STATE_READY)
+end)
+
 test("newQMatch/ensureQMatchPlayers: creates both player slots", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
   check("both slots exist", q.players["me"] and q.players["opp"])
