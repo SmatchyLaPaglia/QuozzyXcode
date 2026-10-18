@@ -95,7 +95,7 @@ function finalizeWord()
         if applyBoardReroll and currentQMatch and not useTurnBased then
             currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
             applyBoardReroll(currentQMatch, currentQMatch.rerollK)
-            rerollCountdown = AUTO_REROLL_SECONDS
+            rerollCountdown = rerollTune.timerSeconds
         end
 
         -- pop animation for the newest *permanent* entry

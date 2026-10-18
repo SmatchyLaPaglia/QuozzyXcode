@@ -24,6 +24,8 @@ local closeBtnRect = nil
 local testRippleBtnRect = nil
 local tuneBtnRects = {}   -- { rect, key, dir }
 local tuneResetRect = nil
+local rerollTuneBtnRects = {}   -- { rect, key, dir }
+local rerollTuneResetRect = nil
 local demoStart = nil   -- ElapsedTime the test badge appeared (drawn over the panel)
 local demoRippled = false
 
@@ -62,7 +64,7 @@ function drawRipplePickerOverlay()
   popStyle()
 
   local panelW = WIDTH - 32
-  local panelH = math.min(HEIGHT - 110, 680)
+  local panelH = math.min(HEIGHT - 60, 760)
   local panelX = WIDTH * 0.5
   local panelY = HEIGHT * 0.5
   panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
@@ -149,7 +151,38 @@ function drawRipplePickerOverlay()
   end
   local tuneTop = tuneBottom + rows * rowH
 
-  drawRecordsInfoLayoutMockup(panelX, panelW, tuneTop + 8, plateBtnY - plateBtnH / 2 - 40)
+  -- Board-reroll tuning steppers: same "- Label value +" grid as the
+  -- ripple ones above, driven by rerollTuneDefs/rerollTune (Board.lua).
+  local rerollTuneBottom = tuneTop + 20
+  rerollTuneBtnRects = {}
+  local rerollCells = #rerollTuneDefs + 1
+  local rerollRows = math.ceil(rerollCells / 2)
+  for i, d in ipairs(rerollTuneDefs) do
+    local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+    local cx = panelX + (col - 0.5) * (colW + 8)
+    local cy = rerollTuneBottom + (rerollRows - 1 - row) * rowH + rowH / 2
+    local mx, px = cx - colW / 2 + btnS / 2, cx + colW / 2 - btnS / 2
+    drawButton(mx, cy, btnS, btnS - 2, "-", false)
+    drawButton(px, cy, btnS, btnS - 2, "+", false)
+    rerollTuneBtnRects[#rerollTuneBtnRects + 1] = { x = mx, y = cy, w = btnS, h = btnS - 2, key = d.key, dir = -1 }
+    rerollTuneBtnRects[#rerollTuneBtnRects + 1] = { x = px, y = cy, w = btnS, h = btnS - 2, key = d.key, dir = 1 }
+    fill(tileText)
+    font("HelveticaNeue-Bold")
+    fontSize(14)
+    textMode(CENTER)
+    text(d.label .. " " .. tostring(rerollTune[d.key]), cx, cy)
+  end
+  do
+    local i = #rerollTuneDefs
+    local col, row = i % 2, math.floor(i / 2)
+    local cx = panelX + (col - 0.5) * (colW + 8)
+    local cy = rerollTuneBottom + (rerollRows - 1 - row) * rowH + rowH / 2
+    drawButton(cx, cy, colW, btnS - 2, "Reset reroll", false)
+    rerollTuneResetRect = { x = cx, y = cy, w = colW, h = btnS - 2 }
+  end
+  local rerollTuneTop = rerollTuneBottom + rerollRows * rowH
+
+  drawRecordsInfoLayoutMockup(panelX, panelW, rerollTuneTop + 8, plateBtnY - plateBtnH / 2 - 40)
   drawButton(closeBtnX, closeBtnY, closeBtnW, closeBtnH, "Close", false)
   closeBtnRect = { x = closeBtnX, y = closeBtnY, w = closeBtnW, h = closeBtnH }
 
@@ -190,6 +223,16 @@ function handleRipplePickerTouch(t)
     end
     if tuneResetRect and pointInRect(t.x, t.y, tuneResetRect.x, tuneResetRect.y, tuneResetRect.w, tuneResetRect.h) then
       rippleTuneReset()
+      return true
+    end
+    for _, r in ipairs(rerollTuneBtnRects) do
+      if pointInRect(t.x, t.y, r.x, r.y, r.w, r.h) then
+        rerollTuneNudge(r.key, r.dir)
+        return true
+      end
+    end
+    if rerollTuneResetRect and pointInRect(t.x, t.y, rerollTuneResetRect.x, rerollTuneResetRect.y, rerollTuneResetRect.w, rerollTuneResetRect.h) then
+      rerollTuneReset()
       return true
     end
     if closeBtnRect and pointInRect(t.x, t.y, closeBtnRect.x, closeBtnRect.y, closeBtnRect.w, closeBtnRect.h) then

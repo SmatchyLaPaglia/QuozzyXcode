@@ -273,12 +273,15 @@ end
 -- same k, independently, with no data ever crossing the wire for it.
 function computeRerollPlan(seed, n, k)
   local total = n * n
-  local lo = math.floor(total / 4)
-  local hi = math.floor(total / 3)
-  local span = hi - lo
-  local count = lo + math.floor(seededValue(seed, k, "rerollCount") * (span + 1))
-  if count > hi then count = hi end
-  if count < lo then count = lo end
+  -- Debug-tunable (RipplePicker.lua steppers, rerollTuneDefs below) --
+  -- exact percentage, no added randomness, so tuning the slider has a
+  -- direct, predictable effect rather than being obscured by a seeded
+  -- band. Clamped to [1, total] so it can never ask for zero or more
+  -- tiles than exist regardless of how the slider's dragged.
+  local percent = (rerollTune and rerollTune.percent) or 30
+  local count = math.floor(total * percent / 100 + 0.5)
+  if count < 1 then count = 1 end
+  if count > total then count = total end
 
   local allPositions = {}
   for i = 1, total do allPositions[i] = i end
@@ -352,15 +355,41 @@ end
 -- draws it); the mutation below is synchronous and already live by the
 -- time this returns.
 rerollAnim = rerollAnim or {}
-REROLL_ANIM_DURATION = 0.4  -- seconds; old letter's grow-and-fade over the new one
+REROLL_ANIM_DURATION = 0.4  -- seconds; new letter's accent-color pop settles to normal over this
+
+-- Live-tunable via the debug overlay (RipplePicker.lua steppers), same
+-- idiom as rippleTuneDefs/rippleTune (RippleShader.lua). timerSeconds
+-- drives the auto-reroll countdown; percent drives computeRerollPlan's
+-- tile count above. Copy final values into `def` once settled.
+rerollTuneDefs = {
+  { key = "timerSeconds", label = "Timer",   def = 10, step = 1, min = 2, max = 60 },
+  { key = "percent",      label = "Tiles %", def = 30, step = 5, min = 5, max = 90 },
+}
+rerollTune = rerollTune or {}
+for _, d in ipairs(rerollTuneDefs) do
+  if rerollTune[d.key] == nil then rerollTune[d.key] = d.def end
+end
+
+function rerollTuneNudge(key, dir)
+  for _, d in ipairs(rerollTuneDefs) do
+    if d.key == key then
+      local v = rerollTune[key] + dir * d.step
+      rerollTune[key] = math.floor(math.max(d.min, math.min(d.max, v)) * 100 + 0.5) / 100
+      print("rerollTune." .. key .. " = " .. rerollTune[key])
+    end
+  end
+end
+
+function rerollTuneReset()
+  for _, d in ipairs(rerollTuneDefs) do rerollTune[d.key] = d.def end
+end
 
 -- Auto-reroll countdown: ticked in Main.lua's draw() (STATE_PLAY, solo
 -- only); when it reaches zero the board rerolls on its own, whether or
 -- not a word was found. Finding a word (WordLogic.lua finalizeWord) also
 -- resets it, same as the reroll it triggers. drawBoard() renders it as a
 -- shrinking line above the board.
-AUTO_REROLL_SECONDS = 12
-rerollCountdown = rerollCountdown or AUTO_REROLL_SECONDS
+rerollCountdown = rerollCountdown or rerollTune.timerSeconds
 
 -- Mutates the live board for the k-th word THIS player has personally
 -- found (k = 1-based count, matching computeRerollPlan's convention).
@@ -372,12 +401,11 @@ function applyBoardReroll(q, k)
   for _, idx in ipairs(plan.positions) do
     local r = math.floor((idx - 1) / n) + 1
     local c = ((idx - 1) % n) + 1
-    local oldLetter = board[r] and board[r][c]
     local newLetter = plan.letters[idx]
     q.boardTiles[idx] = newLetter
     board[r][c] = newLetter
     rerollAnim[r] = rerollAnim[r] or {}
-    rerollAnim[r][c] = { oldLetter = oldLetter, startTime = ElapsedTime }
+    rerollAnim[r][c] = { startTime = ElapsedTime }
   end
 end
 
@@ -598,7 +626,7 @@ function drawBoard()
         local barH  = tileSize * 0.08
         local barGap = tileSize * 0.12
         local barY  = bgY + bgH / 2 + barGap + barH / 2
-        local frac  = math.max(0, math.min(1, (rerollCountdown or AUTO_REROLL_SECONDS) / AUTO_REROLL_SECONDS))
+        local frac  = math.max(0, math.min(1, (rerollCountdown or rerollTune.timerSeconds) / rerollTune.timerSeconds))
         local barW  = bgW * frac
         local barX  = (bgX - bgW / 2) + barW / 2
         pushStyle()
@@ -652,37 +680,47 @@ function drawBoard()
                 translate(x + jx, y + jy)
                 rotate(angle)
                 drawDie(0, 0, w * 0.95, h * 0.95, w * 0.25, fillCol, angle)
-                fill(letterFill)
-                text(label, 0, 0)
                 popMatrix()
             else
                 drawDie(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, 0)
-                fill(letterFill)
-                text(label, x + jx, y + jy)
             end
 
-            -- Reroll fade: the old letter grows and fades out on top of the
-            -- already-live new letter underneath (purely cosmetic -- never
-            -- gates gameplay, same spirit as boardSnapAnim below). Reuses
-            -- this tile's own jx/jy/angle from this frame so the fading
-            -- letter never drifts relative to the live tile beneath it.
+            -- Letter: normally drawn at the tile's own fixed color/size.
+            -- While a reroll animation is active for this tile, it instead
+            -- pops in at an eye-catching accent color and oversize,
+            -- settling to the normal color/size as it plays out -- this is
+            -- the letter that's actually there now (not a fading ghost of
+            -- the old one), so what you see land is what's playable.
             local ranim = rerollAnim[r] and rerollAnim[r][c]
+            local animU = nil
             if ranim then
                 local u = (ElapsedTime - ranim.startTime) / REROLL_ANIM_DURATION
                 if u >= 1 then
                     rerollAnim[r][c] = nil
                 else
-                    local growScale = 1.0 + 0.6 * u
-                    local fadeAlpha = 255 * (1 - u)
-                    pushMatrix()
-                    translate(x + jx, y + jy)
-                    if angle ~= 0 then rotate(angle) end
-                    scale(growScale)
-                    fill(letterFill.r, letterFill.g, letterFill.b, fadeAlpha)
-                    text(ranim.oldLetter, 0, 0)
-                    popMatrix()
+                    animU = u
                 end
             end
+
+            local drawFill, drawScale = letterFill, 1.0
+            if animU then
+                local accent = Color.uiAccent2 or letterFill
+                drawScale = 1.6 - 0.6 * animU  -- pops in big, settles to normal size
+                drawFill = color(
+                    accent.r + (letterFill.r - accent.r) * animU,
+                    accent.g + (letterFill.g - accent.g) * animU,
+                    accent.b + (letterFill.b - accent.b) * animU,
+                    (accent.a or 255) + ((letterFill.a or 255) - (accent.a or 255)) * animU
+                )
+            end
+
+            pushMatrix()
+            translate(x + jx, y + jy)
+            if angle ~= 0 then rotate(angle) end
+            if drawScale ~= 1.0 then scale(drawScale) end
+            fill(drawFill)
+            text(label, 0, 0)
+            popMatrix()
         end
     end
 

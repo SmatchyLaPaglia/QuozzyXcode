@@ -1449,11 +1449,11 @@ function drawFrame()
   -- rerolls AND resets this same countdown -- see finalizeWord). Solo-only
   -- for now, same gate as the word-triggered reroll (WordLogic.lua).
   if state == STATE_PLAY and not useTurnBased and currentQMatch then
-    rerollCountdown = (rerollCountdown or AUTO_REROLL_SECONDS) - DeltaTime
+    rerollCountdown = (rerollCountdown or rerollTune.timerSeconds) - DeltaTime
     if rerollCountdown <= 0 then
       currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
       if applyBoardReroll then applyBoardReroll(currentQMatch, currentQMatch.rerollK) end
-      rerollCountdown = AUTO_REROLL_SECONDS
+      rerollCountdown = rerollTune.timerSeconds
     end
   end
   

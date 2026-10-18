@@ -104,6 +104,26 @@ test("seededValue: does not perturb math.random's own sequence", function()
   check("math.random sequence unaffected by seededValue calls", same)
 end)
 
+test("rerollTuneNudge/rerollTuneReset: adjusts within bounds, computeRerollPlan respects the result", function()
+  rerollTuneReset()
+  check("default percent", rerollTune.percent == 30)
+
+  rerollTuneNudge("percent", 1)
+  check("percent nudged up by its step", rerollTune.percent == 35)
+
+  local plan = computeRerollPlan(42, 4, 1)
+  check("count reflects the nudged percent", plan.count == math.floor(16 * 35 / 100 + 0.5))
+
+  for _ = 1, 20 do rerollTuneNudge("percent", 1) end
+  check("percent clamps at its max", rerollTune.percent == 90)
+
+  for _ = 1, 30 do rerollTuneNudge("percent", -1) end
+  check("percent clamps at its min", rerollTune.percent == 5)
+
+  rerollTuneReset()
+  check("reset restores the default", rerollTune.percent == 30 and rerollTune.timerSeconds == 10)
+end)
+
 test("computeRerollPlan: count in range, no duplicate positions, repeatable", function()
   for _, n in ipairs({4, 5, 6}) do
     local total = n * n
@@ -242,13 +262,14 @@ test("applyBoardReroll: mutates board and q.boardTiles in lockstep, count in ran
   check("exactly the planned tiles changed", rerolledCount == plan.count)
 end)
 
-test("applyBoardReroll: records the old letter in rerollAnim before overwriting", function()
+test("applyBoardReroll: starts an animation entry for every rerolled tile", function()
   local n = 4
   board = freshBoard(n)
   boardSize = n
   local q = { boardSize = n, seed = 321, boardTiles = {} }
   for i = 1, n * n do q.boardTiles[i] = "A" end
   rerollAnim = {}
+  ElapsedTime = 5.0
 
   applyBoardReroll(q, 1)
 
@@ -256,7 +277,8 @@ test("applyBoardReroll: records the old letter in rerollAnim before overwriting"
   local idx = plan.positions[1]
   local r = math.floor((idx - 1) / n) + 1
   local c = ((idx - 1) % n) + 1
-  check("old letter captured", rerollAnim[r] and rerollAnim[r][c] and rerollAnim[r][c].oldLetter == "A")
+  check("animation entry started with this frame's timestamp",
+    rerollAnim[r] and rerollAnim[r][c] and rerollAnim[r][c].startTime == 5.0)
 end)
 
 test("applyBoardReroll: same (seed,k) reroll is identical across two fresh boards", function()
@@ -273,7 +295,7 @@ test("startRoundFromCurrentSettings: initializes the auto-reroll countdown and p
   useTurnBased = false
   currentOpponentID = nil
   startRoundFromCurrentSettings()
-  check("countdown reset to the full duration", rerollCountdown == AUTO_REROLL_SECONDS)
+  check("countdown reset to the full duration", rerollCountdown == rerollTune.timerSeconds)
   check("reroll event counter reset to zero", currentQMatch.rerollK == 0)
   check("lands on the ready screen", state == STATE_READY)
 end)
