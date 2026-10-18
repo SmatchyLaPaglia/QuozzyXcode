@@ -122,6 +122,8 @@ test("rerollTuneNudge/rerollTuneReset: adjusts within bounds, computeRerollPlan 
 
   rerollTuneReset()
   check("reset restores the default", rerollTune.percent == 30 and rerollTune.timerSeconds == 10)
+  check("animation tunables present with their defaults",
+    rerollTune.growScale == 1.6 and rerollTune.growSeconds == 0.4 and rerollTune.fadeSeconds == 0.4)
 end)
 
 test("computeRerollPlan: count in range, no duplicate positions, repeatable", function()

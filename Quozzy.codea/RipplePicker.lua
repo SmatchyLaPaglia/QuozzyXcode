@@ -1,14 +1,14 @@
 ------------------------------------------------------------
 -- DEBUG MENU (RipplePicker.lua, 2026-10-08 — repurposed)
--- Opened via the 🐛 debug button (SHOW_DEBUG_BUTTON, Main.lua). Used to show a
--- 6-candidate comparison grid for the match-ready badge's "droplet hits still
--- water" entrance animation — that comparison is done (the winning variant
--- shipped into RippleShader.lua's drawShaderRipple, see STRUCTURE.md "Ripple
--- Picker debug overlay" / "Match-ready badge ripple" for that history), so
--- this file now just hosts a "Clear All Matches" button for day-to-day GC
--- debugging. Kept the filename and the ripplePickerOverlay/
--- openRipplePickerOverlay/handleRipplePickerTouch names so HaikuMenu.lua,
--- Main.lua, and Badges.lua's overlay-suppression check didn't need to change.
+-- Opened via the 🐛 debug button (SHOW_DEBUG_BUTTON, Main.lua). Hosts a
+-- "Clear All Matches" button for day-to-day GC debugging, plus buttons that
+-- open their own dedicated tuning overlays (Plate Placement, Ripple Tuning)
+-- so each stays uncluttered rather than all living in one panel. Board-
+-- reroll tuning steppers live directly in this panel (small enough that a
+-- separate overlay isn't worth it yet). Kept the filename and the
+-- ripplePickerOverlay/openRipplePickerOverlay/handleRipplePickerTouch names
+-- so HaikuMenu.lua, Main.lua, and Badges.lua's overlay-suppression check
+-- didn't need to change.
 ------------------------------------------------------------
 
 ripplePickerOverlay = ripplePickerOverlay or false
@@ -20,21 +20,10 @@ end
 clearMatchesStatus = clearMatchesStatus or nil
 local clearMatchesBtnRect = nil
 local platePlacementBtnRect = nil
+local rippleTuningBtnRect = nil
 local closeBtnRect = nil
-local testRippleBtnRect = nil
-local tuneBtnRects = {}   -- { rect, key, dir }
-local tuneResetRect = nil
 local rerollTuneBtnRects = {}   -- { rect, key, dir }
 local rerollTuneResetRect = nil
-local demoStart = nil   -- ElapsedTime the test badge appeared (drawn over the panel)
-local demoRippled = false
-
-local function demoAge()
-  if not demoStart then return nil end
-  local age = ElapsedTime - demoStart
-  if age > quickStart.visibleDuration then demoStart = nil return nil end
-  return age
-end
 
 local function handleClearMatchesTouch(t)
   if not clearMatchesBtnRect then return false end
@@ -64,7 +53,7 @@ function drawRipplePickerOverlay()
   popStyle()
 
   local panelW = WIDTH - 32
-  local panelH = math.min(HEIGHT - 60, 760)
+  local panelH = math.min(HEIGHT - 90, 700)
   local panelX = WIDTH * 0.5
   local panelY = HEIGHT * 0.5
   panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
@@ -101,59 +90,31 @@ function drawRipplePickerOverlay()
   drawButton(plateBtnX, plateBtnY, plateBtnW, plateBtnH, "Plate Placement", false)
   platePlacementBtnRect = { x = plateBtnX, y = plateBtnY, w = plateBtnW, h = plateBtnH }
 
+  -- Opens its own overlay (below): ripple-distortion tuning, moved out of
+  -- this panel so it doesn't compete for space with reroll tuning.
+  local rippleBtnW, rippleBtnH = 260, 48
+  local rippleBtnX, rippleBtnY = panelX, plateBtnY - plateBtnH / 2 - 14 - rippleBtnH / 2
+  drawButton(rippleBtnX, rippleBtnY, rippleBtnW, rippleBtnH, "Ripple Tuning", false)
+  rippleTuningBtnRect = { x = rippleBtnX, y = rippleBtnY, w = rippleBtnW, h = rippleBtnH }
+
   if clearMatchesStatus then
     fill(tileText.r, tileText.g, tileText.b, 200)
     font("HelveticaNeue-Bold")
     fontSize(14)
     textMode(CENTER)
     textAlign(CENTER)
-    text(clearMatchesStatus, clearBtnX, plateBtnY - plateBtnH / 2 - 12)
+    text(clearMatchesStatus, clearBtnX, rippleBtnY - rippleBtnH / 2 - 12)
   end
 
   local closeBtnW, closeBtnH = 200, 48
   local closeBtnX = panelX
   local closeBtnY = innerBottom + closeBtnH / 2
 
-  local rippleBtnW, rippleBtnH = 260, 56
-  local rippleBtnX, rippleBtnY = panelX, closeBtnY + closeBtnH / 2 + 16 + rippleBtnH / 2
-  drawButton(rippleBtnX, rippleBtnY, rippleBtnW, rippleBtnH, "Test Ripple", false)
-  testRippleBtnRect = { x = rippleBtnX, y = rippleBtnY, w = rippleBtnW, h = rippleBtnH }
-
-  -- ripple tuning steppers: 2 columns of "- Label value +", plus Reset in the last cell
+  -- Board-reroll tuning steppers: "- Label value +" grid, driven by
+  -- rerollTuneDefs/rerollTune (Board.lua).
   local rowH, btnS = 38, 34
   local colW = panelW * 0.5 - 12
-  local tuneBottom = rippleBtnY + rippleBtnH / 2 + 12
-  tuneBtnRects = {}
-  local cells = #rippleTuneDefs + 1
-  local rows = math.ceil(cells / 2)
-  for i, d in ipairs(rippleTuneDefs) do
-    local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
-    local cx = panelX + (col - 0.5) * (colW + 8)
-    local cy = tuneBottom + (rows - 1 - row) * rowH + rowH / 2
-    local mx, px = cx - colW / 2 + btnS / 2, cx + colW / 2 - btnS / 2
-    drawButton(mx, cy, btnS, btnS - 2, "-", false)
-    drawButton(px, cy, btnS, btnS - 2, "+", false)
-    tuneBtnRects[#tuneBtnRects + 1] = { x = mx, y = cy, w = btnS, h = btnS - 2, key = d.key, dir = -1 }
-    tuneBtnRects[#tuneBtnRects + 1] = { x = px, y = cy, w = btnS, h = btnS - 2, key = d.key, dir = 1 }
-    fill(tileText)
-    font("HelveticaNeue-Bold")
-    fontSize(14)
-    textMode(CENTER)
-    text(d.label .. " " .. tostring(rippleTune[d.key]), cx, cy)
-  end
-  do
-    local i = #rippleTuneDefs
-    local col, row = i % 2, math.floor(i / 2)
-    local cx = panelX + (col - 0.5) * (colW + 8)
-    local cy = tuneBottom + (rows - 1 - row) * rowH + rowH / 2
-    drawButton(cx, cy, colW, btnS - 2, "Reset ripple", false)
-    tuneResetRect = { x = cx, y = cy, w = colW, h = btnS - 2 }
-  end
-  local tuneTop = tuneBottom + rows * rowH
-
-  -- Board-reroll tuning steppers: same "- Label value +" grid as the
-  -- ripple ones above, driven by rerollTuneDefs/rerollTune (Board.lua).
-  local rerollTuneBottom = tuneTop + 20
+  local rerollTuneBottom = closeBtnY + closeBtnH / 2 + 16
   rerollTuneBtnRects = {}
   local rerollCells = #rerollTuneDefs + 1
   local rerollRows = math.ceil(rerollCells / 2)
@@ -182,21 +143,11 @@ function drawRipplePickerOverlay()
   end
   local rerollTuneTop = rerollTuneBottom + rerollRows * rowH
 
-  drawRecordsInfoLayoutMockup(panelX, panelW, rerollTuneTop + 8, plateBtnY - plateBtnH / 2 - 40)
+  drawRecordsInfoLayoutMockup(panelX, panelW, rerollTuneTop + 8, rippleBtnY - rippleBtnH / 2 - 40)
   drawButton(closeBtnX, closeBtnY, closeBtnW, closeBtnH, "Close", false)
   closeBtnRect = { x = closeBtnX, y = closeBtnY, w = closeBtnW, h = closeBtnH }
 
   popStyle()
-
-  -- test badge on top of the panel; ripple fires rippleTune.delay seconds after it appears
-  local age = demoAge()
-  if age then
-    drawQuickStartBadgeAt(WIDTH / 2, HEIGHT / 2, age, quickStart.visibleDuration)
-    if not demoRippled and age >= rippleTune.delay then
-      demoRippled = true
-      startScreenRipple(WIDTH / 2, HEIGHT / 2, rippleTune.rim)
-    end
-  end
 end
 
 function handleRipplePickerTouch(t)
@@ -210,19 +161,9 @@ function handleRipplePickerTouch(t)
       openPlatePlacementOverlay()
       return true
     end
-    if testRippleBtnRect and pointInRect(t.x, t.y, testRippleBtnRect.x, testRippleBtnRect.y, testRippleBtnRect.w, testRippleBtnRect.h) then
-      demoStart = ElapsedTime
-      demoRippled = false
-      return true
-    end
-    for _, r in ipairs(tuneBtnRects) do
-      if pointInRect(t.x, t.y, r.x, r.y, r.w, r.h) then
-        rippleTuneNudge(r.key, r.dir)
-        return true
-      end
-    end
-    if tuneResetRect and pointInRect(t.x, t.y, tuneResetRect.x, tuneResetRect.y, tuneResetRect.w, tuneResetRect.h) then
-      rippleTuneReset()
+    if rippleTuningBtnRect and pointInRect(t.x, t.y, rippleTuningBtnRect.x, rippleTuningBtnRect.y, rippleTuningBtnRect.w, rippleTuningBtnRect.h) then
+      ripplePickerOverlay = false
+      openRippleTuneOverlay()
       return true
     end
     for _, r in ipairs(rerollTuneBtnRects) do
@@ -242,6 +183,149 @@ function handleRipplePickerTouch(t)
   return true
 end
 
+------------------------------------------------------------
+-- Ripple Tuning overlay — split out of the main debug panel above so
+-- ripple's 7 steppers don't crowd out reroll's. Opened only from the
+-- "Ripple Tuning" button there (same pattern as Plate Placement: closes
+-- the main panel on the way in, closes straight to the menu on the way
+-- out, not back to the main panel).
+------------------------------------------------------------
+rippleTuneOverlay = rippleTuneOverlay or false
+local rtCloseBtnRect = nil
+local rtResetBtnRect = nil
+local rtTestBtnRect = nil
+local rtTuneBtnRects = {}
+local rtDemoStart = nil   -- ElapsedTime the test badge appeared (drawn over the panel)
+local rtDemoRippled = false
+
+function openRippleTuneOverlay()
+  rippleTuneOverlay = true
+end
+
+local function rtDemoAge()
+  if not rtDemoStart then return nil end
+  local age = ElapsedTime - rtDemoStart
+  if age > quickStart.visibleDuration then rtDemoStart = nil return nil end
+  return age
+end
+
+function drawRippleTuneOverlay()
+  if not rippleTuneOverlay then return end
+
+  pushStyle()
+  fill(Color.panelDim)
+  noStroke()
+  rectMode(CORNER)
+  rect(0, 0, WIDTH, HEIGHT)
+  popStyle()
+
+  local panelW = WIDTH - 32
+  local panelH = math.min(HEIGHT - 90, 560)
+  local panelX = WIDTH * 0.5
+  local panelY = HEIGHT * 0.5
+  panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
+
+  pushStyle()
+  rectMode(CENTER)
+  noStroke()
+  local solid = color(Color.panelBG.r, Color.panelBG.g, Color.panelBG.b, 255)
+  drawRoundedRect(panelX, panelY, panelW, panelH, 22, solid, solid)
+  popStyle()
+
+  local innerTop    = panelY + panelH / 2 - 20
+  local innerBottom = panelY - panelH / 2 + 20
+
+  pushStyle()
+  local tileText = Color.tileText or color(255)
+
+  fill(tileText)
+  font("Georgia-Bold")
+  fontSize(24)
+  textMode(CORNER)
+  textAlign(CENTER)
+  local title = "Ripple Tuning"
+  text(title, panelX - textSize(title) * 0.5, innerTop - 26)
+
+  local rippleBtnW, rippleBtnH = 260, 56
+  local rippleBtnX, rippleBtnY = panelX, innerTop - 90
+  drawButton(rippleBtnX, rippleBtnY, rippleBtnW, rippleBtnH, "Test Ripple", false)
+  rtTestBtnRect = { x = rippleBtnX, y = rippleBtnY, w = rippleBtnW, h = rippleBtnH }
+
+  local closeBtnW, closeBtnH = 200, 48
+  local closeBtnX = panelX
+  local closeBtnY = innerBottom + closeBtnH / 2
+
+  -- ripple tuning steppers: 2 columns of "- Label value +", plus Reset in the last cell
+  local rowH, btnS = 38, 34
+  local colW = panelW * 0.5 - 12
+  local tuneBottom = closeBtnY + closeBtnH / 2 + 16
+  rtTuneBtnRects = {}
+  local cells = #rippleTuneDefs + 1
+  local rows = math.ceil(cells / 2)
+  for i, d in ipairs(rippleTuneDefs) do
+    local col, row = (i - 1) % 2, math.floor((i - 1) / 2)
+    local cx = panelX + (col - 0.5) * (colW + 8)
+    local cy = tuneBottom + (rows - 1 - row) * rowH + rowH / 2
+    local mx, px = cx - colW / 2 + btnS / 2, cx + colW / 2 - btnS / 2
+    drawButton(mx, cy, btnS, btnS - 2, "-", false)
+    drawButton(px, cy, btnS, btnS - 2, "+", false)
+    rtTuneBtnRects[#rtTuneBtnRects + 1] = { x = mx, y = cy, w = btnS, h = btnS - 2, key = d.key, dir = -1 }
+    rtTuneBtnRects[#rtTuneBtnRects + 1] = { x = px, y = cy, w = btnS, h = btnS - 2, key = d.key, dir = 1 }
+    fill(tileText)
+    font("HelveticaNeue-Bold")
+    fontSize(14)
+    textMode(CENTER)
+    text(d.label .. " " .. tostring(rippleTune[d.key]), cx, cy)
+  end
+  do
+    local i = #rippleTuneDefs
+    local col, row = i % 2, math.floor(i / 2)
+    local cx = panelX + (col - 0.5) * (colW + 8)
+    local cy = tuneBottom + (rows - 1 - row) * rowH + rowH / 2
+    drawButton(cx, cy, colW, btnS - 2, "Reset ripple", false)
+    rtResetBtnRect = { x = cx, y = cy, w = colW, h = btnS - 2 }
+  end
+
+  drawButton(closeBtnX, closeBtnY, closeBtnW, closeBtnH, "Close", false)
+  rtCloseBtnRect = { x = closeBtnX, y = closeBtnY, w = closeBtnW, h = closeBtnH }
+
+  popStyle()
+
+  -- test badge on top of the panel; ripple fires rippleTune.delay seconds after it appears
+  local age = rtDemoAge()
+  if age then
+    drawQuickStartBadgeAt(WIDTH / 2, HEIGHT / 2, age, quickStart.visibleDuration)
+    if not rtDemoRippled and age >= rippleTune.delay then
+      rtDemoRippled = true
+      startScreenRipple(WIDTH / 2, HEIGHT / 2, rippleTune.rim)
+    end
+  end
+end
+
+function handleRippleTuneTouch(t)
+  if not rippleTuneOverlay then return false end
+  if t.state == ENDED then
+    if rtTestBtnRect and pointInRect(t.x, t.y, rtTestBtnRect.x, rtTestBtnRect.y, rtTestBtnRect.w, rtTestBtnRect.h) then
+      rtDemoStart = ElapsedTime
+      rtDemoRippled = false
+      return true
+    end
+    for _, r in ipairs(rtTuneBtnRects) do
+      if pointInRect(t.x, t.y, r.x, r.y, r.w, r.h) then
+        rippleTuneNudge(r.key, r.dir)
+        return true
+      end
+    end
+    if rtResetBtnRect and pointInRect(t.x, t.y, rtResetBtnRect.x, rtResetBtnRect.y, rtResetBtnRect.w, rtResetBtnRect.h) then
+      rippleTuneReset()
+      return true
+    end
+    if rtCloseBtnRect and pointInRect(t.x, t.y, rtCloseBtnRect.x, rtCloseBtnRect.y, rtCloseBtnRect.w, rtCloseBtnRect.h) then
+      rippleTuneOverlay = false
+    end
+  end
+  return true
+end
 
 -- Proposal mockup (for approval): current overlapping records/info pair vs.
 -- the proposed side-by-side pair (info left, records right) with the

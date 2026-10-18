@@ -1410,6 +1410,7 @@ function drawFrame()
     drawVsOverlay()
     drawInfoOverlay()
     drawRipplePickerOverlay()
+    drawRippleTuneOverlay()
     drawPlatePlacementOverlay()
     drawColorInspectorOverlay()
     drawGCSignInOverlay()
@@ -1544,6 +1545,10 @@ function touchedFrame(t)
   end
 
   if ripplePickerOverlay and handleRipplePickerTouch(t) then
+    return
+  end
+
+  if rippleTuneOverlay and handleRippleTuneTouch(t) then
     return
   end
 

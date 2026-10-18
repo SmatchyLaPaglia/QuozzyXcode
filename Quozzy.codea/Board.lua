@@ -355,16 +355,18 @@ end
 -- draws it); the mutation below is synchronous and already live by the
 -- time this returns.
 rerollAnim = rerollAnim or {}
-REROLL_ANIM_GROW_DURATION = 0.4  -- seconds; phase 1: normal -> 1.6x, accent color -> normal
-REROLL_ANIM_FADE_DURATION = 0.4  -- seconds; phase 2: 1.6x -> 2.2x, fades out entirely
 
 -- Live-tunable via the debug overlay (RipplePicker.lua steppers), same
 -- idiom as rippleTuneDefs/rippleTune (RippleShader.lua). timerSeconds
 -- drives the auto-reroll countdown; percent drives computeRerollPlan's
--- tile count above. Copy final values into `def` once settled.
+-- tile count above; growScale/growSeconds/fadeSeconds drive drawBoard()'s
+-- reroll animation below. Copy final values into `def` once settled.
 rerollTuneDefs = {
-  { key = "timerSeconds", label = "Timer",   def = 10, step = 1, min = 2, max = 60 },
-  { key = "percent",      label = "Tiles %", def = 30, step = 5, min = 5, max = 90 },
+  { key = "timerSeconds", label = "Timer",    def = 10,  step = 1,   min = 2,   max = 60 },
+  { key = "percent",      label = "Tiles %",  def = 30,  step = 5,   min = 5,   max = 90 },
+  { key = "growScale",    label = "Grow x",   def = 1.6, step = 0.1, min = 1.1, max = 3.0 },
+  { key = "growSeconds",  label = "Grow sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
+  { key = "fadeSeconds",  label = "Fade sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
 }
 rerollTune = rerollTune or {}
 for _, d in ipairs(rerollTuneDefs) do
@@ -704,21 +706,25 @@ function drawBoard()
             local ranim = rerollAnim[r] and rerollAnim[r][c]
             if ranim then
                 local elapsed = ElapsedTime - ranim.startTime
+                local growScale   = rerollTune.growScale
+                local growSeconds = rerollTune.growSeconds
+                local fadeSeconds = rerollTune.fadeSeconds
+                local growBy      = growScale - 1.0  -- phase 2 extends by the same amount again
                 local overlayScale, overlayFill
 
-                if elapsed < REROLL_ANIM_GROW_DURATION then
-                    local u = elapsed / REROLL_ANIM_GROW_DURATION
+                if elapsed < growSeconds then
+                    local u = elapsed / growSeconds
                     local accent = Color.uiAccent2 or letterFill
-                    overlayScale = 1.0 + 0.6 * u  -- normal -> 1.6
+                    overlayScale = 1.0 + growBy * u  -- normal -> growScale
                     overlayFill = color(
                         accent.r + (letterFill.r - accent.r) * u,
                         accent.g + (letterFill.g - accent.g) * u,
                         accent.b + (letterFill.b - accent.b) * u,
                         accent.a or 255
                     )
-                elseif elapsed < REROLL_ANIM_GROW_DURATION + REROLL_ANIM_FADE_DURATION then
-                    local u = (elapsed - REROLL_ANIM_GROW_DURATION) / REROLL_ANIM_FADE_DURATION
-                    overlayScale = 1.6 + 0.6 * u  -- keeps expanding, 1.6 -> 2.2
+                elseif elapsed < growSeconds + fadeSeconds then
+                    local u = (elapsed - growSeconds) / fadeSeconds
+                    overlayScale = growScale + growBy * u  -- keeps expanding past growScale
                     overlayFill = color(letterFill.r, letterFill.g, letterFill.b, (letterFill.a or 255) * (1 - u))
                 else
                     rerollAnim[r][c] = nil
