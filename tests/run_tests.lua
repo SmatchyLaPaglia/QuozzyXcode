@@ -434,13 +434,17 @@ test("enterQMatch_inner guard: a board I've ever generated survives a stale scor
   board = freshBoard(4)
   boardSize = 4
   applyBoardReroll(currentQMatch, 1)  -- my own board has diverged from the initial state
+  currentQMatch.rerollK = 1
   local myRerolledTiles = {}
   for i, t in ipairs(currentQMatch.boardTiles) do myRerolledTiles[i] = t end
   markBoardGeneratedForMatchId("m1", 555)
 
-  -- Mirrors closing the end screen / sitting at the menu -- neither of the
-  -- two old narrow states (READY/PLAY not-yet-submitted, or END unsent).
-  state = STATE_MENU
+  -- I've already finished my own round (quit/played out) -- this is an
+  -- EXPLICIT reopen (e.g. tapping this match in the vs list), not a
+  -- background push, so enterQMatch must still update the screen.
+  currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].score = 7
+  state = STATE_MENU  -- mirrors closing the end screen
 
   -- A stale score leg from the opponent, decoded fresh: no boardTiles/seed
   -- at all (per the new scoping), and genuinely doesn't know about my reroll.
@@ -453,10 +457,14 @@ test("enterQMatch_inner guard: a board I've ever generated survives a stale scor
     players = { ["opp"] = { didPlay = true, score = 3 } },
   }
   local incoming = makeQMatchFromGK(gkMatch, staleDataTable)
-  enterQMatch(incoming)
+  enterQMatch(incoming)  -- background defaults to falsy: this is an explicit open
 
   check("my own rerolled board survives untouched", eq(currentQMatch.boardTiles, myRerolledTiles))
   check("my seed is untouched", currentQMatch.seed == 555)
+  check("my reroll progress is untouched", currentQMatch.rerollK == 1)
+  check("the screen actually updates for an explicit reopen (was the live bug: stuck at MENU)",
+    state ~= STATE_MENU, "state="..tostring(state))
+  check("my own score survives too", score == 7, "score="..tostring(score))
   check("opponent's slot still merged in", currentQMatch.players["opp"].didPlay == true
     and currentQMatch.players["opp"].score == 3)
 end)

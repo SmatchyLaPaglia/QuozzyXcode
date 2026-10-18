@@ -337,19 +337,7 @@ local function enterQMatch_inner(q, background)
       and state == STATE_END
       and localAlreadyPlayed == true
 
-    -- (c) I've ever generated my own board for this match (board-reroll
-    -- feature) -- independent of current screen state. Once boards can
-    -- diverge per player (reroll), a score/comment/finalize leg's
-    -- boardTiles would otherwise be the SENDER's own current board,
-    -- wholesale-replacing mine the next time any turn event lands
-    -- outside the two states above (e.g. I'm sitting at STATE_MENU with
-    -- this match still loaded). Those legs no longer send boardTiles at
-    -- all now (see attemptLegSend) -- this guard is what makes that safe
-    -- rather than just replacing a real board with a nil one.
-    local everGeneratedBoard = currentQMatch and currentQMatch.id == q.id
-      and boardGeneratedForMatchId[q.id] ~= nil
-
-    if protectInProgressRound or protectFinishedUnsentResult or everGeneratedBoard then
+    if protectInProgressRound or protectFinishedUnsentResult then
       for pid, pdata in pairs(q.players or {}) do
         if pid ~= myId then
           mergeOpponentSlot(currentQMatch, pid, pdata)
@@ -357,9 +345,52 @@ local function enterQMatch_inner(q, background)
       end
       currentQMatch.lastUpdated = q.lastUpdated or currentQMatch.lastUpdated
       devLog("enterQMatch: merged incoming opponent data without disturbing local state",
-        "reason=", protectInProgressRound and "in-progress-round"
-          or protectFinishedUnsentResult and "finished-unsent-result" or "ever-generated-board")
+        "reason=", protectInProgressRound and "in-progress-round" or "finished-unsent-result")
       return
+    end
+
+    -- (c) I've ever generated my own board for this match (board-reroll
+    -- feature) -- independent of current screen state. Once boards can
+    -- diverge per player (reroll), a score/comment/finalize leg's
+    -- boardTiles would otherwise be the SENDER's own current board (or,
+    -- now that those legs no longer send boardTiles at all, simply
+    -- nil), wholesale-replacing mine the next time anything reaches the
+    -- fallthrough below. Confirmed live: without this, reopening my own
+    -- just-finished match from the vs list wiped my rerolled board.
+    local everGeneratedBoard = currentQMatch and currentQMatch.id == q.id
+      and boardGeneratedForMatchId[q.id] ~= nil
+
+    if everGeneratedBoard and background then
+      -- A genuine silent push, not something the player tapped -- give it
+      -- the exact same full protection as (a)/(b): nothing about a
+      -- background event should ever change what's on screen.
+      for pid, pdata in pairs(q.players or {}) do
+        if pid ~= myId then
+          mergeOpponentSlot(currentQMatch, pid, pdata)
+        end
+      end
+      currentQMatch.lastUpdated = q.lastUpdated or currentQMatch.lastUpdated
+      devLog("enterQMatch: merged incoming opponent data without disturbing local state",
+        "reason=", "ever-generated-board-background")
+      return
+    elseif everGeneratedBoard then
+      -- An explicit reopen (e.g. tapping this match in the vs list) must
+      -- still be allowed to update the screen below (show the end
+      -- screen, etc.) -- confirmed live this was the actual bug: the
+      -- unconditional early return above used to leave state stuck at
+      -- STATE_MENU, as if the tap had done nothing. Patch my own known-
+      -- good board/seed/reroll progress AND my own player slot onto the
+      -- incoming q instead, so the wholesale currentQMatch replacement
+      -- in the fallthrough adopts THESE rather than the sender's (or a
+      -- missing) board/score -- without the player-slot patch,
+      -- ensureQMatchPlayers below fabricates a fresh didPlay=false slot
+      -- for me, silently wiping my score and resetting rerollK to 0 via
+      -- the startRoundFromCurrentSettings() fallthrough.
+      q.boardTiles = currentQMatch.boardTiles
+      q.seed       = currentQMatch.seed
+      q.rerollK    = currentQMatch.rerollK
+      q.players    = q.players or {}
+      q.players[myId] = currentQMatch.players and currentQMatch.players[myId] or q.players[myId]
     end
   end
 

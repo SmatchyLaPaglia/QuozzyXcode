@@ -662,8 +662,11 @@ function drawBoard()
 
     -- Auto-reroll countdown: a line just above the board that drains from
     -- full width down to nothing: left edge fixed, right edge creeps in.
-    -- Solo-only (matches where the countdown actually ticks, Main.lua).
-    if state == STATE_PLAY and not useTurnBased and currentQMatch then
+    -- Enabled for multiplayer too now (matches where the countdown
+    -- actually ticks, Main.lua) -- this guard had been missed when the
+    -- other two (solo-only) guards were lifted, so the countdown was
+    -- correctly running in multiplayer already, just invisible.
+    if state == STATE_PLAY and currentQMatch then
         local barH  = tileSize * 0.08
         local barGap = tileSize * 0.12
         local barY  = bgY + bgH / 2 + barGap + barH / 2
