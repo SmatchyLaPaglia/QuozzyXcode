@@ -355,7 +355,8 @@ end
 -- draws it); the mutation below is synchronous and already live by the
 -- time this returns.
 rerollAnim = rerollAnim or {}
-REROLL_ANIM_DURATION = 0.4  -- seconds; new letter's accent-color pop settles to normal over this
+REROLL_ANIM_GROW_DURATION = 0.4  -- seconds; phase 1: normal -> 1.6x, accent color -> normal
+REROLL_ANIM_FADE_DURATION = 0.4  -- seconds; phase 2: 1.6x -> 2.2x, fades out entirely
 
 -- Live-tunable via the debug overlay (RipplePicker.lua steppers), same
 -- idiom as rippleTuneDefs/rippleTune (RippleShader.lua). timerSeconds
@@ -685,43 +686,55 @@ function drawBoard()
                 drawDie(x + jx, y + jy, w * 0.95, h * 0.95, w * 0.25, fillCol, 0)
             end
 
-            -- Letter: normally drawn at the tile's own fixed color/size.
-            -- While a reroll animation is active for this tile, it instead
-            -- starts at normal size/color, in bold, and expands as it
-            -- fades from an eye-catching accent color to the normal one --
-            -- this is the letter that's actually there now (not a fading
-            -- ghost of the old one), so what you see land is what's playable.
-            local ranim = rerollAnim[r] and rerollAnim[r][c]
-            local animU = nil
-            if ranim then
-                local u = (ElapsedTime - ranim.startTime) / REROLL_ANIM_DURATION
-                if u >= 1 then
-                    rerollAnim[r][c] = nil
-                else
-                    animU = u
-                end
-            end
-
-            local drawFill, drawScale = letterFill, 1.0
-            if animU then
-                local accent = Color.uiAccent2 or letterFill
-                drawScale = 1.0 + 0.6 * animU  -- normal size, expands as it fades
-                drawFill = color(
-                    accent.r + (letterFill.r - accent.r) * animU,
-                    accent.g + (letterFill.g - accent.g) * animU,
-                    accent.b + (letterFill.b - accent.b) * animU,
-                    (accent.a or 255) + ((letterFill.a or 255) - (accent.a or 255)) * animU
-                )
-            end
-
+            -- Letter: a stable, always-visible base at normal size/color,
+            -- so the tile is always readable no matter the animation
+            -- phase. While a reroll animation is active for this tile, an
+            -- overlay pops on top of it, bold: phase 1 grows from normal
+            -- to 1.6x while fading color from an eye-catching accent to
+            -- normal; phase 2 keeps expanding past that while fading out
+            -- entirely, leaving just the stable base behind.
             pushMatrix()
             translate(x + jx, y + jy)
             if angle ~= 0 then rotate(angle) end
-            if drawScale ~= 1.0 then scale(drawScale) end
-            font(animU and "Helvetica-Bold" or GLOBAL_UI_FONT_DICE)
-            fill(drawFill)
+            font(GLOBAL_UI_FONT_DICE)
+            fill(letterFill)
             text(label, 0, 0)
             popMatrix()
+
+            local ranim = rerollAnim[r] and rerollAnim[r][c]
+            if ranim then
+                local elapsed = ElapsedTime - ranim.startTime
+                local overlayScale, overlayFill
+
+                if elapsed < REROLL_ANIM_GROW_DURATION then
+                    local u = elapsed / REROLL_ANIM_GROW_DURATION
+                    local accent = Color.uiAccent2 or letterFill
+                    overlayScale = 1.0 + 0.6 * u  -- normal -> 1.6
+                    overlayFill = color(
+                        accent.r + (letterFill.r - accent.r) * u,
+                        accent.g + (letterFill.g - accent.g) * u,
+                        accent.b + (letterFill.b - accent.b) * u,
+                        accent.a or 255
+                    )
+                elseif elapsed < REROLL_ANIM_GROW_DURATION + REROLL_ANIM_FADE_DURATION then
+                    local u = (elapsed - REROLL_ANIM_GROW_DURATION) / REROLL_ANIM_FADE_DURATION
+                    overlayScale = 1.6 + 0.6 * u  -- keeps expanding, 1.6 -> 2.2
+                    overlayFill = color(letterFill.r, letterFill.g, letterFill.b, (letterFill.a or 255) * (1 - u))
+                else
+                    rerollAnim[r][c] = nil
+                end
+
+                if overlayScale then
+                    pushMatrix()
+                    translate(x + jx, y + jy)
+                    if angle ~= 0 then rotate(angle) end
+                    scale(overlayScale)
+                    font("Helvetica-Bold")
+                    fill(overlayFill)
+                    text(label, 0, 0)
+                    popMatrix()
+                end
+            end
         end
     end
 
