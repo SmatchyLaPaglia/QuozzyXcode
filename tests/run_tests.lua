@@ -117,13 +117,13 @@ test("rerollTuneNudge/rerollTuneReset: adjusts within bounds, computeRerollPlan 
   check("count reflects the nudged percent", plan.count == math.floor(16 * 35 / 100 + 0.5))
 
   for _ = 1, 20 do rerollTuneNudge("percent", 1) end
-  check("percent clamps at its max", rerollTune.percent == 90)
+  check("percent clamps at its max", rerollTune.percent == 100)
 
   for _ = 1, 30 do rerollTuneNudge("percent", -1) end
   check("percent clamps at its min", rerollTune.percent == 5)
 
   rerollTuneReset()
-  check("reset restores the default", rerollTune.percent == 30 and rerollTune.timerSeconds == 10)
+  check("reset restores the default", rerollTune.percent == 30)
   check("animation tunables present with their defaults",
     rerollTune.growScale == 1.6 and rerollTune.growSeconds == 0.4 and rerollTune.fadeSeconds == 0.4)
   check("bg flash tunable present with its default", rerollTune.bgFlashSeconds == 0.4)
@@ -144,6 +144,38 @@ test("rerollTune persistence: a nudge is saved, a fresh load restores it", funct
   check("persisted value restored after load", rerollTune.percent == 35)
 
   rerollTuneReset()  -- leave clean for subsequent tests
+end)
+
+test("setRerollDifficulty: sets rerollTune.percent to the preset and persists both", function()
+  setRerollDifficulty("hard")
+  check("difficulty recorded", rerollDifficulty == "hard")
+  check("percent set to the hard preset", rerollTune.percent == REROLL_DIFFICULTY_PERCENT.hard)
+
+  setRerollDifficulty("easy")
+  check("difficulty recorded", rerollDifficulty == "easy")
+  check("percent set to the easy preset", rerollTune.percent == REROLL_DIFFICULTY_PERCENT.easy)
+
+  check("an unrecognized level is ignored", (function()
+    setRerollDifficulty("extreme")
+    return rerollDifficulty == "easy"
+  end)())
+
+  setRerollDifficulty("normal")  -- leave clean for subsequent tests
+end)
+
+test("loadRerollDifficulty: a fresh load restores the persisted difficulty and re-derives percent", function()
+  setRerollDifficulty("hard")
+  check("nudge value in memory", rerollTune.percent == 100)
+
+  -- Simulate a fresh app launch: reset in-memory state to defaults first.
+  rerollDifficulty = "normal"
+  rerollTune.percent = REROLL_DIFFICULTY_PERCENT.normal
+
+  loadRerollDifficulty()
+  check("persisted difficulty restored", rerollDifficulty == "hard")
+  check("percent re-derived from the restored difficulty", rerollTune.percent == REROLL_DIFFICULTY_PERCENT.hard)
+
+  setRerollDifficulty("normal")  -- leave clean for subsequent tests
 end)
 
 test("computeRerollPlan: count in range, no duplicate positions, repeatable", function()
@@ -353,11 +385,10 @@ test("computeBoardTilesAtK: deterministic for the same (seed,n,k), differs at a 
   check("diverges after more events", not eq(computeBoardTilesAtK(42, 4, 2), computeBoardTilesAtK(42, 4, 5)))
 end)
 
-test("startRoundFromCurrentSettings: initializes the auto-reroll countdown and per-match event counter", function()
+test("startRoundFromCurrentSettings: initializes the per-match reroll event counter", function()
   useTurnBased = false
   currentOpponentID = nil
   startRoundFromCurrentSettings()
-  check("countdown reset to the full duration", rerollCountdown == rerollTune.timerSeconds)
   check("reroll event counter reset to zero", currentQMatch.rerollK == 0)
   check("lands on the ready screen", state == STATE_READY)
 end)

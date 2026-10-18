@@ -378,14 +378,14 @@ end
 rerollAnim = rerollAnim or {}
 
 -- Live-tunable via the debug overlay (RipplePicker.lua steppers), same
--- idiom as rippleTuneDefs/rippleTune (RippleShader.lua). timerSeconds
--- drives the auto-reroll countdown; percent drives computeRerollPlan's
--- tile count above; growScale/growSeconds/fadeSeconds drive drawBoard()'s
--- reroll animation; bgFlashSeconds drives the whole-screen background
--- flash (Main.lua draw()). Copy final values into `def` once settled.
+-- idiom as rippleTuneDefs/rippleTune (RippleShader.lua). percent drives
+-- computeRerollPlan's tile count above (also settable in bulk via the
+-- main menu's Easy/Normal/Hard buttons, see rerollDifficulty below);
+-- growScale/growSeconds/fadeSeconds drive drawBoard()'s reroll animation;
+-- bgFlashSeconds drives the whole-screen background flash (Main.lua
+-- draw()). Copy final values into `def` once settled.
 rerollTuneDefs = {
-  { key = "timerSeconds",   label = "Timer",    def = 10,  step = 1,   min = 2,   max = 60 },
-  { key = "percent",        label = "Tiles %",  def = 30,  step = 5,   min = 5,   max = 90 },
+  { key = "percent",        label = "Tiles %",  def = 30,  step = 5,   min = 5,   max = 100 },
   { key = "growScale",      label = "Grow x",   def = 1.6, step = 0.1, min = 1.1, max = 3.0 },
   { key = "growSeconds",    label = "Grow sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
   { key = "fadeSeconds",    label = "Fade sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
@@ -435,12 +435,32 @@ function rerollTuneReset()
   saveRerollTune()
 end
 
--- Auto-reroll countdown: ticked in Main.lua's draw() (STATE_PLAY, solo
--- only); when it reaches zero the board rerolls on its own, whether or
--- not a word was found. Finding a word (WordLogic.lua finalizeWord) also
--- resets it, same as the reroll it triggers. drawBoard() renders it as a
--- shrinking line above the board.
-rerollCountdown = rerollCountdown or rerollTune.timerSeconds
+-- Difficulty presets (main menu Easy/Normal/Hard buttons, MenuPanels.lua):
+-- how much of the board changes on every reroll event. A thin layer over
+-- rerollTune.percent -- picking a difficulty just sets that one value to
+-- a preset and persists both. The debug panel's "Tiles %" stepper still
+-- works for ad-hoc tuning mid-session; loading fresh (app relaunch)
+-- re-derives percent from whichever difficulty was last picked, so the
+-- two never drift out of sync across a relaunch.
+REROLL_DIFFICULTY_PERCENT = { easy = 10, normal = 30, hard = 100 }
+REROLL_DIFFICULTY_KEY = "Q_RerollDifficulty"
+rerollDifficulty = rerollDifficulty or "normal"
+
+function loadRerollDifficulty()
+  local raw = readLocalData(REROLL_DIFFICULTY_KEY)
+  if type(raw) == "string" and REROLL_DIFFICULTY_PERCENT[raw] then
+    rerollDifficulty = raw
+  end
+  rerollTune.percent = REROLL_DIFFICULTY_PERCENT[rerollDifficulty]
+end
+
+function setRerollDifficulty(level)
+  if not REROLL_DIFFICULTY_PERCENT[level] then return end
+  rerollDifficulty = level
+  rerollTune.percent = REROLL_DIFFICULTY_PERCENT[level]
+  saveLocalData(REROLL_DIFFICULTY_KEY, level)
+  saveRerollTune()
+end
 
 -- Mutates the live board for the k-th word THIS player has personally
 -- found (k = 1-based count, matching computeRerollPlan's convention).
@@ -680,27 +700,6 @@ function drawBoard()
     bgFill,
     bgStroke
     )
-
-    -- Auto-reroll countdown: a line just above the board that drains from
-    -- full width down to nothing: left edge fixed, right edge creeps in.
-    -- Enabled for multiplayer too now (matches where the countdown
-    -- actually ticks, Main.lua) -- this guard had been missed when the
-    -- other two (solo-only) guards were lifted, so the countdown was
-    -- correctly running in multiplayer already, just invisible.
-    if state == STATE_PLAY and currentQMatch then
-        local barH  = tileSize * 0.08
-        local barGap = tileSize * 0.12
-        local barY  = bgY + bgH / 2 + barGap + barH / 2
-        local frac  = math.max(0, math.min(1, (rerollCountdown or rerollTune.timerSeconds) / rerollTune.timerSeconds))
-        local barW  = bgW * frac
-        local barX  = (bgX - bgW / 2) + barW / 2
-        pushStyle()
-        rectMode(CENTER)
-        noStroke()
-        fill(Color.uiAccent or color(40, 80, 60, 255))
-        rect(barX, barY, barW, barH)
-        popStyle()
-    end
 
     for r = 1, boardSize do
         for c = 1, boardSize do

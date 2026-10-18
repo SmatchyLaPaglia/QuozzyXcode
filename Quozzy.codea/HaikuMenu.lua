@@ -1239,6 +1239,15 @@ function handleMenuTouch(t)
     if MIN_WORD_LEN > 6 then MIN_WORD_LEN = 3 end
     if persistGameplaySettings then persistGameplaySettings() end
 
+  elseif key == "diffEasy" then
+    if setRerollDifficulty then setRerollDifficulty("easy") end
+
+  elseif key == "diffNormal" then
+    if setRerollDifficulty then setRerollDifficulty("normal") end
+
+  elseif key == "diffHard" then
+    if setRerollDifficulty then setRerollDifficulty("hard") end
+
   elseif key == "solo" then
     openSoloChoiceDialog()
 

@@ -100,20 +100,15 @@ function finalizeWord()
             rerollK = currentQMatch and currentQMatch.rerollK or 0,
         }
 
-        -- Board reroll: k = this player's own reroll-event count so far,
-        -- shared with the auto-reroll countdown (Main.lua draw()) -- either
-        -- trigger advances the same sequence, so a word found right before
-        -- the countdown would have fired doesn't produce two conflicting
-        -- plans for the same k. Finding a word also resets the countdown,
-        -- same as the reroll it triggers. Enabled for multiplayer too now
-        -- that the wire protocol only ever sends boardTiles/seed on the
-        -- handshake leg and the merge-guard protects any board I've ever
-        -- generated (GameCenter.lua enterQMatch_inner, qMatch_qPlayer.lua
+        -- Board reroll: k = this player's own reroll-event count so far
+        -- (1-based). Enabled for multiplayer too -- the wire protocol only
+        -- ever sends boardTiles/seed on the handshake leg and the
+        -- merge-guard protects any board I've ever generated
+        -- (GameCenter.lua enterQMatch_inner, qMatch_qPlayer.lua
         -- boardGeneratedForMatchId).
         if applyBoardReroll and currentQMatch then
             currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
             applyBoardReroll(currentQMatch, currentQMatch.rerollK)
-            rerollCountdown = rerollTune.timerSeconds
         end
 
         -- pop animation for the newest *permanent* entry

@@ -1144,6 +1144,7 @@ function setup()
   loadFinishedAwaitingDecision()
   loadBoardGeneratedForMatchId()
   if loadRerollTune then loadRerollTune() end
+  if loadRerollDifficulty then loadRerollDifficulty() end
   requestPendingHandshakeResendCheck("setup")
   setupGCDebugParameters()
   if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
@@ -1469,21 +1470,6 @@ function drawFrame()
     end
   end
 
-  -- Board reroll's own countdown: when it reaches zero the board rerolls
-  -- on its own, whether or not a word was just found (finding a word
-  -- rerolls AND resets this same countdown -- see finalizeWord). Enabled
-  -- for multiplayer too now (same gate as the word-triggered reroll,
-  -- WordLogic.lua) -- each player's countdown is purely local timing,
-  -- nothing about it needs to be synchronized between players.
-  if state == STATE_PLAY and currentQMatch then
-    rerollCountdown = (rerollCountdown or rerollTune.timerSeconds) - DeltaTime
-    if rerollCountdown <= 0 then
-      currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
-      if applyBoardReroll then applyBoardReroll(currentQMatch, currentQMatch.rerollK) end
-      rerollCountdown = rerollTune.timerSeconds
-    end
-  end
-  
   if state == STATE_READY then
     safeDrawCall("updateReadyRattle", updateReadyRattle)
   end

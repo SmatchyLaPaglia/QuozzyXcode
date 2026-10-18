@@ -25,6 +25,17 @@ do
   check("ref dice plate w equals board plate", near(L.dicePlate.w, L.boardPlate.w, 0.01))
   check("ref dice plate cx", near(L.dicePlate.cx, 268.5, 1.5), L.dicePlate.cx)
   check("ref dice plate cy", near(L.dicePlate.cy, H - 548.5, 2), L.dicePlate.cy)
+
+  local dp = L.difficultyPlates
+  local midCx = (L.boardPlate.cx + L.dicePlate.cx) * 0.5
+  local midCy = (L.boardPlate.cy + L.dicePlate.cy) * 0.5
+  check("difficulty buttons centered on the board/dice midpoint cx",
+    near((dp.easy.cx + dp.normal.cx + dp.hard.cx) / 3, midCx, 0.5))
+  check("difficulty buttons centered on the board/dice midpoint cy",
+    near(dp.normal.cy, midCy, 0.01) and near(dp.easy.cy, midCy, 0.01) and near(dp.hard.cy, midCy, 0.01))
+  check("difficulty buttons ordered easy < normal < hard", dp.easy.cx < dp.normal.cx and dp.normal.cx < dp.hard.cx)
+  check("difficulty buttons same size", dp.easy.w == dp.normal.w and dp.normal.w == dp.hard.w
+    and dp.easy.h == dp.normal.h and dp.normal.h == dp.hard.h)
 end
 
 -- 2. Real phones: nothing off-screen, season band comfortable, plates stay with their anchors.
@@ -47,6 +58,9 @@ for _, ph in ipairs(phones) do
     end
     inside("board plate", L.boardPlate); inside("dice plate", L.dicePlate)
     inside("game plate", L.gamePlate);   inside("season plate", L.season)
+    inside("difficulty easy", L.difficultyPlates.easy)
+    inside("difficulty normal", L.difficultyPlates.normal)
+    inside("difficulty hard", L.difficultyPlates.hard)
     inside("board bbox", { cx = L.board.cx, cy = L.board.cy, w = L.board.bbox, h = L.board.bbox })
     check(tag .. ": season plate clears the safe top", L.season.cy + L.season.h / 2 <= H - inset + 0.5)
     check(tag .. ": season plate sits above the board", L.season.cy - L.season.h / 2 >= L.board.top - 0.5)

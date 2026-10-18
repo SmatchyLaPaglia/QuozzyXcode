@@ -25,8 +25,8 @@
 MENU_PANEL_KEY = "MenuPanelCfg"
 
 menuPanelDefaults = {
-  showSeason = true, showBoard = true, showDice = true, showGame = true,
-  zSeason = "behind", zBoard = "front", zDice = "front", zGame = "front",
+  showSeason = true, showBoard = true, showDice = true, showGame = true, showDifficulty = true,
+  zSeason = "behind", zBoard = "front", zDice = "front", zGame = "front", zDifficulty = "front",
   fillRole = "white", fillAlpha = 90, radius = 15,
   strokeRole = "ink", strokeAlpha = 95, strokeWidth = 1.3, strokeInset = 4,
   hairAlpha = 43, shadow = 18,
@@ -231,6 +231,12 @@ local function panelSpecs()
       label = "board", num = boardSize .. " × " .. boardSize },
     { id = "dice", show = c.showDice, z = c.zDice, r = Lay.dicePlate, u = u, tilt = c.dtilt,
       label = c.diceLabel, num = tostring(MIN_WORD_LEN) },
+    { id = "diffEasy", show = c.showDifficulty, z = c.zDifficulty, r = Lay.difficultyPlates.easy, u = u, tilt = 0,
+      label = "Easy", lsize = 15, selected = ((rerollDifficulty or "normal") == "easy"), hitKey = "diffEasy" },
+    { id = "diffNormal", show = c.showDifficulty, z = c.zDifficulty, r = Lay.difficultyPlates.normal, u = u, tilt = 0,
+      label = "Normal", lsize = 15, selected = ((rerollDifficulty or "normal") == "normal"), hitKey = "diffNormal" },
+    { id = "diffHard", show = c.showDifficulty, z = c.zDifficulty, r = Lay.difficultyPlates.hard, u = u, tilt = 0,
+      label = "Hard", lsize = 15, selected = ((rerollDifficulty or "normal") == "hard"), hitKey = "diffHard" },
     { id = "game", show = c.showGame, z = c.zGame, r = Lay.gamePlate, u = u, tilt = c.gtilt,
       label = c.gameLabel, lsize = c.gameSize },
   }
@@ -296,6 +302,7 @@ function drawMenuPanelsLayer(layer)
     if sp.show then
       local am = 1
       if sp.fades and TextGoPoof_quickFade then am = TextGoPoof_quickFade(0.10) end
+      if sp.selected == false then am = am * 0.55 end  -- dim the non-active difficulty buttons
       if am > 0.01 then
         local z = sp.z
         if layer == "back" then
@@ -305,6 +312,11 @@ function drawMenuPanelsLayer(layer)
           if z == "front" then drawPlate(sp, am) end
           if z == "front" or z == "plateBehind" then drawPanelText(sp, am) end
         end
+      end
+      -- Hit rects for tappable plates (difficulty buttons): registered on the
+      -- "front" pass, which runs after drawMenu()'s menuHitRects = {} reset.
+      if layer == "front" and sp.hitKey then
+        menuHitRects[sp.hitKey] = { cx = sp.r.cx, cy = sp.r.cy, w = sp.r.w, h = sp.r.h }
       end
     end
   end

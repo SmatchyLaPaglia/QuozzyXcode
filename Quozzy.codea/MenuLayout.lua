@@ -96,6 +96,23 @@ function computeMenuLayout(W, H, topInset, tiltDeg, hasReplay)
   L.diceZone = { yBot = rb.dice * H, yTop = rb.top * H }
   L.dicePlate = { cx = DPLATE_X_FRAC * W, cy = L.diceCy + DPLATE_DY * bbW, w = L.boardPlate.w, h = L.boardPlate.h }
 
+  -- DIFFICULTY BUTTONS (Easy/Normal/Hard): midpoint between the board plate
+  -- and the dice (min-letters) plate, same total footprint as one plate,
+  -- split into 3 equal side-by-side buttons.
+  do
+    local midCx = (L.boardPlate.cx + L.dicePlate.cx) * 0.5
+    local midCy = (L.boardPlate.cy + L.dicePlate.cy) * 0.5
+    local totalW = L.boardPlate.w
+    local gap = totalW * 0.05
+    local btnW = (totalW - 2 * gap) / 3
+    local btnH = L.boardPlate.h * 0.55
+    L.difficultyPlates = {
+      easy   = { cx = midCx - (btnW + gap), cy = midCy, w = btnW, h = btnH },
+      normal = { cx = midCx,                cy = midCy, w = btnW, h = btnH },
+      hard   = { cx = midCx + (btnW + gap), cy = midCy, w = btnW, h = btnH },
+    }
+  end
+
   -- PLAY BUTTONS (+ game types plate)
   local h4 = MENU_ROWS.play * H
   local bh = h4 * 0.84
