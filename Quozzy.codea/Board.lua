@@ -284,14 +284,24 @@ function computeRerollPlan(seed, n, k)
   for i = 1, total do allPositions[i] = i end
   local shuffled = seededShuffle(seed, k, "rerollPos", allPositions)
 
+  -- Die selection must match generateBoardTilesSeeded's approach: shuffle
+  -- the dice bag ONCE and assign one die per tile, no reuse. Independently
+  -- sampling a die per tile WITH replacement (the original approach here)
+  -- lets a rare die (there's usually only 1-2 Q-dice in the whole set)
+  -- get redrawn repeatedly across the many reroll events in a long game,
+  -- clustering -- confirmed live: a full 6x6 game produced two entire rows
+  -- of "Qu". Shuffling once per reroll event bounds how many Qu a single
+  -- event can ever produce to the number of Q-dice in the set, exactly
+  -- like the initial board.
+  local dice = (n == 4 and DICE_4x4) or (n == 5 and DICE_5x5) or (n == 6 and DICE_6x6)
+  local shuffledDice = seededShuffle(seed, k, "rerollDice", dice)
+
   local positions = {}
   local letters = {}
   for i = 1, count do
     local idx = shuffled[i]
     positions[i] = idx
-    local dice = (n == 4 and DICE_4x4) or (n == 5 and DICE_5x5) or (n == 6 and DICE_6x6)
-    local die = dice[math.floor(seededValue(seed, k, "rerollDie" .. idx) * #dice) + 1]
-    if not die then die = dice[#dice] end
+    local die = shuffledDice[i]
     local faceIndex = math.floor(seededValue(seed, k, "rerollFace" .. idx) * #die) + 1
     if faceIndex > #die then faceIndex = #die end
     local ch = string.upper(die:sub(faceIndex, faceIndex))

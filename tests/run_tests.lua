@@ -129,6 +129,26 @@ test("computeRerollPlan: count in range, no duplicate positions, repeatable", fu
   end
 end)
 
+test("computeRerollPlan: a single reroll event never produces more Qu than there are Q-dice in the set (no with-replacement clustering)", function()
+  for _, n in ipairs({4, 5, 6}) do
+    local dice = (n == 4 and DICE_4x4) or (n == 5 and DICE_5x5) or (n == 6 and DICE_6x6)
+    local qDiceCount = 0
+    for _, die in ipairs(dice) do
+      if die:find("Q") then qDiceCount = qDiceCount + 1 end
+    end
+    for k = 1, 30 do
+      local plan = computeRerollPlan(777, n, k)
+      local quCount = 0
+      for _, letter in pairs(plan.letters) do
+        if letter == "Qu" then quCount = quCount + 1 end
+      end
+      check("Qu count bounded by Q-dice count n=" .. n .. " k=" .. k,
+        quCount <= qDiceCount,
+        "quCount=" .. quCount .. " qDiceCount=" .. qDiceCount)
+    end
+  end
+end)
+
 test("computeRerollPlan: different k produces a different plan", function()
   local p1 = computeRerollPlan(999, 4, 1)
   local p2 = computeRerollPlan(999, 4, 2)
