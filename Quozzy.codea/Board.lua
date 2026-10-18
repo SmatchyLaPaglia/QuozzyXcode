@@ -687,10 +687,10 @@ function drawBoard()
 
             -- Letter: normally drawn at the tile's own fixed color/size.
             -- While a reroll animation is active for this tile, it instead
-            -- pops in at an eye-catching accent color and oversize,
-            -- settling to the normal color/size as it plays out -- this is
-            -- the letter that's actually there now (not a fading ghost of
-            -- the old one), so what you see land is what's playable.
+            -- starts at normal size/color, in bold, and expands as it
+            -- fades from an eye-catching accent color to the normal one --
+            -- this is the letter that's actually there now (not a fading
+            -- ghost of the old one), so what you see land is what's playable.
             local ranim = rerollAnim[r] and rerollAnim[r][c]
             local animU = nil
             if ranim then
@@ -705,7 +705,7 @@ function drawBoard()
             local drawFill, drawScale = letterFill, 1.0
             if animU then
                 local accent = Color.uiAccent2 or letterFill
-                drawScale = 1.6 - 0.6 * animU  -- pops in big, settles to normal size
+                drawScale = 1.0 + 0.6 * animU  -- normal size, expands as it fades
                 drawFill = color(
                     accent.r + (letterFill.r - accent.r) * animU,
                     accent.g + (letterFill.g - accent.g) * animU,
@@ -718,6 +718,7 @@ function drawBoard()
             translate(x + jx, y + jy)
             if angle ~= 0 then rotate(angle) end
             if drawScale ~= 1.0 then scale(drawScale) end
+            font(animU and "Helvetica-Bold" or GLOBAL_UI_FONT_DICE)
             fill(drawFill)
             text(label, 0, 0)
             popMatrix()
