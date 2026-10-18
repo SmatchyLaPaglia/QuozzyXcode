@@ -89,10 +89,12 @@ function finalizeWord()
         -- trigger advances the same sequence, so a word found right before
         -- the countdown would have fired doesn't produce two conflicting
         -- plans for the same k. Finding a word also resets the countdown,
-        -- same as the reroll it triggers. not useTurnBased scopes this to
-        -- solo only until Gate 6 (wire-protocol hardening) lands; removed
-        -- in Gate 7.
-        if applyBoardReroll and currentQMatch and not useTurnBased then
+        -- same as the reroll it triggers. Enabled for multiplayer too now
+        -- that the wire protocol only ever sends boardTiles/seed on the
+        -- handshake leg and the merge-guard protects any board I've ever
+        -- generated (GameCenter.lua enterQMatch_inner, qMatch_qPlayer.lua
+        -- boardGeneratedForMatchId).
+        if applyBoardReroll and currentQMatch then
             currentQMatch.rerollK = (currentQMatch.rerollK or 0) + 1
             applyBoardReroll(currentQMatch, currentQMatch.rerollK)
             rerollCountdown = rerollTune.timerSeconds

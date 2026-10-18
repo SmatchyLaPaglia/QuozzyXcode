@@ -18,6 +18,39 @@ function loadPendingTurnSends()
     pendingTurnSendsByMatchId = (ok and type(t)=="table") and t or {}
 end
 
+-- The seed I generated my own board with, for a given match id. Every
+-- leg except the handshake deliberately omits boardTiles/seed now (see
+-- attemptLegSend, GameCenter.lua -- a sender's own, possibly-already-
+-- rerolled board has no business overwriting the recipient's
+-- independent one). This table lets a fresh decode (makeQMatchFromGK)
+-- recover the TRUE seed even when the incoming leg doesn't carry one
+-- and currentQMatch isn't already this match (so enterQMatch_inner's
+-- merge-guard doesn't apply either) -- without it, that fresh decode
+-- would otherwise invent a brand-new random seed and diverge from the
+-- opponent's board entirely, not just lose reroll progress. Stamped
+-- once, in Board.lua's generateBoard(), the one true "I just generated
+-- my own board" choke point.
+BOARD_GENERATED_KEY = BOARD_GENERATED_KEY or "Q_BoardGeneratedForMatchId"
+boardGeneratedForMatchId = boardGeneratedForMatchId or {}
+
+function persistBoardGeneratedForMatchId()
+    local ok, s = pcall(json.encode, boardGeneratedForMatchId)
+    if ok and s then saveLocalData(BOARD_GENERATED_KEY, s) end
+end
+
+function loadBoardGeneratedForMatchId()
+    local s = readLocalData(BOARD_GENERATED_KEY)
+    if not s or s=="" then boardGeneratedForMatchId = {}; return end
+    local ok, t = pcall(json.decode, s)
+    boardGeneratedForMatchId = (ok and type(t)=="table") and t or {}
+end
+
+function markBoardGeneratedForMatchId(matchId, seed)
+    if not matchId or boardGeneratedForMatchId[matchId] == seed then return end
+    boardGeneratedForMatchId[matchId] = seed
+    persistBoardGeneratedForMatchId()
+end
+
 -- A match I've locally finished playing but haven't yet decided a comment
 -- for (see COMMENT_WINDOW_SECONDS / computeNextOwedAction). Written to disk the
 -- instant a round finishes (endGameRound), not just once a decision is
@@ -584,7 +617,11 @@ function makeQMatchFromGK(gkMatch, dataTable)
   opponentName,
   (dataTable and dataTable.boardSize) or requestedBoardSize,
   (dataTable and dataTable.minWordLen) or requestedMinWordLen,
-  dataTable and dataTable.seed
+  -- Only the handshake leg carries seed now (see attemptLegSend); every
+  -- later leg falls back to the seed I cached when I generated my own
+  -- board for this match, so a fresh decode never invents a new random
+  -- one and diverges from the opponent's board.
+  (dataTable and dataTable.seed) or boardGeneratedForMatchId[matchId]
   )
   
   q.opponentPlayerID = opponentPlayerID

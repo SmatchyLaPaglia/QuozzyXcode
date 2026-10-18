@@ -100,10 +100,12 @@ local function buildFinalTurnDataAndOutcome(commentText)
   q.lastUpdated = os.time()
   q.awaitingCommentBeforeFinalization = (q.players[pid].comment == "")
 
+  -- boardTiles deliberately omitted (board-reroll feature): finalize
+  -- never needs it, and it would be the sender's own current (possibly
+  -- rerolled) board, not something the recipient should adopt.
   local turnData = {
     boardSize   = q.boardSize or boardSize,
     minWordLen  = q.minWordLen or MIN_WORD_LEN,
-    boardTiles  = q.boardTiles,
     players     = q.players,
     lastUpdated = q.lastUpdated,
   }
@@ -335,7 +337,19 @@ local function enterQMatch_inner(q, background)
       and state == STATE_END
       and localAlreadyPlayed == true
 
-    if protectInProgressRound or protectFinishedUnsentResult then
+    -- (c) I've ever generated my own board for this match (board-reroll
+    -- feature) -- independent of current screen state. Once boards can
+    -- diverge per player (reroll), a score/comment/finalize leg's
+    -- boardTiles would otherwise be the SENDER's own current board,
+    -- wholesale-replacing mine the next time any turn event lands
+    -- outside the two states above (e.g. I'm sitting at STATE_MENU with
+    -- this match still loaded). Those legs no longer send boardTiles at
+    -- all now (see attemptLegSend) -- this guard is what makes that safe
+    -- rather than just replacing a real board with a nil one.
+    local everGeneratedBoard = currentQMatch and currentQMatch.id == q.id
+      and boardGeneratedForMatchId[q.id] ~= nil
+
+    if protectInProgressRound or protectFinishedUnsentResult or everGeneratedBoard then
       for pid, pdata in pairs(q.players or {}) do
         if pid ~= myId then
           mergeOpponentSlot(currentQMatch, pid, pdata)
@@ -343,7 +357,8 @@ local function enterQMatch_inner(q, background)
       end
       currentQMatch.lastUpdated = q.lastUpdated or currentQMatch.lastUpdated
       devLog("enterQMatch: merged incoming opponent data without disturbing local state",
-        "reason=", protectInProgressRound and "in-progress-round" or "finished-unsent-result")
+        "reason=", protectInProgressRound and "in-progress-round"
+          or protectFinishedUnsentResult and "finished-unsent-result" or "ever-generated-board")
       return
     end
   end
@@ -705,8 +720,16 @@ function attemptLegSend(q)
     -- their own data with full authority, and already has boardTiles from
     -- the handshake -- so send just my own player slot, not the full
     -- q.players table, and skip boardTiles/boardSize/minWordLen entirely.
-    -- A turn-pass keeps carrying the full table (the authoritative snapshot
-    -- mechanism this design relies on elsewhere), unchanged.
+    -- A turn-pass keeps carrying the full players table (the authoritative
+    -- snapshot mechanism this design relies on elsewhere), unchanged.
+    --
+    -- boardTiles/seed are scoped to the handshake leg ONLY now (board-
+    -- reroll feature): once boards can diverge per player, a score/
+    -- comment send carrying MY current (possibly-rerolled) boardTiles
+    -- would have no business overwriting the recipient's own independent
+    -- board -- the recipient already has everything they need to run
+    -- their own reroll sequence (seed, from the handshake) and never
+    -- needs mine again after that.
     local payload
     if action.via == "exchange" then
       payload = {
@@ -717,10 +740,13 @@ function attemptLegSend(q)
       payload = {
         boardSize   = q.boardSize or boardSize,
         minWordLen  = q.minWordLen or MIN_WORD_LEN,
-        boardTiles  = q.boardTiles,
         players     = q.players,
         lastUpdated = os.time(),
       }
+      if action.kind == "handshake" then
+        payload.boardTiles = q.boardTiles
+        payload.seed       = q.seed
+      end
     end
     -- Every outgoing send carries the sender's current W/L record against this
     -- opponent so each side's local totals can self-heal from the other's.

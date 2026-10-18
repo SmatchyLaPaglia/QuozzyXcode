@@ -475,6 +475,9 @@ function generateBoard(currentQMatch)
     buildBoardFromTiles(tiles, size)
     rerollAnim = {}  -- never show a leftover ghost fade from a previous round
     bgFlashStartTime = nil
+    if q and q.id and q.seed and markBoardGeneratedForMatchId then
+        markBoardGeneratedForMatchId(q.id, q.seed)
+    end
 end
 
 --####################################################################

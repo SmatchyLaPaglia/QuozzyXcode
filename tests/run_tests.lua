@@ -33,6 +33,7 @@ local function reset()
   finishedAwaitingDecisionByMatchId = {}
   oppFinishedObservedAtByMatchId = {}
   reminderSentByMatchId = {}
+  boardGeneratedForMatchId = {}
   matchHistoryByOpponent = {}
   endedMatchBadgeIds = {}
   commentMatchBadgeIds = {}
@@ -376,6 +377,88 @@ test("beginInitialHandshakeSend: recordSync uses q.opponentId when opponent has 
   beginInitialHandshakeSend(q)
   local sync = tbm.sentCalls[1] and tbm.sentCalls[1].recordSync
   check("recordSync still attached", sync ~= nil and sync.opponentId == "opp")
+end)
+
+-- ---- Board-reroll multiplayer wire-protocol hardening (Gate 6) ----------
+-- boardTiles/seed must only ever travel on the handshake leg: once boards
+-- can diverge per player, a sender's own (possibly-rerolled) board has no
+-- business overwriting the recipient's independent one.
+
+test("attemptLegSend: a score leg (turn-pass) does not carry boardTiles or seed", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  local q = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 999)
+  q.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
+  q.players["local-player-id"].didPlay = true
+  attemptLegSend(q)
+  check("one send recorded", #tbm.sentCalls == 1, tostring(#tbm.sentCalls))
+  local sent = tbm.sentCalls[1]
+  check("no boardTiles on a score leg", sent.boardTiles == nil)
+  check("no seed on a score leg", sent.seed == nil)
+  check("players table still carried", sent.players ~= nil)
+end)
+
+test("buildFinalTurnDataAndOutcome: finalize payload does not carry boardTiles", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  tbm.currentMatch = {}  -- buildFinalTurnDataAndOutcome requires a truthy tbm.currentMatch
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 999)
+  currentQMatch.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
+  currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["opp"].didPlay = true
+  local ok = finalizeCompletedTurnBasedMatch(nil)
+  check("finalize actually ran", ok == true)
+  -- Equal (default 0) scores -> a tie -> tiedCalls; whichever of
+  -- won/lost/tied fired, exactly one call landed with the turnData.
+  local sent = tbm.tiedCalls[1] or tbm.wonCalls[1] or tbm.lostCalls[1]
+  check("a finalize call happened", sent ~= nil)
+  check("no boardTiles on the finalize payload", sent and sent.boardTiles == nil)
+end)
+
+test("makeQMatchFromGK: seed falls back to the cached boardGeneratedForMatchId value when the leg omits it", function()
+  boardGeneratedForMatchId["m1"] = 4242
+  local gkMatch = {
+    matchID = "m1",
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } },
+  }
+  local scoreOnlyDataTable = { boardSize = 4, minWordLen = 3, players = {} }  -- no seed, no boardTiles
+  local q = makeQMatchFromGK(gkMatch, scoreOnlyDataTable)
+  check("recovered the cached seed, not a fresh random one", q.seed == 4242)
+end)
+
+test("enterQMatch_inner guard: a board I've ever generated survives a stale score/comment reload outside READY/PLAY/END", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 555)
+  currentQMatch.boardTiles = {"A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A"}
+  board = freshBoard(4)
+  boardSize = 4
+  applyBoardReroll(currentQMatch, 1)  -- my own board has diverged from the initial state
+  local myRerolledTiles = {}
+  for i, t in ipairs(currentQMatch.boardTiles) do myRerolledTiles[i] = t end
+  markBoardGeneratedForMatchId("m1", 555)
+
+  -- Mirrors closing the end screen / sitting at the menu -- neither of the
+  -- two old narrow states (READY/PLAY not-yet-submitted, or END unsent).
+  state = STATE_MENU
+
+  -- A stale score leg from the opponent, decoded fresh: no boardTiles/seed
+  -- at all (per the new scoping), and genuinely doesn't know about my reroll.
+  local gkMatch = {
+    matchID = "m1",
+    participants = { { player = { isLocalPlayer = false, gamePlayerID = "opp", alias = "Opp" } } },
+  }
+  local staleDataTable = {
+    boardSize = 4, minWordLen = 3,
+    players = { ["opp"] = { didPlay = true, score = 3 } },
+  }
+  local incoming = makeQMatchFromGK(gkMatch, staleDataTable)
+  enterQMatch(incoming)
+
+  check("my own rerolled board survives untouched", eq(currentQMatch.boardTiles, myRerolledTiles))
+  check("my seed is untouched", currentQMatch.seed == 555)
+  check("opponent's slot still merged in", currentQMatch.players["opp"].didPlay == true
+    and currentQMatch.players["opp"].score == 3)
 end)
 
 test("attemptPendingLegSend: retries on failure up to HANDSHAKE_MAX_ATTEMPTS, then gives up", function()
