@@ -16,6 +16,7 @@ loadSource("MatchSelection.lua")
 ScrollList = ScrollList or { new = function() return {} end }  -- EndScreen.lua builds lists at load
 loadSource("EndScreen.lua")
 loadSource("Board.lua")
+loadSource("BoardSolver.lua")
 
 -- ---------------------------------------------------------------- harness --
 local pass, fail = 0, 0
@@ -321,6 +322,35 @@ test("applyBoardReroll: same (seed,k) reroll is identical across two fresh board
   board = freshBoard(n); applyBoardReroll(q1, 3)
   board = freshBoard(n); applyBoardReroll(q2, 3)
   check("identical outcome for identical (seed,k)", eq(q1.boardTiles, q2.boardTiles))
+end)
+
+-- ---- computeBoardTilesAtK (board-replay for end-screen word tap) ---------
+
+test("computeBoardTilesAtK: k=0 is exactly the initial board, with no replay needed", function()
+  check("matches generateBoardTilesSeeded", eq(computeBoardTilesAtK(321, 4, 0), generateBoardTilesSeeded(321, 4)))
+end)
+
+test("computeBoardTilesAtK: replaying through k matches what actually happened on a live board", function()
+  local n = 4
+  local seed = 321
+  local liveTiles = generateBoardTilesSeeded(seed, n)
+  local q = { boardSize = n, seed = seed, boardTiles = liveTiles }
+  board = freshBoard(n)
+  for idx = 1, n * n do
+    local r = math.floor((idx - 1) / n) + 1
+    local c = ((idx - 1) % n) + 1
+    board[r][c] = liveTiles[idx]
+  end
+  applyBoardReroll(q, 1)
+  applyBoardReroll(q, 2)
+  applyBoardReroll(q, 3)
+  check("pure replay matches the actually-mutated live board after 3 events",
+    eq(computeBoardTilesAtK(seed, n, 3), q.boardTiles))
+end)
+
+test("computeBoardTilesAtK: deterministic for the same (seed,n,k), differs at a later k", function()
+  check("repeatable", eq(computeBoardTilesAtK(42, 4, 2), computeBoardTilesAtK(42, 4, 2)))
+  check("diverges after more events", not eq(computeBoardTilesAtK(42, 4, 2), computeBoardTilesAtK(42, 4, 5)))
 end)
 
 test("startRoundFromCurrentSettings: initializes the auto-reroll countdown and per-match event counter", function()
@@ -1737,6 +1767,86 @@ test("menu panels: config persists; placement comes from the ratio layout", func
   saveLocalData(MENU_PANEL_KEY, json.encode({ fillAlpha = 55, bogus = 1, fillRole = 7 }))
   resetMenuPanelCfg()
   check("saved value restored, junk ignored", menuPanelCfg().fillAlpha == 90 or menuPanelCfg().fillAlpha == 55)
+end)
+
+-- ================================================== BoardSolver paths ====
+-- ensureWordPathsForPlayers / findPathForWord: end-screen word-tap preview
+-- replays the board AS IT LOOKED when a word was found (entry.rerollK),
+-- not the live/final q.boardTiles -- the whole point of a seeded board is
+-- that any earlier state is cheaply reconstructable from (seed, k) alone.
+
+test("ensureWordPathsForPlayers: resolves a word missing .path against the board at ITS OWN rerollK, not the drifted end-of-match board", function()
+  local n = 4
+  local seed = 321
+  local initialTiles = generateBoardTilesSeeded(seed, n)
+  -- (1,1)-(1,2) is literally the first candidate findPathForWord's DFS
+  -- ever tries (outer scan starts at r=1,c=1; (1,2) is the first neighbor
+  -- considered) -- so a path resolved against the k=0 board is expected to
+  -- land exactly here, not wherever the same two letters happen to recur
+  -- (or not) on a board that's since drifted through several reroll events.
+  local targetWord = initialTiles[1] .. initialTiles[2]
+
+  local finalTiles = computeBoardTilesAtK(seed, n, 8)  -- enough events to very likely have moved these two tiles
+
+  local q = {
+    boardSize = n,
+    seed = seed,
+    boardTiles = finalTiles,
+    players = {
+      me = { words = { { word = targetWord, rerollK = 0 } } },  -- no .path -- forces the DFS fallback
+    },
+  }
+
+  ensureWordPathsForPlayers(q)
+  local p = q.players.me.words[1].path
+
+  check("a path was resolved", p ~= nil)
+  if p then
+    check("path starts at the k=0 board's own (1,1), confirming the k=0 board was used (not the final board)",
+      p[1].r == 1 and p[1].c == 1, "got r="..tostring(p[1].r).." c="..tostring(p[1].c))
+  end
+end)
+
+test("ensureWordPathsForPlayers: an entry with .path already set is left untouched (no DFS needed)", function()
+  local q = {
+    boardSize = 4,
+    seed = 321,
+    boardTiles = generateBoardTilesSeeded(321, 4),
+    players = {
+      me = { words = { { word = "ZZZ", rerollK = 0, path = { { r = 9, c = 9 } } } } },
+    },
+  }
+  ensureWordPathsForPlayers(q)
+  check("pre-set path preserved verbatim", eq(q.players.me.words[1].path, { { r = 9, c = 9 } }))
+end)
+
+test("ensureWordPathsForPlayers: two entries at different rerollK resolve independently in the same call, neither clobbering the other's board", function()
+  local n = 4
+  local seed = 321
+  local tilesAt0 = computeBoardTilesAtK(seed, n, 0)
+  local tilesAt5 = computeBoardTilesAtK(seed, n, 5)
+  local wordAt0 = tilesAt0[1] .. tilesAt0[2]
+  local wordAt5 = tilesAt5[1] .. tilesAt5[2]
+
+  local q = {
+    boardSize = n,
+    seed = seed,
+    boardTiles = computeBoardTilesAtK(seed, n, 9),  -- an unrelated end-of-match state
+    players = {
+      me = { words = {
+        { word = wordAt0, rerollK = 0 },
+        { word = wordAt5, rerollK = 5 },
+      } },
+    },
+  }
+  ensureWordPathsForPlayers(q)
+
+  local p0 = q.players.me.words[1].path
+  local p5 = q.players.me.words[2].path
+  check("word captured at k=0 resolves via the k=0 board",
+    p0 ~= nil and p0[1].r == 1 and p0[1].c == 1)
+  check("word captured at k=5 resolves via the k=5 board, in the same pass that just used k=0",
+    p5 ~= nil and p5[1].r == 1 and p5[1].c == 1)
 end)
 
 -- =========================================================== summary =====

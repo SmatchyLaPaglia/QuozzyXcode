@@ -67,11 +67,29 @@ end
 
 -- Ensures q.wordPaths contains paths for every word currently shown in player lists.
 -- This supports end-screen word tapping without having to solve the full board.
+-- Only a fallback now -- WordLogic.lua's finalizeWord() captures entry.path
+-- directly from the actual touch path at find time, so this DFS reconstruction
+-- only ever runs for entries that arrived without one (older saved matches,
+-- or the plain-string word fixtures used by dev/test code). Resolves each
+-- such entry against the board as it looked AT THAT ENTRY'S OWN rerollK
+-- (via computeBoardTilesAtK), not the live end-of-match q.boardTiles --
+-- the word's letters may have since been rerolled into something else.
 function ensureWordPathsForPlayers(q)
     if not q or not q.boardTiles then return {} end
 
     local n = q.boardSize or inferBoardSizeFromTiles(q.boardTiles) or 4
-    local b = buildBoardMatrixFromTiles(q.boardTiles, n)
+    local endBoard = buildBoardMatrixFromTiles(q.boardTiles, n)
+    local matrixCache = {}  -- rerollK -> board matrix at that point in the match
+
+    local function matrixForK(k)
+        if k == nil then return endBoard end
+        local cached = matrixCache[k]
+        if cached then return cached end
+        local tiles = (q.seed and computeBoardTilesAtK) and computeBoardTilesAtK(q.seed, n, k) or q.boardTiles
+        local m = buildBoardMatrixFromTiles(tiles, n)
+        matrixCache[k] = m
+        return m
+    end
 
     local wordPaths = q.wordPaths or {}
 
@@ -81,11 +99,13 @@ function ensureWordPathsForPlayers(q)
                 local w = type(entry) == "table" and entry.word or tostring(entry or "")
                 if w ~= "" then
                     local wu = string.upper(w)
-                    if not wordPaths[wu] then
-                        wordPaths[wu] = findPathForWord(b, n, wu)
+                    local k = type(entry) == "table" and entry.rerollK or nil
+                    local cacheKey = wu .. "@" .. tostring(k or "end")
+                    if not wordPaths[cacheKey] then
+                        wordPaths[cacheKey] = findPathForWord(matrixForK(k), n, wu)
                     end
                     if type(entry) == "table" and entry.path == nil then
-                        entry.path = wordPaths[wu]
+                        entry.path = wordPaths[cacheKey]
                     end
                 end
             end

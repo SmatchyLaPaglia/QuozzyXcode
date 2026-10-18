@@ -314,6 +314,27 @@ function computeRerollPlan(seed, n, k)
   return { count = count, positions = positions, letters = letters }
 end
 
+-- Pure replay: the board's tiles after reroll events 1..k have been applied
+-- in order to the seed's k=0 initial board, as a function of (seed, n, k)
+-- alone -- no q, no live board/rerollAnim side effects. Lets the end screen
+-- show "what the board looked like when I found this word" from nothing
+-- but the match seed and that word's own rerollK, without transmitting any
+-- board data for it. Depends on rerollTune.percent exactly like
+-- computeRerollPlan does -- if percent is changed via the debug panel
+-- between when an event actually happened and when it's replayed here, the
+-- replay can diverge from what actually appeared live (same caveat already
+-- true of computeRerollPlan itself; nothing historical is snapshotted).
+function computeBoardTilesAtK(seed, n, k)
+  local tiles = generateBoardTilesSeeded(seed, n)
+  for i = 1, (k or 0) do
+    local plan = computeRerollPlan(seed, n, i)
+    for _, idx in ipairs(plan.positions) do
+      tiles[idx] = plan.letters[idx]
+    end
+  end
+  return tiles
+end
+
 function inferBoardSizeFromTiles(tiles)
     if type(tiles) ~= "table" then return nil end
     local len = #tiles

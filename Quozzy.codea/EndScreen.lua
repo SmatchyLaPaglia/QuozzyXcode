@@ -11,6 +11,8 @@ endCardCount       = 0
 endScreenLastMatchId      = nil
 endScreenHighlightedPath  = nil   -- path shown on mini-board when a word is tapped
 endScreenHighlightedWord  = nil   -- word string for the highlighted row
+endScreenHighlightedTiles = nil   -- board tiles as they looked when that word was found (nil = show the live/current board)
+endScreenHighlightedN     = nil   -- board size for endScreenHighlightedTiles
 endScreenCurrentCardWords = {}   -- words in the currently visible card (set each frame)
 endCardAffordanceTouchId    = nil   -- touch tracking for adjacent-card sliver taps
 endCardAffordanceTargetIdx  = nil   -- which card index the affordance tap is targeting
@@ -145,8 +147,9 @@ function drawEndTopRowContent(boardCX, boardCY, boardSide,
   myScore  = score or 0
   oppScore = opponentScore
   
-  -- board preview
-  drawBoardPreview(boardCX, boardCY, boardSide)
+  -- board preview: shows the board as it looked when the tapped word was
+  -- found (endScreenHighlightedTiles/N), or the live/current board otherwise.
+  drawBoardPreview(boardCX, boardCY, boardSide, endScreenHighlightedTiles, endScreenHighlightedN)
   
   local endState = currentEndScreenState()
   local oppHasPlayed = (endState == END_STATE_2P_COMPLETE)
@@ -860,14 +863,30 @@ function handleEndScreenTouch(t)
               if row >= 1 and row <= #words then
                 local e    = words[row]
                 local word = type(e) == "table" and (e.word or "") or tostring(e or "")
+                local k    = type(e) == "table" and e.rerollK or nil
                 local path = (type(e) == "table" and e.path)
-                          or (currentQMatch and currentQMatch.wordPaths and currentQMatch.wordPaths[string.upper(word)])
+                          or (currentQMatch and currentQMatch.wordPaths
+                              and currentQMatch.wordPaths[string.upper(word) .. "@" .. tostring(k or "end")])
                 if word == endScreenHighlightedWord then
-                  endScreenHighlightedPath = nil
-                  endScreenHighlightedWord = nil
+                  endScreenHighlightedPath  = nil
+                  endScreenHighlightedWord  = nil
+                  endScreenHighlightedTiles = nil
+                  endScreenHighlightedN     = nil
                 else
                   endScreenHighlightedPath = path
                   endScreenHighlightedWord = word
+                  -- Replay the board as it looked when THIS word was found,
+                  -- not the live/current board -- the whole point of a
+                  -- seeded board is that any earlier state is just a few
+                  -- cheap reroll-plan replays away, no stored snapshot needed.
+                  if k ~= nil and currentQMatch and currentQMatch.seed and computeBoardTilesAtK then
+                    local n = currentQMatch.boardSize or boardSize or 4
+                    endScreenHighlightedTiles = computeBoardTilesAtK(currentQMatch.seed, n, k)
+                    endScreenHighlightedN     = n
+                  else
+                    endScreenHighlightedTiles = nil
+                    endScreenHighlightedN     = nil
+                  end
                 end
               end
             end

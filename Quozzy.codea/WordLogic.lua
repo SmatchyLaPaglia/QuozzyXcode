@@ -82,7 +82,23 @@ function finalizeWord()
         local idx = #foundWords + 1
         local words = ensureMyWordStore(currentQMatch)
         local idx = #words + 1
-        words[idx] = { word = word, points = pts }
+        -- Copy, not a reference: currentPath gets reassigned to a fresh
+        -- table on the next drag (never mutated in place after this
+        -- point), so a copy isn't strictly required -- but the entry must
+        -- never be able to change out from under the end screen.
+        local pathCopy = {}
+        for i, step in ipairs(currentPath) do pathCopy[i] = { r = step.r, c = step.c } end
+        words[idx] = {
+            word    = word,
+            points  = pts,
+            path    = pathCopy,
+            -- The reroll-event count already applied to the board BEFORE
+            -- this find (captured here, before the increment below) --
+            -- i.e. which iteration of the seed this word was found on.
+            -- computeBoardTilesAtK(q.seed, n, rerollK) replays that exact
+            -- board for the end-screen word-tap preview.
+            rerollK = currentQMatch and currentQMatch.rerollK or 0,
+        }
 
         -- Board reroll: k = this player's own reroll-event count so far,
         -- shared with the auto-reroll countdown (Main.lua draw()) -- either

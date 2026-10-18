@@ -1682,8 +1682,10 @@ function drawEndScreenFP()
     endCardIndex             = 1
     endCardAnimPx            = 0
     endCardDragPx            = 0
-    endScreenHighlightedPath = nil
-    endScreenHighlightedWord = nil
+    endScreenHighlightedPath  = nil
+    endScreenHighlightedWord  = nil
+    endScreenHighlightedTiles = nil
+    endScreenHighlightedN     = nil
     endScreenCurrentCardWords = {}
     if endCardScrollLists then
       for i = 1, #endCardScrollLists do
