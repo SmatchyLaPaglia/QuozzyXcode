@@ -153,6 +153,7 @@ local function buildPanelMeshes(W, H, u, cfg, alphaMul)
   local segs = 8
   local fillC   = roleColor(cfg.fillRole)
   local strokeC = roleColor(cfg.strokeRole)
+  local hairC   = roleColor(cfg.hairRole or cfg.strokeRole)
   local out = {}
 
   local outline = roundedPath(hw, hh, r, segs)
@@ -188,7 +189,7 @@ local function buildPanelMeshes(W, H, u, cfg, alphaMul)
 
   if cfg.hairAlpha > 0 then -- hairline just outside the edge
     local V, C = {}, {}
-    local col = withAlpha(strokeC, 255 * cfg.hairAlpha / 100 * alphaMul)
+    local col = withAlpha(hairC, 255 * cfg.hairAlpha / 100 * alphaMul)
     addRing(V, C, outline, 0, math.max(1, u), col, col)
     local m = mesh(); m.vertices = V; m.colors = C
     out.hair = m
@@ -201,10 +202,11 @@ local meshCacheCount = 0
 
 local function panelMeshes(W, H, u, cfg, alphaMul)
   local fc, sc = roleColor(cfg.fillRole), roleColor(cfg.strokeRole)
+  local hc = roleColor(cfg.hairRole or cfg.strokeRole)
   local key = table.concat({
     math.floor(W * 10), math.floor(H * 10), math.floor(u * 100),
     cfg.radius, cfg.fillAlpha, cfg.strokeAlpha, cfg.strokeWidth, cfg.strokeInset, cfg.hairAlpha, cfg.shadow,
-    fc.r, fc.g, fc.b, sc.r, sc.g, sc.b, math.floor(alphaMul * 12),
+    fc.r, fc.g, fc.b, sc.r, sc.g, sc.b, hc.r, hc.g, hc.b, math.floor(alphaMul * 12),
   }, ":")
   local e = meshCache[key]
   if not e then
@@ -220,10 +222,34 @@ end
 -- Panel drawing
 ------------------------------------------------------------
 
+-- Difficulty buttons need to be just wide enough that "Normal" (the widest
+-- of the three labels) clears the plate's inner stroke line -- textSize()
+-- needs a live Codea draw context, so this (unlike MenuLayout.lua's pure
+-- geometry) can't be unit-tested in plain Lua; it's only ever called from
+-- drawMenuPanelsLayer, always mid-draw.
+local function difficultyPlateRects(Lay, c, u)
+  local base = Lay.difficultyPlates.normal
+  local lsz = 15 * u
+  pushStyle()
+  font("Georgia-Italic")
+  fontSize(lsz)
+  local textW = textSize("Normal")
+  popStyle()
+  local pad = (c.strokeInset + c.strokeWidth) * u + 6 * u  -- clears the inner line + a little breathing room
+  local btnW = textW + 2 * pad
+  local gap = btnW * 0.15
+  return {
+    easy   = { cx = base.cx - (btnW + gap), cy = base.cy, w = btnW, h = base.h },
+    normal = { cx = base.cx,                cy = base.cy, w = btnW, h = base.h },
+    hard   = { cx = base.cx + (btnW + gap), cy = base.cy, w = btnW, h = base.h },
+  }
+end
+
 local function panelSpecs()
   local c = menuPanelCfg()
   local Lay = menuLayout(menuHasReplay())
   local u = Lay.plateScale
+  local diffPlates = difficultyPlateRects(Lay, c, u)
   return {
     { id = "season", show = c.showSeason, z = c.zSeason, r = Lay.season, u = u, tilt = c.stilt,
       fades = (c.haikuPlate == "fade") },   -- fades via TextGoPoof_quickFade (see drawMenuPanelsLayer)
@@ -231,19 +257,40 @@ local function panelSpecs()
       label = "board", num = boardSize .. " × " .. boardSize },
     { id = "dice", show = c.showDice, z = c.zDice, r = Lay.dicePlate, u = u, tilt = c.dtilt,
       label = c.diceLabel, num = tostring(MIN_WORD_LEN) },
-    { id = "diffEasy", show = c.showDifficulty, z = c.zDifficulty, r = Lay.difficultyPlates.easy, u = u, tilt = 0,
-      label = "Easy", lsize = 15, selected = ((rerollDifficulty or "normal") == "easy"), hitKey = "diffEasy" },
-    { id = "diffNormal", show = c.showDifficulty, z = c.zDifficulty, r = Lay.difficultyPlates.normal, u = u, tilt = 0,
-      label = "Normal", lsize = 15, selected = ((rerollDifficulty or "normal") == "normal"), hitKey = "diffNormal" },
-    { id = "diffHard", show = c.showDifficulty, z = c.zDifficulty, r = Lay.difficultyPlates.hard, u = u, tilt = 0,
-      label = "Hard", lsize = 15, selected = ((rerollDifficulty or "normal") == "hard"), hitKey = "diffHard" },
+    { id = "diffEasy", show = c.showDifficulty, z = c.zDifficulty, r = diffPlates.easy, u = u, tilt = 0,
+      label = "Easy", lsize = 15, hitKey = "diffEasy",
+      hairRole = ((rerollDifficulty or "normal") == "easy") and "accent2" or nil,
+      textRole = ((rerollDifficulty or "normal") == "easy") and "accent2" or nil },
+    { id = "diffNormal", show = c.showDifficulty, z = c.zDifficulty, r = diffPlates.normal, u = u, tilt = 0,
+      label = "Normal", lsize = 15, hitKey = "diffNormal",
+      hairRole = ((rerollDifficulty or "normal") == "normal") and "accent2" or nil,
+      textRole = ((rerollDifficulty or "normal") == "normal") and "accent2" or nil },
+    { id = "diffHard", show = c.showDifficulty, z = c.zDifficulty, r = diffPlates.hard, u = u, tilt = 0,
+      label = "Hard", lsize = 15, hitKey = "diffHard",
+      hairRole = ((rerollDifficulty or "normal") == "hard") and "accent2" or nil,
+      textRole = ((rerollDifficulty or "normal") == "hard") and "accent2" or nil },
     { id = "game", show = c.showGame, z = c.zGame, r = Lay.gamePlate, u = u, tilt = c.gtilt,
       label = c.gameLabel, lsize = c.gameSize },
   }
 end
 
+-- Per-spec fillRole/strokeRole/hairRole/textRole overrides (the difficulty
+-- buttons' selected-vs-not indicator -- just the text and outer hairline
+-- change color; the fill stays the same solid white as every other plate)
+-- layered onto the shared cfg.
+local function resolvedCfg(sp, c)
+  if not (sp.fillRole or sp.strokeRole or sp.hairRole or sp.textRole) then return c end
+  local o = {}
+  for k, v in pairs(c) do o[k] = v end
+  if sp.fillRole then o.fillRole = sp.fillRole end
+  if sp.strokeRole then o.strokeRole = sp.strokeRole end
+  if sp.hairRole then o.hairRole = sp.hairRole end
+  if sp.textRole then o.textRole = sp.textRole end
+  return o
+end
+
 local function drawPlate(sp, alphaMul)
-  local c = menuPanelCfg()
+  local c = resolvedCfg(sp, menuPanelCfg())
   local cx, cy, W, H, u = sp.r.cx, sp.r.cy, sp.r.w, sp.r.h, sp.u
   local m = panelMeshes(W, H, u, c, alphaMul)
   pushMatrix()
@@ -258,7 +305,7 @@ end
 
 local function drawPanelText(sp, alphaMul)
   if not (sp.label or sp.num) then return end
-  local c = menuPanelCfg()
+  local c = resolvedCfg(sp, menuPanelCfg())
   local cx, cy, u = sp.r.cx, sp.r.cy, sp.u
   local tc = roleColor(c.textRole)
   local lsz = (sp.lsize or c.labelSize) * u
@@ -302,7 +349,6 @@ function drawMenuPanelsLayer(layer)
     if sp.show then
       local am = 1
       if sp.fades and TextGoPoof_quickFade then am = TextGoPoof_quickFade(0.10) end
-      if sp.selected == false then am = am * 0.55 end  -- dim the non-active difficulty buttons
       if am > 0.01 then
         local z = sp.z
         if layer == "back" then
