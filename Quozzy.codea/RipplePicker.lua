@@ -53,7 +53,7 @@ function drawRipplePickerOverlay()
   popStyle()
 
   local panelW = WIDTH - 32
-  local panelH = math.min(HEIGHT - 90, 600)
+  local panelH = math.min(HEIGHT - 90, 640)
   local panelX = WIDTH * 0.5
   local panelY = HEIGHT * 0.5
   panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)

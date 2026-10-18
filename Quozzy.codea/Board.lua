@@ -360,17 +360,42 @@ rerollAnim = rerollAnim or {}
 -- idiom as rippleTuneDefs/rippleTune (RippleShader.lua). timerSeconds
 -- drives the auto-reroll countdown; percent drives computeRerollPlan's
 -- tile count above; growScale/growSeconds/fadeSeconds drive drawBoard()'s
--- reroll animation below. Copy final values into `def` once settled.
+-- reroll animation; bgFlashSeconds drives the whole-screen background
+-- flash (Main.lua draw()). Copy final values into `def` once settled.
 rerollTuneDefs = {
-  { key = "timerSeconds", label = "Timer",    def = 10,  step = 1,   min = 2,   max = 60 },
-  { key = "percent",      label = "Tiles %",  def = 30,  step = 5,   min = 5,   max = 90 },
-  { key = "growScale",    label = "Grow x",   def = 1.6, step = 0.1, min = 1.1, max = 3.0 },
-  { key = "growSeconds",  label = "Grow sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
-  { key = "fadeSeconds",  label = "Fade sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
+  { key = "timerSeconds",   label = "Timer",    def = 10,  step = 1,   min = 2,   max = 60 },
+  { key = "percent",        label = "Tiles %",  def = 30,  step = 5,   min = 5,   max = 90 },
+  { key = "growScale",      label = "Grow x",   def = 1.6, step = 0.1, min = 1.1, max = 3.0 },
+  { key = "growSeconds",    label = "Grow sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
+  { key = "fadeSeconds",    label = "Fade sec", def = 0.4, step = 0.1, min = 0.1, max = 2.0 },
+  { key = "bgFlashSeconds", label = "BG flash", def = 0.4, step = 0.1, min = 0.1, max = 3.0 },
 }
 rerollTune = rerollTune or {}
 for _, d in ipairs(rerollTuneDefs) do
   if rerollTune[d.key] == nil then rerollTune[d.key] = d.def end
+end
+
+-- Persisted across real relaunches (unlike rippleTune, which only
+-- survives hot-reload within one session) -- saveLocalData, not
+-- saveProjectData, which does NOT survive relaunch in the exported app
+-- (see XCODE_CODEA.md). loadRerollTune() is called once from Main.lua's
+-- setup(); the defaults-fill loop above already ran by then, so this
+-- only needs to overwrite the keys that were actually saved.
+REROLL_TUNE_KEY = "Q_RerollTune"
+
+function loadRerollTune()
+  local raw = readLocalData(REROLL_TUNE_KEY)
+  if type(raw) ~= "string" or raw == "" then return end
+  local ok, saved = pcall(json.decode, raw)
+  if not (ok and type(saved) == "table") then return end
+  for _, d in ipairs(rerollTuneDefs) do
+    if type(saved[d.key]) == "number" then rerollTune[d.key] = saved[d.key] end
+  end
+end
+
+function saveRerollTune()
+  local ok, s = pcall(json.encode, rerollTune)
+  if ok and s then saveLocalData(REROLL_TUNE_KEY, s) end
 end
 
 function rerollTuneNudge(key, dir)
@@ -381,10 +406,12 @@ function rerollTuneNudge(key, dir)
       print("rerollTune." .. key .. " = " .. rerollTune[key])
     end
   end
+  saveRerollTune()
 end
 
 function rerollTuneReset()
   for _, d in ipairs(rerollTuneDefs) do rerollTune[d.key] = d.def end
+  saveRerollTune()
 end
 
 -- Auto-reroll countdown: ticked in Main.lua's draw() (STATE_PLAY, solo
@@ -621,27 +648,6 @@ function drawBoard()
     
     local bgFill   = Color.gridBg
     local bgStroke = Color.gridBg
-
-    -- Background flash: on every reroll EVENT (not per tile), the board
-    -- background pops to the dice color and fades back to normal --
-    -- same "dice color" drawDie below is filled with (Color.tileStroke,
-    -- since drawRoundedRect's stroke is the only part of the die that's
-    -- ever actually visible). Reuses rerollTune.fadeSeconds for pacing.
-    if bgFlashStartTime then
-        local dice = Color.tileStroke or Color.gridBg
-        local u = (ElapsedTime - bgFlashStartTime) / (rerollTune.fadeSeconds or 0.4)
-        if u >= 1 then
-            bgFlashStartTime = nil
-        else
-            local blended = color(
-                dice.r + (Color.gridBg.r - dice.r) * u,
-                dice.g + (Color.gridBg.g - dice.g) * u,
-                dice.b + (Color.gridBg.b - dice.b) * u,
-                (dice.a or 255) + ((Color.gridBg.a or 255) - (dice.a or 255)) * u
-            )
-            bgFill, bgStroke = blended, blended
-        end
-    end
 
     drawRoundedRect(
     bgX, bgY,

@@ -124,6 +124,24 @@ test("rerollTuneNudge/rerollTuneReset: adjusts within bounds, computeRerollPlan 
   check("reset restores the default", rerollTune.percent == 30 and rerollTune.timerSeconds == 10)
   check("animation tunables present with their defaults",
     rerollTune.growScale == 1.6 and rerollTune.growSeconds == 0.4 and rerollTune.fadeSeconds == 0.4)
+  check("bg flash tunable present with its default", rerollTune.bgFlashSeconds == 0.4)
+end)
+
+test("rerollTune persistence: a nudge is saved, a fresh load restores it", function()
+  rerollTuneReset()
+  rerollTuneNudge("percent", 1)  -- 30 -> 35
+  check("nudge value in memory", rerollTune.percent == 35)
+
+  -- Simulate a fresh app launch: reset the in-memory table to defaults
+  -- (as it would be on first load, before loadRerollTune ever runs),
+  -- then load whatever was actually persisted to disk by the nudge above.
+  for _, d in ipairs(rerollTuneDefs) do rerollTune[d.key] = d.def end
+  check("back to default before loading", rerollTune.percent == 30)
+
+  loadRerollTune()
+  check("persisted value restored after load", rerollTune.percent == 35)
+
+  rerollTuneReset()  -- leave clean for subsequent tests
 end)
 
 test("computeRerollPlan: count in range, no duplicate positions, repeatable", function()

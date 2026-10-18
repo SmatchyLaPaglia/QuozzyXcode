@@ -1142,6 +1142,7 @@ function setup()
 
   loadPendingTurnSends()
   loadFinishedAwaitingDecision()
+  if loadRerollTune then loadRerollTune() end
   requestPendingHandshakeResendCheck("setup")
   setupGCDebugParameters()
   if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
@@ -1328,7 +1329,29 @@ function drawFrame()
     return true
   end
 
-  background(Color.bg)
+  -- Whole-screen background flash on every reroll event (board.lua
+  -- applyBoardReroll sets bgFlashStartTime, generateBoard clears it):
+  -- pops to the dice color (Color.tileStroke -- the only part of a die
+  -- that's ever actually visible) and fades back to the normal
+  -- background over rerollTune.bgFlashSeconds. This is the entire
+  -- screen behind everything (board, word list, HUD), not just the
+  -- board's own smaller background rect.
+  local frameBg = Color.bg
+  if bgFlashStartTime then
+    local dice = Color.tileStroke or Color.bg
+    local u = (ElapsedTime - bgFlashStartTime) / ((rerollTune and rerollTune.bgFlashSeconds) or 0.4)
+    if u >= 1 then
+      bgFlashStartTime = nil
+    else
+      frameBg = color(
+        dice.r + (Color.bg.r - dice.r) * u,
+        dice.g + (Color.bg.g - dice.g) * u,
+        dice.b + (Color.bg.b - dice.b) * u,
+        (dice.a or 255) + ((Color.bg.a or 255) - (dice.a or 255)) * u
+      )
+    end
+  end
+  background(frameBg)
   font(GLOBAL_UI_FONT)  -- ambient default for the frame; see GLOBAL_UI_FONT comment above
   local appStateActive = true
   local okAppState = pcall(function()
