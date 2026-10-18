@@ -711,21 +711,22 @@ function drawBoard()
                 local fadeSeconds = rerollTune.fadeSeconds
                 local growBy      = growScale - 1.0  -- phase 2 extends by the same amount again
                 local overlayScale, overlayFill
+                -- Same bright cyan as the drag-selection line (drawSelectionPath
+                -- below) -- always visible regardless of theme, unlike
+                -- Color.uiAccent2 which wasn't contrasty enough against the
+                -- normal letter color. Held constant (no fade-to-normal-color):
+                -- since the overlay fades out entirely in phase 2 anyway, there's
+                -- no need to also blend its color toward the letter underneath.
+                local accent = color(120, 255, 255, 255)
 
                 if elapsed < growSeconds then
                     local u = elapsed / growSeconds
-                    local accent = Color.uiAccent2 or letterFill
                     overlayScale = 1.0 + growBy * u  -- normal -> growScale
-                    overlayFill = color(
-                        accent.r + (letterFill.r - accent.r) * u,
-                        accent.g + (letterFill.g - accent.g) * u,
-                        accent.b + (letterFill.b - accent.b) * u,
-                        accent.a or 255
-                    )
+                    overlayFill = accent
                 elseif elapsed < growSeconds + fadeSeconds then
                     local u = (elapsed - growSeconds) / fadeSeconds
                     overlayScale = growScale + growBy * u  -- keeps expanding past growScale
-                    overlayFill = color(letterFill.r, letterFill.g, letterFill.b, (letterFill.a or 255) * (1 - u))
+                    overlayFill = color(accent.r, accent.g, accent.b, accent.a * (1 - u))
                 else
                     rerollAnim[r][c] = nil
                 end
