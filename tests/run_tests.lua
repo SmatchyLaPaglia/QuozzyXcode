@@ -281,6 +281,17 @@ test("applyBoardReroll: starts an animation entry for every rerolled tile", func
   local c = ((idx - 1) % n) + 1
   check("animation entry started with this frame's timestamp",
     rerollAnim[r] and rerollAnim[r][c] and rerollAnim[r][c].startTime == 5.0)
+  check("board-wide flash started once for the whole event, same timestamp",
+    bgFlashStartTime == 5.0)
+end)
+
+test("generateBoard: clears any leftover per-tile animation and board-wide flash", function()
+  rerollAnim = { [1] = { [1] = { startTime = 1.0 } } }
+  bgFlashStartTime = 1.0
+  local q = { boardSize = 4, seed = 11 }
+  generateBoard(q)
+  check("per-tile animations cleared", next(rerollAnim) == nil)
+  check("board-wide flash cleared", bgFlashStartTime == nil)
 end)
 
 test("applyBoardReroll: same (seed,k) reroll is identical across two fresh boards", function()

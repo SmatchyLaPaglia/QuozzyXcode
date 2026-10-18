@@ -397,6 +397,12 @@ rerollCountdown = rerollCountdown or rerollTune.timerSeconds
 -- Mutates the live board for the k-th word THIS player has personally
 -- found (k = 1-based count, matching computeRerollPlan's convention).
 -- board[r][c] and q.boardTiles are updated in lockstep so they never drift.
+-- Board-wide flash, separate from the per-tile rerollAnim table: the
+-- background goes to the dice color and fades back to normal once per
+-- reroll EVENT (not once per tile), drawn in drawBoard() below. Cleared
+-- in generateBoard() so a fresh round never shows a leftover flash.
+bgFlashStartTime = bgFlashStartTime or nil
+
 function applyBoardReroll(q, k)
   local n = (q and q.boardSize) or boardSize or 4
   if not (q and q.boardTiles and board) then return end
@@ -410,6 +416,7 @@ function applyBoardReroll(q, k)
     rerollAnim[r] = rerollAnim[r] or {}
     rerollAnim[r][c] = { startTime = ElapsedTime }
   end
+  bgFlashStartTime = ElapsedTime
 end
 
 function ensureBoardTilesForQMatch(q)
@@ -440,6 +447,7 @@ function generateBoard(currentQMatch)
     boardSize = size
     buildBoardFromTiles(tiles, size)
     rerollAnim = {}  -- never show a leftover ghost fade from a previous round
+    bgFlashStartTime = nil
 end
 
 --####################################################################
@@ -613,7 +621,28 @@ function drawBoard()
     
     local bgFill   = Color.gridBg
     local bgStroke = Color.gridBg
-    
+
+    -- Background flash: on every reroll EVENT (not per tile), the board
+    -- background pops to the dice color and fades back to normal --
+    -- same "dice color" drawDie below is filled with (Color.tileStroke,
+    -- since drawRoundedRect's stroke is the only part of the die that's
+    -- ever actually visible). Reuses rerollTune.fadeSeconds for pacing.
+    if bgFlashStartTime then
+        local dice = Color.tileStroke or Color.gridBg
+        local u = (ElapsedTime - bgFlashStartTime) / (rerollTune.fadeSeconds or 0.4)
+        if u >= 1 then
+            bgFlashStartTime = nil
+        else
+            local blended = color(
+                dice.r + (Color.gridBg.r - dice.r) * u,
+                dice.g + (Color.gridBg.g - dice.g) * u,
+                dice.b + (Color.gridBg.b - dice.b) * u,
+                (dice.a or 255) + ((Color.gridBg.a or 255) - (dice.a or 255)) * u
+            )
+            bgFill, bgStroke = blended, blended
+        end
+    end
+
     drawRoundedRect(
     bgX, bgY,
     bgW, bgH,
