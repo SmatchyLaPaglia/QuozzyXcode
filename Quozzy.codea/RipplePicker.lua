@@ -53,7 +53,7 @@ function drawRipplePickerOverlay()
   popStyle()
 
   local panelW = WIDTH - 32
-  local panelH = math.min(HEIGHT - 90, 700)
+  local panelH = math.min(HEIGHT - 90, 600)
   local panelX = WIDTH * 0.5
   local panelY = HEIGHT * 0.5
   panelY, panelH = clampPanelTopToSafeArea(panelY, panelH)
@@ -141,9 +141,6 @@ function drawRipplePickerOverlay()
     drawButton(cx, cy, colW, btnS - 2, "Reset reroll", false)
     rerollTuneResetRect = { x = cx, y = cy, w = colW, h = btnS - 2 }
   end
-  local rerollTuneTop = rerollTuneBottom + rerollRows * rowH
-
-  drawRecordsInfoLayoutMockup(panelX, panelW, rerollTuneTop + 8, rippleBtnY - rippleBtnH / 2 - 40)
   drawButton(closeBtnX, closeBtnY, closeBtnW, closeBtnH, "Close", false)
   closeBtnRect = { x = closeBtnX, y = closeBtnY, w = closeBtnW, h = closeBtnH }
 
@@ -325,49 +322,4 @@ function handleRippleTuneTouch(t)
     end
   end
   return true
-end
-
--- Proposal mockup (for approval): current overlapping records/info pair vs.
--- the proposed side-by-side pair (info left, records right) with the
--- "unseen result" badge on records. Drawn at real menu size with the menu's
--- own button drawing.
-function drawRecordsInfoLayoutMockup(cx, panelW, bottom, top)
-  if not (drawMenuRecordsButton and drawMenuInfoButton) then return end
-  local h5   = HEIGHT * (infoRow or 0.07)
-  local pad  = math.max(5, math.min((h5 - 2) * 0.5, 10))
-  local d    = h5 - pad * 2
-  local hGap = math.min(math.max(h5 * 0.5, 20), 60)
-  local tileText = Color.tileText or color(255)
-  local btnY = bottom + (top - bottom) * 0.42
-  local colL, colR = cx - panelW * 0.25, cx + panelW * 0.25
-
-  pushStyle()
-  fill(tileText)
-  font("Georgia-Bold")
-  fontSize(18)
-  textMode(CENTER)
-  text("Proposed records / info buttons", cx, top - 4)
-  font("HelveticaNeue-Bold")
-  fontSize(13)
-  fill(tileText.r, tileText.g, tileText.b, 190)
-  text("now", colL, btnY + d * 0.5 + 22)
-  text("proposed", colR, btnY + d * 0.5 + 22)
-
-  -- now: overlapping, records left / info right
-  drawMenuRecordsButton(colL - hGap * 0.5, btnY, d, false)
-  drawMenuInfoButton(colL + hGap * 0.5, btnY, d, false)
-
-  -- proposed: info left, records right, a small gap, badge on records
-  local gap = d * (MENU_RECORDS_INFO_GAP or 0.15)
-  local infoCx    = colR - (d + gap) * 0.5
-  local recordsCx = colR + (d + gap) * 0.5
-  drawMenuInfoButton(infoCx, btnY, d, false)
-  drawMenuRecordsButton(recordsCx, btnY, d, false)
-  drawCircleButtonBadge(recordsCx, btnY, d)
-
-  fontSize(12)
-  fill(tileText.r, tileText.g, tileText.b, 170)
-  text("Same red dot on Records rows: opponent row (any unseen) and match row (unseen result)",
-    cx, btnY - d * 0.5 - 22)
-  popStyle()
 end
