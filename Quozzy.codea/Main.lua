@@ -864,11 +864,9 @@ end
 
 -- Requests badge + alert + sound together in one call, not just badge.
 -- iOS only prompts the user once per option set it's ever been asked about;
--- a later, separate request for alert/sound (e.g. for
--- scheduleCommentTimeoutNotification below) would NOT re-prompt if this
+-- a later, separate request for alert/sound would NOT re-prompt if this
 -- earlier call had only asked for badge -- it would just silently stay
--- un-granted forever. Broadened here rather than requesting alert/sound
--- separately elsewhere.
+-- un-granted forever.
 local function requestNotificationPermissions()
   if notificationPermissionRequested then return end
   notificationPermissionRequested = true
@@ -901,8 +899,7 @@ local function requestNotificationPermissions()
     -- re-entrantly with a corrupted stack and the app freezes for good.
     -- An empty function() end is NOT safe (confirmed live, 2026-10-17 --
     -- this exact call froze the app on a fresh install's first launch);
-    -- only a literal nil is. See scheduleCommentTimeoutNotification
-    -- (GameCenter.lua) for the original instance of this bug class.
+    -- only a literal nil is.
     center:requestAuthorizationWithOptions_completionHandler_(opts, nil)
   end)
   if not ok then
@@ -1101,10 +1098,10 @@ function setup()
     -- The comment-timeout sweep (checkFinishedMatchesForCommentTimeout,
     -- inside retryPendingHandshakeSends) was previously only triggered from
     -- draw()'s per-frame foreground check -- confirmed live that a
-    -- GameKit-triggered relaunch (e.g. from sendReminderToParticipants, see
-    -- MULTIPLAYER_DESIGN.md) reaches this handler even when the app was
-    -- fully terminated and never becomes foreground-active, so the sweep
-    -- needs its own trigger here too, not just the foreground one, or a
+    -- GameKit-triggered relaunch (an incoming turn arriving via Apple's own
+    -- push infrastructure) reaches this handler even when the app was fully
+    -- terminated and never becomes foreground-active, so the sweep needs
+    -- its own trigger here too, not just the foreground one, or a
     -- background-only wake would deliver fresh data but never actually
     -- resolve this device's own stuck comment decision.
     retryPendingHandshakeSends("receivingTurn")
@@ -1367,6 +1364,14 @@ function drawFrame()
   if appStateActive and (not appWasActiveLastFrame) then
     refreshVsMatchesList("foreground")
     requestPendingHandshakeResendCheck("foreground")
+    -- Re-sync the OS icon badge to ground truth every time the player
+    -- actually looks at the app, not just on the 5 specific GameKit
+    -- events that already trigger it (auth/receivingTurn/turnEnded/
+    -- settingCurrentMatch/exchangeReceived) -- closes any residual drift
+    -- (e.g. a silent GameKit push bumping the badge while backgrounded)
+    -- without changing what counts as "pending" (still exactly: my turn,
+    -- match not ended -- see refreshHomeScreenBadgeFromGCMatches).
+    refreshHomeScreenBadgeFromGCMatches("foreground")
   end
   appWasActiveLastFrame = appStateActive
 

@@ -659,3 +659,31 @@ actually unit-testable, which was the other half of the ask.
 - **The frozen-app bug was not a relay bug** — it was LuaKit running callbacks re-entrantly
   (see XCODE_CODEA.md "Objective-C bridge"). All objc callbacks now hand off their work.
 - Still open: signing in to Game Center after a failed launch; 3+ players (unchanged).
+
+## Reminder/comment-timeout-notification system removed (2026-10-19)
+
+- Both `sendReminderToParticipants` (the "silent player never reopens" feature above —
+  `maybeSendReminderForCurrentMatch`, `computeReminderDue`, `noteOpponentFinishedIfNew`,
+  `reminderSentByMatchId`, `oppFinishedObservedAtByMatchId`, `CTBM:sendReminderWithMessage`)
+  and the separate local `scheduleCommentTimeoutNotification`/`cancelCommentTimeoutNotification`
+  (`UNUserNotificationCenter addNotificationRequest`, GameCenter.lua) are gone — removed
+  wholesale, not just disabled, per an explicit requirement that banner notifications only
+  ever appear for an unplayed match being received, in no other circumstance. Both of these
+  were "nudge someone about an undecided comment" notifications: the reminder pushed the
+  *opponent* once they'd already played their round but sat on a comment past the window; the
+  local notification nudged *yourself* the same way. Neither is "an unplayed match arrived" —
+  by the time either could fire, the match in question had no actual gameplay left pending for
+  its recipient, only a comment decision.
+- `commentWindowStartedAt`/`applyCommentTimeoutIfExpired`/`COMMENT_WINDOW_SECONDS` (the
+  self-enforced "auto-lock a blank comment after 24h of silence" behavior) are UNCHANGED and
+  still in place — that's a different mechanism (silently resolves a stuck decision locally,
+  no notification involved) from the two that were removed.
+- Ordinary GameKit turn-passing (`endTurnWithNextParticipants`, `CTBM:endTurnWithDataTable`)
+  is untouched and still carries the player's comment as the native `.message` — Apple's own
+  Game Center push infrastructure can still show the recipient a system banner for that, which
+  is correct and intentional: that banner fires exactly when a turn (and so, ordinarily, actual
+  gameplay) passes to them. Whether a turn-pass sent purely to deliver an already-finished
+  match's comment (both sides already played, only a comment pending) can also trigger that
+  same native banner on a device with no real gameplay left to do is a separate, not-yet-
+  investigated wrinkle — flagged here, not fixed, since closing it would mean changing when
+  `attemptLegSend`'s "comment" action is allowed to go via turn-pass vs. exchange.
