@@ -112,6 +112,8 @@ function FakeTBM.new()
     currentMatch = nil,
     localPlayer = { playerID = "local-player-id", authenticated = true },
     sentCalls = {},         -- every successful endTurnWithDataTable payload
+    saveCalls = {},         -- every successful saveTurnWithDataTable payload
+    failNextSaves = 0,      -- how many upcoming in-place saves should call onError instead
     exchangeSentCalls = {}, -- every successful sendExchangeWithDataTable payload
     mergeCalls = {},        -- every successful mergeCompletedExchanges payload
     wonCalls = {}, lostCalls = {}, tiedCalls = {}, -- finalize calls
@@ -136,6 +138,24 @@ function FakeTBM:endTurnWithDataTable(t, onError)
   self.sentCalls[#self.sentCalls+1] = t
   self.currentMatch = nil
   self.isMyTurn = false
+end
+
+-- Mirrors CTBM:saveTurnWithDataTable -- turn holder only, and unlike
+-- endTurnWithDataTable the turn stays put (currentMatch/isMyTurn unchanged).
+-- Resolves any completed exchanges in the same write, like the real one.
+function FakeTBM:saveTurnWithDataTable(t, onError, onSuccess)
+  if not self.isMyTurn then
+    if onError then onError({ localizedDescription = "not my turn" }) end
+    return
+  end
+  if self.failNextSaves and self.failNextSaves > 0 then
+    self.failNextSaves = self.failNextSaves - 1
+    if onError then onError({ localizedDescription = "simulated save failure" }) end
+    return
+  end
+  self.saveCalls[#self.saveCalls+1] = { dataTable = t, merged = self.completedExchangeCount or 0 }
+  self.completedExchangeCount = 0
+  if onSuccess then onSuccess() end
 end
 
 -- Mirrors CTBM:mergeCompletedExchanges -- a no-op straight to onSuccess when

@@ -443,15 +443,16 @@ end)
 -- can diverge per player, a sender's own (possibly-rerolled) board has no
 -- business overwriting the recipient's independent one.
 
-test("attemptLegSend: a score leg (turn-pass) does not carry boardTiles or seed", function()
+test("attemptLegSend: a score leg (in-place save) does not carry boardTiles or seed", function()
   useTurnBased = true
   tbm.isMyTurn = true
   local q = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 999)
   q.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
   q.players["local-player-id"].didPlay = true
   attemptLegSend(q)
-  check("one send recorded", #tbm.sentCalls == 1, tostring(#tbm.sentCalls))
-  local sent = tbm.sentCalls[1]
+  check("one save recorded", #tbm.saveCalls == 1, tostring(#tbm.saveCalls))
+  check("turn not passed", #tbm.sentCalls == 0 and tbm.isMyTurn == true)
+  local sent = tbm.saveCalls[1].dataTable
   check("no boardTiles on a score leg", sent.boardTiles == nil)
   check("no seed on a score leg", sent.seed == nil)
   check("players table still carried", sent.players ~= nil)
@@ -652,8 +653,9 @@ test("endGameRound: multiplayer sends the score immediately when isMyTurn (MULTI
   check("local score recorded", currentQMatch.players["local-player-id"].score == 23)
   check("didPlay true", currentQMatch.players["local-player-id"].didPlay == true)
   check("awaiting comment flag set", currentQMatch.awaitingCommentBeforeFinalization == true)
-  check("score sent immediately via turn-pass, independent of comment status",
-    #tbm.sentCalls == 1 and tbm.sentCalls[1].players["local-player-id"].score == 23)
+  check("score saved into the match immediately, independent of comment status",
+    #tbm.saveCalls == 1 and tbm.saveCalls[1].dataTable.players["local-player-id"].score == 23)
+  check("turn not passed (no banner for the opponent)", #tbm.sentCalls == 0)
 end)
 
 -- ---- enterQMatch: needsInitialHandshake flag threading (hazard #1) -------
@@ -781,6 +783,72 @@ test("onLegSendSucceeded: a 'comment' send marks scoreSent and commentSent inste
   check("pending entry removed", pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
+-- ---- attemptPendingLegSend: in-place save path, and score/comment entries
+-- queued on disk by a build that still passed the turn for them ------------
+
+test("attemptPendingLegSend: an old-build 'turn' comment entry is saved in place when I hold the turn -- never passes it", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].commentDecided = true
+  pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "turn", attempts = 0,
+    turnData = { players = currentQMatch.players, __gcMessage = "gg" } }
+
+  attemptPendingLegSend("m1")
+
+  check("no turn pass", #tbm.sentCalls == 0)
+  check("saved in place", #tbm.saveCalls == 1)
+  check("old turn-pass message stripped", tbm.saveCalls[1] and tbm.saveCalls[1].dataTable.__gcMessage == nil)
+  check("pending entry cleared on success", pendingTurnSendsByMatchId["m1"] == nil)
+end)
+
+test("attemptPendingLegSend: an old-build 'turn' score entry becomes an exchange carrying only my slot when I don't hold the turn", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  currentQMatch.players["local-player-id"].didPlay = true
+  pendingTurnSendsByMatchId["m1"] = { kind = "score", via = "turn", attempts = 0,
+    turnData = { boardSize = 4, players = {
+      ["local-player-id"] = { didPlay = true, score = 12 },
+      ["opp"] = { didPlay = false },
+    } } }
+
+  attemptPendingLegSend("m1")
+
+  check("no turn pass", #tbm.sentCalls == 0)
+  check("sent as one exchange", #tbm.exchangeSentCalls == 1)
+  local sent = tbm.exchangeSentCalls[1]
+  check("exchange carries my slot", sent and sent.players["local-player-id"].score == 12)
+  check("exchange carries only my slot", sent and sent.players["opp"] == nil and sent.boardSize == nil)
+end)
+
+test("attemptPendingLegSend: a failed in-place save keeps the entry queued for retry", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  tbm.failNextSaves = 1
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  pendingTurnSendsByMatchId["m1"] = { kind = "score", via = "save", attempts = 0, turnData = { players = {} } }
+
+  attemptPendingLegSend("m1")
+
+  check("nothing saved yet", #tbm.saveCalls == 0)
+  check("still queued", pendingTurnSendsByMatchId["m1"] ~= nil)
+end)
+
+test("attemptPendingLegSend: an in-place save resolves completed exchanges in the same write", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  tbm.completedExchangeCount = 1
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  pendingTurnSendsByMatchId["m1"] = { kind = "score", via = "save", attempts = 0, turnData = { players = {} } }
+
+  attemptPendingLegSend("m1")
+
+  check("one save that merged the exchange", #tbm.saveCalls == 1 and tbm.saveCalls[1].merged == 1)
+  check("no separate turn pass", #tbm.sentCalls == 0)
+end)
+
 test("onLegSendSucceeded: no-op if there is no pending entry for that match id", function()
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   onLegSendSucceeded("m1") -- must not error
@@ -815,7 +883,7 @@ test("enterQMatch: automatically sends the handshake for a brand-new match, with
   check("needsInitialHandshake cleared once onTurnEnded fires", currentQMatch.needsInitialHandshake == false)
 end)
 
-test("decideComment: sends a 'comment' leg via turn-pass when the opponent hasn't played yet", function()
+test("decideComment: saves a 'comment' leg in place (no turn pass) when the opponent hasn't played yet", function()
   useTurnBased = true
   tbm.isMyTurn = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
@@ -827,8 +895,10 @@ test("decideComment: sends a 'comment' leg via turn-pass when the opponent hasn'
   check("decideComment returns true", ok == true)
   check("comment recorded", currentQMatch.players["local-player-id"].comment == "nice board!")
   check("commentDecided", currentQMatch.players["local-player-id"].commentDecided == true)
-  check("one relay sent", #tbm.sentCalls == 1)
-  check("comment rides along as the GK message", tbm.sentCalls[1].__gcMessage == "nice board!")
+  check("one save, no turn pass", #tbm.saveCalls == 1 and #tbm.sentCalls == 0)
+  check("comment saved in the match data",
+    tbm.saveCalls[1].dataTable.players["local-player-id"].comment == "nice board!")
+  check("no turn-pass message left in the data", tbm.saveCalls[1].dataTable.__gcMessage == nil)
   check("not yet a finalize call", #tbm.wonCalls + #tbm.lostCalls + #tbm.tiedCalls == 0)
 end)
 
@@ -935,14 +1005,14 @@ test("endGameRound: persists the finished-but-undecided result to disk immediate
     recovered and recovered.players["local-player-id"].commentDecided == false)
 end)
 
-test("onLegSendSucceeded: clears the finished-awaiting-decision snapshot once my comment actually sends", function()
+test("onLegSendSucceeded: clears the finished-awaiting-decision snapshot once my comment is saved into the match", function()
   useTurnBased = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   currentQMatch.players["local-player-id"].didPlay = true
   currentQMatch.players["local-player-id"].commentDecided = true -- locked, about to send
   finishedAwaitingDecisionByMatchId["m1"] = currentQMatch
   persistFinishedAwaitingDecision()
-  pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "turn", turnData = {}, attempts = 1 }
+  pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "save", turnData = {}, attempts = 1 }
 
   onLegSendSucceeded("m1")
 
@@ -1159,7 +1229,8 @@ end)
 -- ---- computeNextOwedAction: exchange-aware relay decision -----------------
 -- See MULTIPLAYER_DESIGN.md "GameKit exchange trial": a score is sent the
 -- instant a round ends, regardless of comment status or turn ownership --
--- via="turn" if I hold it, via="exchange" if I don't.
+-- via="save" (in place, turn stays put) if I hold it, via="exchange" if I
+-- don't. Only the handshake ever passes the turn.
 
 test("computeNextOwedAction: handshake owed when flagged, overrides everything else", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
@@ -1174,12 +1245,12 @@ test("computeNextOwedAction: nothing owed before I've finished playing", functio
   check("nil", computeNextOwedAction(q, "me", true, os.time()) == nil)
 end)
 
-test("computeNextOwedAction: score owed via turn the instant I finish, even if my comment isn't decided", function()
+test("computeNextOwedAction: score owed via in-place save the instant I finish, even if my comment isn't decided", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
   q.players["me"].didPlay = true
   q.players["me"].commentDecided = false
   local a = computeNextOwedAction(q, "me", true, os.time())
-  check("score via turn", a and a.kind == "score" and a.via == "turn")
+  check("score via save", a and a.kind == "score" and a.via == "save")
 end)
 
 test("computeNextOwedAction: score owed via exchange when I don't hold the turn", function()
@@ -1194,7 +1265,7 @@ test("computeNextOwedAction: comment owed once decided, after score already sent
   q.players["me"].didPlay, q.players["me"].scoreSent = true, true
   q.players["me"].commentDecided = true
   local a = computeNextOwedAction(q, "me", true, os.time())
-  check("comment via turn", a and a.kind == "comment" and a.via == "turn")
+  check("comment via save", a and a.kind == "comment" and a.via == "save")
 end)
 
 test("computeNextOwedAction: comment owed via exchange when I don't hold the turn", function()
@@ -1243,13 +1314,32 @@ test("computeNextOwedAction: nothing owed if both resolved but I don't hold the 
   check("nil", computeNextOwedAction(q, "me", false, os.time()) == nil)
 end)
 
-test("computeNextOwedAction: 'comment' (not finalize) if opponent played but hasn't decided a comment yet", function()
+test("computeNextOwedAction: 'comment' (not finalize) if opponent played but hasn't decided -- saved in place, never a turn pass", function()
+  -- The case that used to pass the turn to an opponent with nothing left to
+  -- play, making Apple show them a "your turn" banner for a finished match.
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
   q.players["me"].didPlay, q.players["me"].scoreSent = true, true
   q.players["me"].commentDecided = true
   q.players["opp"].didPlay, q.players["opp"].commentDecided = true, false
   local a = computeNextOwedAction(q, "me", true, os.time())
-  check("comment via turn", a and a.kind == "comment" and a.via == "turn")
+  check("comment via save", a and a.kind == "comment" and a.via == "save")
+end)
+
+test("computeNextOwedAction: no score/comment action ever passes the turn", function()
+  for _, iHold in ipairs({ true, false }) do
+    for _, oppPlayed in ipairs({ true, false }) do
+      local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+      q.players["opp"].didPlay = oppPlayed
+      q.players["me"].didPlay = true
+      local a = computeNextOwedAction(q, "me", iHold, os.time())
+      check("score not via turn (hold=" .. tostring(iHold) .. ", oppPlayed=" .. tostring(oppPlayed) .. ")",
+        a and a.kind == "score" and a.via ~= "turn")
+      q.players["me"].scoreSent, q.players["me"].commentDecided = true, true
+      a = computeNextOwedAction(q, "me", iHold, os.time())
+      check("comment not via turn (hold=" .. tostring(iHold) .. ", oppPlayed=" .. tostring(oppPlayed) .. ")",
+        a and a.kind == "comment" and a.via ~= "turn")
+    end
+  end
 end)
 
 -- ---- applyCommentTimeoutIfExpired -----------------------------------------
@@ -1524,6 +1614,36 @@ test("vs badges: quick-start only for a playable round; dot for a result I haven
   check("right after I finish: quick-start off without waiting for a refresh", vsHasPlayable == false)
   check("...and nothing new to badge either", vsHasActionable == false)
   vsListEntries = nil
+end)
+
+test("OS icon badge counts exactly the matches I haven't played -- not whose turn it is, not unseen results", function()
+  local set = {}
+  local savedSetter = setHomeScreenBadgeCount
+  setHomeScreenBadgeCount = function(n) set[#set + 1] = n end
+  vsLastHomeBadgeCount = nil
+
+  vsListEntries = {
+    { id = "a", ended = false, localDidPlay = false, oppDidPlay = false, viewed = false }, -- unplayed
+    { id = "b", ended = false, localDidPlay = false, oppDidPlay = true,  viewed = false }, -- unplayed, opp done
+    { id = "c", ended = false, localDidPlay = true,  oppDidPlay = false, viewed = false }, -- I played (may hold the turn)
+    { id = "d", ended = true,  localDidPlay = false, oppDidPlay = false, viewed = false }, -- ended in GameKit
+  }
+  recordsUnseenEntries = {
+    { id = "e", ended = false, localDidPlay = true, oppDidPlay = true, viewed = false }, -- unseen result
+  }
+  recomputeVsBadgeFlags()
+  check("badge = 2 unplayed matches", set[#set] == 2, tostring(set[#set]))
+
+  vsNoteLocalRoundFinished("a")
+  check("drops the moment I finish one, without waiting for a GameKit refresh", set[#set] == 1, tostring(set[#set]))
+
+  local calls = #set
+  recomputeVsBadgeFlags()
+  check("not re-set when the count hasn't changed", #set == calls)
+
+  vsListEntries, recordsUnseenEntries = nil, nil
+  vsLastHomeBadgeCount = nil
+  setHomeScreenBadgeCount = savedSetter
 end)
 
 test("background turn events never change the screen", function()

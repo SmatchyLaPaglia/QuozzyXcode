@@ -844,7 +844,10 @@ SAFE_BOOT = false
 
 notificationPermissionRequested = notificationPermissionRequested or false
 
-local function setHomeScreenBadgeCount(count)
+-- The OS home-screen icon badge. Its only caller is recomputeVsBadgeFlags
+-- (MatchSelection.lua), with the number of matches I haven't played yet --
+-- nothing else may ever feed it.
+function setHomeScreenBadgeCount(count)
   count = math.max(0, math.floor(tonumber(count) or 0))
   local app = objc and objc.UIApplication and (objc.UIApplication.sharedApplication or (objc.UIApplication.sharedApplication and objc.UIApplication:sharedApplication()))
   if not app then return false end
@@ -904,48 +907,6 @@ local function requestNotificationPermissions()
   end)
   if not ok then
     devLog("Notification permission request failed (bridge call)")
-  end
-end
-
-local function refreshHomeScreenBadgeFromGCMatches(reason)
-  if SAFE_BOOT then return end
-  if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated) then
-    return
-  end
-  local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
-  if not GKTurnBasedMatch then return end
-  
-  local localId = tbm.localPlayer.playerID
-  local localGamePlayerId = tbm.localPlayer.gamePlayerID
-  
-  local ok = pcall(function()
-    GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
-      handOff(function()
-        if o__err then
-          devLog("Home badge refresh GC load error", o__err.localizedDescription or tostring(o__err))
-          return
-        end
-        local pending = 0
-        local matches = o__matches or {}
-        for i = 1, #matches do
-          local m = matches[i]
-          local isEnded = (tbm and tbm._isMatchEnded and tbm:_isMatchEnded(m)) or false
-          if not isEnded then
-            local cp = m and m.currentParticipant
-            local cpId = cp and cp.playerID
-            local cpGameId = cp and cp.gamePlayerID
-            if (cpId and localId and cpId == localId) or (cpGameId and localGamePlayerId and cpGameId == localGamePlayerId) then
-              pending = pending + 1
-            end
-          end
-        end
-        setHomeScreenBadgeCount(pending)
-        devLog("Home badge refresh", "pendingMatches=", pending, "reason=", reason or "?")
-      end)
-    end)
-  end)
-  if not ok then
-    devLog("Home badge refresh failed (bridge call)", reason or "?")
   end
 end
 
@@ -1063,7 +1024,6 @@ function setup()
     defineAvatarsAfterMicrodelay()
     otherPlayerAvatar = unknownPlayerAvatar(200, Color.uiAccent)
     requestNotificationPermissions()
-    refreshHomeScreenBadgeFromGCMatches("auth")
     refreshVsMatchesList("auth")
     requestPendingHandshakeResendCheck("auth")
   end)
@@ -1092,7 +1052,6 @@ function setup()
     else
       print("makeQMatchFromGK failed")
     end
-    refreshHomeScreenBadgeFromGCMatches("receivingTurn")
     refreshVsMatchesList("receivingTurn")
 
     -- The comment-timeout sweep (checkFinishedMatchesForCommentTimeout,
@@ -1108,7 +1067,6 @@ function setup()
   end)
 
   tbm:onTurnEnded(function(gkMatch, dataTable)
-    refreshHomeScreenBadgeFromGCMatches("turnEnded")
     refreshVsMatchesList("turnEnded")
     local mid = gkMatch and gkMatch.matchID
     if mid then
@@ -1134,7 +1092,7 @@ function setup()
     -- (the player listener), and a finished match arriving must never pop
     -- the end screen by itself (rule 8). A match the player opens goes
     -- through enterQMatch, which shows the end screen for an ended match.
-    refreshHomeScreenBadgeFromGCMatches("settingCurrentMatch")
+    refreshVsMatchesList("settingCurrentMatch")
   end)
 
   loadPendingTurnSends()
@@ -1362,16 +1320,8 @@ function drawFrame()
   if not okAppState then appStateActive = true end
   
   if appStateActive and (not appWasActiveLastFrame) then
-    refreshVsMatchesList("foreground")
+    refreshVsMatchesList("foreground")  -- also re-syncs the OS icon badge
     requestPendingHandshakeResendCheck("foreground")
-    -- Re-sync the OS icon badge to ground truth every time the player
-    -- actually looks at the app, not just on the 5 specific GameKit
-    -- events that already trigger it (auth/receivingTurn/turnEnded/
-    -- settingCurrentMatch/exchangeReceived) -- closes any residual drift
-    -- (e.g. a silent GameKit push bumping the badge while backgrounded)
-    -- without changing what counts as "pending" (still exactly: my turn,
-    -- match not ended -- see refreshHomeScreenBadgeFromGCMatches).
-    refreshHomeScreenBadgeFromGCMatches("foreground")
   end
   appWasActiveLastFrame = appStateActive
 

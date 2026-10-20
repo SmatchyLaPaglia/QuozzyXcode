@@ -221,9 +221,13 @@ COMMENT_WINDOW_SECONDS = COMMENT_WINDOW_SECONDS or 24 * 60 * 60
 -- No tbm/objc access here -- the caller supplies iHoldTurn (from tbm.isMyTurn) and
 -- picks the actual send mechanism. Returns one of:
 --   { kind = "handshake" }                        -- board has never gone out.
---   { kind = "score",   via = "turn"|"exchange" }  -- my score hasn't gone out yet.
---   { kind = "comment", via = "turn"|"exchange" }  -- my locked comment hasn't gone
+--   { kind = "score",   via = "save"|"exchange" }  -- my score hasn't gone out yet.
+--   { kind = "comment", via = "save"|"exchange" }  -- my locked comment hasn't gone
 --                                                      out yet (only once decided).
+-- The handshake is the only send that passes the turn: passing it makes Apple
+-- show the recipient a "your turn" banner, and banners are reserved for a newly
+-- received, unplayed match. Score/comment never pass it -- the turn holder
+-- writes them into the match in place ("save"), everyone else sends an exchange.
 --   { kind = "finalize" }                          -- both sides fully resolved and
 --                                                      I hold the turn -- close it.
 --   nil                                             -- nothing owed right now.
@@ -260,11 +264,11 @@ function computeNextOwedAction(q, myId, iHoldTurn, now)
   end
 
   if me.didPlay and not me.scoreSent then
-    return { kind = "score", via = iHoldTurn and "turn" or "exchange" }
+    return { kind = "score", via = iHoldTurn and "save" or "exchange" }
   end
 
   if me.commentDecided and not me.commentSent then
-    return { kind = "comment", via = iHoldTurn and "turn" or "exchange" }
+    return { kind = "comment", via = iHoldTurn and "save" or "exchange" }
   end
 
   return nil

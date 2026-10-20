@@ -687,3 +687,47 @@ actually unit-testable, which was the other half of the ask.
   same native banner on a device with no real gameplay left to do is a separate, not-yet-
   investigated wrinkle — flagged here, not fixed, since closing it would mean changing when
   `attemptLegSend`'s "comment" action is allowed to go via turn-pass vs. exchange.
+  (Superseded by the next entry.)
+
+## Only the handshake passes the turn (2026-10-20)
+
+Goal (Jesse): a banner appears only when an unplayed match is received, never otherwise.
+Every turn pass makes Apple push a "your turn" banner to the recipient, so turn passes are now
+limited to the one send that genuinely delivers an unplayed match: **the handshake** (creator →
+invitee). That banner is the only one this app's relay should ever cause.
+
+- **Score and comment never pass the turn.** `computeNextOwedAction` returns `via="save"` when
+  I hold the turn and `via="exchange"` when I don't (was `"turn"`/`"exchange"`). `"save"` =
+  `CTBM:saveTurnWithDataTable`: writes the full state into matchData without moving the turn
+  (`saveCurrentTurnWithMatchData`, or `saveMergedMatchData` when completed exchanges need
+  resolving in the same write). Its completion handler reports success directly →
+  `onLegSendSucceeded`.
+- **Consequence: the invitee holds the turn for the rest of the match** and is always the one who
+  finalizes (gate 2). The creator only ever sends exchanges. Players never see this (gate 1
+  drives the UI, as before). Accepted trade-off: if the invitee never reopens the app after the
+  creator's last piece arrives, the match stays open in GameKit — previously the last commenter
+  could sometimes finalize instead because the turn had been passed to them.
+- A waiting opponent sees in-place saves without any event: the end screen re-reads every 8 s
+  (`pollEndScreenMatch` → `refreshCurrentMatchFromGK`), and the vs list re-reads on foreground.
+- Score/comment entries already queued on disk by an older build as `via="turn"` are converted at
+  send time (`attemptPendingLegSend`): `"save"` if I hold the turn (stale `__gcMessage` stripped),
+  otherwise an exchange carrying only my slot. Without this, the first send after upgrading
+  would still pass the turn once.
+- `__gcMessage` (comment text put into `GKTurnBasedMatch.message`, shown in the turn banner) is
+  gone — the handshake never carried one, and nothing else passes the turn.
+- **Exchange banners:** `sendExchangeToParticipants`/`replyWithLocalizableMessageKey` take a
+  message key that GameKit shows the other player as notification text. With no
+  `Localizable.strings` entry iOS shows the raw key (`XCHG_UPDATE`/`XCHG_REPLY`).
+  `Quozzy/en.lproj/Localizable.strings` now maps both to empty text. The keys themselves are
+  unchanged, so sending can't break if an empty key were rejected.
+- **Home-screen badge:** was "matches where I hold the turn" — wrong once the invitee keeps the
+  turn after playing. Now `recomputeVsBadgeFlags` (MatchSelection.lua) sets it to the count of
+  vs entries I haven't played (`computeVsEntryFlags`'s `playable`), the same decode the in-app
+  vs list uses; `refreshHomeScreenBadgeFromGCMatches` is deleted.
+
+**Not yet verified on device (needs two devices and eyes on the lock screen):**
+1. That an empty localized string actually suppresses the exchange banner rather than showing a
+   blank one.
+2. That `saveCurrentTurnWithMatchData` produces no banner on the opponent's device.
+3. A full two-device match under the new rule: handshake → both scores → both comments →
+   invitee finalizes, with the creator's device never showing a banner.

@@ -724,8 +724,8 @@ end
 -- to say, and it dedupes: an already-pending attempt for the same kind+via is
 -- retried in place rather than restarted. See MULTIPLAYER_DESIGN.md "GameKit
 -- exchange trial" for the design this implements -- a score/comment goes out
--- the instant it's ready, via a normal turn-pass if I hold the turn or a
--- GameKit exchange if I don't.
+-- the instant it's ready, saved into the match in place if I hold the turn or
+-- as a GameKit exchange if I don't. Only the handshake passes the turn.
 function attemptLegSend(q)
   if not (useTurnBased and q and q.id and tbm) then return end
   local myId = localPID()
@@ -746,8 +746,8 @@ function attemptLegSend(q)
     -- their own data with full authority, and already has boardTiles from
     -- the handshake -- so send just my own player slot, not the full
     -- q.players table, and skip boardTiles/boardSize/minWordLen entirely.
-    -- A turn-pass keeps carrying the full players table (the authoritative
-    -- snapshot mechanism this design relies on elsewhere), unchanged.
+    -- A handshake or an in-place save keeps carrying the full players table
+    -- (the authoritative snapshot mechanism this design relies on elsewhere).
     --
     -- boardTiles/seed are scoped to the handshake leg ONLY now (board-
     -- reroll feature): once boards can diverge per player, a score/
@@ -800,15 +800,6 @@ function attemptLegSend(q)
       awaitingHandshakeSend = true
       attachRecordSync()
     elseif action.kind == "score" or action.kind == "comment" then
-      -- __gcMessage only matters for endTurnWithDataTable (sets the
-      -- system-matchmaker-UI message) -- unused by sendExchangeWithDataTable,
-      -- so skip it for exchanges rather than waste the bytes.
-      if action.via ~= "exchange" then
-        local me = q.players[myId]
-        if me and me.comment and me.comment ~= "" then
-          payload.__gcMessage = me.comment
-        end
-      end
       attachRecordSync()
     end
     pending = { kind = action.kind, via = action.via, turnData = payload, attempts = 0 }
@@ -820,11 +811,11 @@ function attemptLegSend(q)
 end
 
 -- tbm:endTurnWithDataTable only reports failure via its callback -- a
--- successful turn-pass send is only observable via the separate
--- tbm:onTurnEnded(...) global callback (Main.lua), which calls this. An
--- exchange send's success is observable directly (sendExchangeWithDataTable's
--- own completion handler), so attemptPendingLegSend calls this itself for
--- that case. Kept as its own testable function rather than inline in either
+-- successful turn-pass send (the handshake) is only observable via the
+-- separate tbm:onTurnEnded(...) global callback (Main.lua), which calls this.
+-- Exchange and in-place save sends report success directly through their own
+-- completion handlers, so attemptPendingLegSend calls this itself for those.
+-- Kept as its own testable function rather than inline in either
 -- callback so the kind-dispatch (what actually changed, given which send just
 -- succeeded) has real test coverage.
 function onLegSendSucceeded(matchId)
@@ -866,9 +857,9 @@ function onLegSendSucceeded(matchId)
   -- found via a live test that backdated commentWindowStartedAt right after
   -- a score-via-exchange send and discovered the snapshot was already gone.
   --
-  -- And only once that comment went out via a TURN-PASS. An exchange reaches
-  -- the opponent's device but not GameKit's own matchData until they merge
-  -- it -- and this snapshot is also what makeQMatchFromGK overlays onto the
+  -- And only once that comment was SAVED into the match itself. An exchange
+  -- reaches the opponent's device but not GameKit's own matchData until they
+  -- merge it -- and this snapshot is also what makeQMatchFromGK overlays onto the
   -- stale server copy of my own slot. Clearing it after an exchange-sent
   -- comment (e.g. the blank comment locked by closing the end screen right
   -- after quitting) made every later reload read "I haven't played": a red
@@ -877,7 +868,7 @@ function onLegSendSucceeded(matchId)
   if pending.kind ~= "handshake" and finishedAwaitingDecisionByMatchId[matchId] then
     local me = currentQMatch and currentQMatch.id == matchId and currentQMatch.players
       and currentQMatch.players[localPID()]
-    if me and me.commentSent and pending.via == "turn" then
+    if me and me.commentSent and pending.via == "save" then
       finishedAwaitingDecisionByMatchId[matchId] = nil
     end
     -- Either way, flush: the scoreSent/commentSent just set above live on
@@ -930,6 +921,22 @@ function attemptPendingLegSend(matchId)
   -- every attempt with currentMatch nil before this guard existed). Reload
   -- first rather than trusting it.
   tbm:ensureCurrentMatch(matchId, function()
+    -- A score/comment queued on disk by a build that still passed the turn
+    -- for those -- send it the current way instead, or it would pass the
+    -- turn (and banner the opponent) once after upgrading.
+    if pending.via == "turn" and pending.kind ~= "handshake" then
+      local myId = localPID()
+      if tbm.isMyTurn then
+        pending.via = "save"
+        if pending.turnData then pending.turnData.__gcMessage = nil end
+      else
+        local mine = pending.turnData and pending.turnData.players and pending.turnData.players[myId]
+        pending.via = "exchange"
+        pending.turnData = { players = { [myId] = mine }, lastUpdated = os.time() }
+      end
+      persistPendingTurnSends()
+    end
+
     if pending.kind == "finalize" then
       tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
         -- finalizeCompletedTurnBasedMatch (and the tbm:localPlayerWon/Lost/Tied
@@ -953,10 +960,19 @@ function attemptPendingLegSend(matchId)
       return
     end
 
-    -- via == "turn": merge first, then pass the turn. Success is reported
-    -- asynchronously via tbm:onTurnEnded -> onLegSendSucceeded, same as
-    -- before this generalization existed -- endTurnWithDataTable has no
-    -- separate success callback of its own.
+    -- I hold the turn: write the full state into the match without passing
+    -- the turn (no banner for the opponent -- they have nothing new to play).
+    -- saveTurnWithDataTable resolves any completed exchanges in the same call.
+    if pending.via == "save" then
+      tbm:saveTurnWithDataTable(pending.turnData, onSendFailed, function()
+        onLegSendSucceeded(matchId)
+      end)
+      return
+    end
+
+    -- The handshake: merge first, then pass the turn. Success is reported
+    -- asynchronously via tbm:onTurnEnded -> onLegSendSucceeded --
+    -- endTurnWithDataTable has no separate success callback of its own.
     tbm:mergeCompletedExchanges(pending.turnData, onSendFailed, function()
       tbm:endTurnWithDataTable(pending.turnData, onSendFailed)
     end)
@@ -1002,7 +1018,6 @@ function onExchangeDataReceived(gkMatch, dataTable)
     end
   end)
 
-  if refreshHomeScreenBadgeFromGCMatches then refreshHomeScreenBadgeFromGCMatches("exchangeReceived") end
   if refreshVsMatchesList then refreshVsMatchesList("exchangeReceived") end
 end
 

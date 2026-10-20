@@ -174,12 +174,24 @@ end
 -- Recomputes the aggregate badge flags from vsListEntries. Called after every
 -- list refresh, and directly when local state changes (vsNoteLocalRoundFinished)
 -- so the badges don't show stale "match ready" until the next async refresh.
+-- Also the ONLY source of the OS home-screen icon badge: the number of matches
+-- I haven't played yet. Not "matches where I hold the GameKit turn" -- the
+-- turn only moves for the handshake now, so the invitee holds it long after
+-- they've played.
 function recomputeVsBadgeFlags()
   vsHasActionable, vsHasPlayable = false, false
+  local unplayed = 0
   for _, e in ipairs(vsListEntries or {}) do
     e.playable, e.newInfo = computeVsEntryFlags(e.ended, e.localDidPlay, e.oppDidPlay, e.viewed)
     e.needsAction = e.playable
-    if e.playable then vsHasActionable = true; vsHasPlayable = true end
+    if e.playable then
+      vsHasActionable = true; vsHasPlayable = true
+      unplayed = unplayed + 1
+    end
+  end
+  if setHomeScreenBadgeCount and unplayed ~= vsLastHomeBadgeCount then
+    vsLastHomeBadgeCount = unplayed
+    setHomeScreenBadgeCount(unplayed)
   end
   local kept = {}
   loadRecordsButtonAck()
@@ -268,7 +280,10 @@ end
 -- Data refresh
 ------------------------------------------------------------
 function refreshVsMatchesList(reason)
-  if vsListLoading then return end
+  -- A load already in flight may predate whatever triggered this call (a turn
+  -- or exchange that just arrived) -- run once more when it lands instead of
+  -- dropping it, or the lists and the icon badge could stay stale.
+  if vsListLoading then vsListRefreshQueued = reason or "queued"; return end
   local GKTurnBasedMatch = objc and objc.GKTurnBasedMatch
   if not (tbm and tbm.localPlayer and tbm.localPlayer.authenticated and GKTurnBasedMatch) then
     vsListEntries, vsHasActionable, vsHasPlayable = {}, false, false
@@ -365,6 +380,11 @@ function refreshVsMatchesList(reason)
         if not okInner then
           vsListLoading = false
           devLog("vs: refreshVsMatchesList crashed safely", tostring(errInner))
+        end
+        if vsListRefreshQueued then
+          local queued = vsListRefreshQueued
+          vsListRefreshQueued = nil
+          refreshVsMatchesList(queued)
         end
       end)
     end)

@@ -910,9 +910,6 @@ function CTBM:endTurnWithDataTable(t, onError)
   self.currentMatch.matchID)
   
   local data = self:_dataTableToNSData(t)
-  if t and type(t.__gcMessage) == "string" and t.__gcMessage ~= "" then
-    self.currentMatch.message = t.__gcMessage
-  end
   self.currentMatch: endTurnWithNextParticipants_turnTimeout_matchData_completionHandler_(
   nextParticipants,
   0,
@@ -935,6 +932,57 @@ function CTBM:endTurnWithDataTable(t, onError)
       )
       
       self:log("CTBM: endTurnWithNextParticipants callback ended")
+    end
+  end, o__err) end
+  )
+end
+
+-- Turn holder only: writes t into matchData WITHOUT passing the turn, so
+-- GameKit has no "your turn" to announce to the opponent. Completed exchanges
+-- must be resolved before the holder writes match data, so when there are any
+-- this goes through saveMergedMatchData (one write that does both) instead of
+-- saveCurrentTurnWithMatchData. Unlike endTurnWithDataTable, currentMatch and
+-- isMyTurn stay as they are -- the turn hasn't moved.
+function CTBM:saveTurnWithDataTable(t, onError, onSuccess)
+  if not self.currentMatch then
+    self:log("CTBM: can't save turn because currentMatch is nil")
+    if onError then onError(nil) end
+    return
+  end
+
+  if not self.isMyTurn then
+    self:log("CTBM: can't save turn because it's not my turn")
+    if onError then onError(nil) end
+    return
+  end
+
+  local data = self:_dataTableToNSData(t)
+  local completed = self.currentMatch.completedExchanges
+  if completed and #completed > 0 then
+    self.currentMatch:saveMergedMatchData_withResolvedExchanges_completionHandler_(
+    data, completed,
+    function(o__err) handOff(function(o__err)
+      if o__err then
+        self:log("CTBM:saveTurn (merge) error:", o__err.localizedDescription)
+        if onError then onError(o__err) end
+      else
+        self:log("CTBM: saveTurn merged", #completed, "exchange(s)")
+        if onSuccess then onSuccess() end
+      end
+    end, o__err) end
+    )
+    return
+  end
+
+  self.currentMatch:saveCurrentTurnWithMatchData_completionHandler_(
+  data,
+  function(o__err) handOff(function(o__err)
+    if o__err then
+      self:log("CTBM:saveTurn error:", o__err.localizedDescription)
+      if onError then onError(o__err) end
+    else
+      self:log("CTBM: saveCurrentTurnWithMatchData succeeded")
+      if onSuccess then onSuccess() end
     end
   end, o__err) end
   )
