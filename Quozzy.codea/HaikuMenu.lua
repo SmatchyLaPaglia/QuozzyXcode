@@ -546,15 +546,21 @@ function drawGenericAlert()
 end
 
 ------------------------------------------------------------
--- MENU DICE LETTER SPIN — slot-machine / departure-board reveal used by both the
--- decorative board preview (Section 2) and the min-word-length dice (Section 3). Every
--- tile spins through random letters fast, then resolves to its real letter one at a time
--- in index order (left-to-right / bottom-to-top, matching each grid's own indexing), holds
--- there, then spins again — one shared clock (MENU_SPIN_CYCLE) drives every tile in both
--- rows so they're all in sync. (2026-09-27, replacing an instant once-per-second swap.)
+-- MENU DICE LETTER SPIN — slot-machine / departure-board reveal used by the
+-- min-word-length dice (Section 3). Every tile spins through random letters fast, then
+-- resolves to its real letter one at a time in index order, holds there, then spins
+-- again. (2026-09-27, replacing an instant once-per-second swap.) The board preview
+-- (Section 2) only uses the MENU_SPIN_CYCLE clock as its tick now: its letters change
+-- like a game board's (menuPreviewBoardStep, Board.lua), not by spinning.
 ------------------------------------------------------------
 
-MENU_SPIN_CYCLE         = 2.6   -- total seconds per spin -> resolve -> hold -> respin loop
+-- Board preview state for menuPreviewBoardStep (Board.lua). Any fixed seed works.
+MENU_PREVIEW_BOARD_SEED = 7331
+menuPreviewBoard        = menuPreviewBoard or {}
+menuPreviewBoardAnim    = menuPreviewBoardAnim or {}  -- tile index -> effect start time
+menuPreviewBoardAnimN   = menuPreviewBoardAnimN or nil
+
+MENU_SPIN_CYCLE         = 2.6   -- seconds per board-preview tick / spin -> resolve -> hold -> respin loop
 MENU_SPIN_RESOLVE_START = 0.55  -- seconds into the cycle when tile #1 locks in
 MENU_SPIN_RESOLVE_SPAN  = 0.55  -- seconds over which the LAST tile locks in, after RESOLVE_START
 MENU_SPIN_FLIP_INTERVAL = 0.045 -- how often a still-spinning tile's shown glyph changes
@@ -728,18 +734,19 @@ function drawMenu()
     rotate(-boardAngle)  -- Codea rotate is CCW positive; negate for CW
   end
 
-  -- Preview letters: a new random target per spin cycle (was: per whole second), revealed
-  -- via the slot-machine spin (menuSpinLetter) instead of swapping instantly.
-  local spinCycleIndex, spinCycleT = menuSpinCycleClock()
-  local previewSeed = boardSize * 1000 + spinCycleIndex
-  local function seededRand(s, i)
-    local v = math.sin((s or 0) * 12.9898 + i * 78.233 + 37.719) * 43758.5453
-    return v - math.floor(v)
+  -- Preview letters change the way a game board's do (menuPreviewBoardStep, Board.lua):
+  -- each MENU_SPIN_CYCLE tick, as many tiles as the selected difficulty changes in a game
+  -- of this size, with the game's letter-change effect.
+  local spinCycleIndex = menuSpinCycleClock()
+  for _, idx in ipairs(menuPreviewBoardStep(menuPreviewBoard, boardSize, spinCycleIndex, MENU_PREVIEW_BOARD_SEED)) do
+    menuPreviewBoardAnim[idx] = ElapsedTime
+  end
+  if menuPreviewBoard.n ~= menuPreviewBoardAnimN then
+    menuPreviewBoardAnim, menuPreviewBoardAnimN = {}, menuPreviewBoard.n
   end
 
   local gridLeft = -gridW * 0.5
   local gridBot  = -gridH * 0.5
-  local gridTileCount = boardSize * boardSize
 
   for row = 1, boardSize do
     for col = 1, boardSize do
@@ -750,18 +757,17 @@ function drawMenu()
 
       drawDie(tx, ty, cellPx, cellPx, r, Color.uiAccent, -boardAngle)
 
-      -- Decorative letter: random target for this cycle (board letters don't need to spell
-      -- anything), revealed tile-by-tile as the cycle's spin resolves.
-      local ltrIdx = math.floor(seededRand(previewSeed, idx) * 26) + 1
-      local target = string.sub("ABCDEFGHIJKLMNOPQRSTUVWXYZ", ltrIdx, ltrIdx)
-      local letter = menuSpinLetter(spinCycleIndex, spinCycleT, idx, gridTileCount, target)
-
+      local letter = menuPreviewBoard.tiles[idx] or ""
       font("Georgia-Bold")
       fontSize(cellPx * 0.55)
       fill(255, 255, 255, 255)
       textMode(CENTER)
       textAlign(CENTER)
       text(letter, tx, ty)
+      local started = menuPreviewBoardAnim[idx]
+      if started and not drawRerollLetterOverlay(letter, started, tx, ty, 0) then
+        menuPreviewBoardAnim[idx] = nil
+      end
     end
   end
 

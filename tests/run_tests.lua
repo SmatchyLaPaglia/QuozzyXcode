@@ -161,6 +161,35 @@ test("setRerollDifficulty: sets rerollTune.percent to the preset and persists bo
   setRerollDifficulty("normal")  -- leave clean for subsequent tests
 end)
 
+test("menuPreviewBoardStep: each tick changes exactly the tiles the selected difficulty changes in a game", function()
+  local saved = rerollDifficulty
+  for _, level in ipairs({ "easy", "normal", "hard" }) do
+    setRerollDifficulty(level)
+    for _, n in ipairs({ 4, 5, 6 }) do
+      local st = {}
+      local first = menuPreviewBoardStep(st, n, 100, 7331)
+      check(level .. " " .. n .. ": first call starts a board without animating", #first == 0 and #st.tiles == n * n)
+      local changed = menuPreviewBoardStep(st, n, 101, 7331)
+      local expected = computeRerollPlan(7331 + n, n, 101).count
+      check(level .. " " .. n .. ": count matches a game's reroll", #changed == expected, #changed .. " vs " .. expected)
+      if level == "hard" then check("hard " .. n .. ": the whole board", #changed == n * n) end
+      check(level .. " " .. n .. ": same tick again changes nothing", #menuPreviewBoardStep(st, n, 101, 7331) == 0)
+    end
+  end
+  setRerollDifficulty(saved or "normal")
+end)
+
+test("menuPreviewBoardStep: a new board size starts a fresh board; missed ticks collapse into one", function()
+  setRerollDifficulty("normal")
+  local st = {}
+  menuPreviewBoardStep(st, 4, 10, 7331)
+  check("fresh 4x4", #st.tiles == 16)
+  check("size change: fresh board, nothing animated", #menuPreviewBoardStep(st, 5, 11, 7331) == 0 and #st.tiles == 25)
+  local changed = menuPreviewBoardStep(st, 5, 50, 7331)
+  check("39 missed ticks -> one tick's worth", #changed == computeRerollPlan(7331 + 5, 5, 50).count)
+  check("tiles are real dice faces", st.tiles[1] ~= nil and #st.tiles[1] >= 1)
+end)
+
 test("loadRerollDifficulty: a fresh load restores the persisted difficulty and re-derives percent", function()
   setRerollDifficulty("hard")
   check("nudge value in memory", rerollTune.percent == 100)

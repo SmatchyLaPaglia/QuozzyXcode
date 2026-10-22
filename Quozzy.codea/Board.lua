@@ -765,48 +765,70 @@ function drawBoard()
             popMatrix()
 
             local ranim = rerollAnim[r] and rerollAnim[r][c]
-            if ranim then
-                local elapsed = ElapsedTime - ranim.startTime
-                local growScale   = rerollTune.growScale
-                local growSeconds = rerollTune.growSeconds
-                local fadeSeconds = rerollTune.fadeSeconds
-                local growBy      = growScale - 1.0  -- phase 2 extends by the same amount again
-                local overlayScale, overlayFill
-                -- Same bright cyan as the drag-selection line (drawSelectionPath
-                -- below) -- always visible regardless of theme, unlike
-                -- Color.uiAccent2 which wasn't contrasty enough against the
-                -- normal letter color. Held constant (no fade-to-normal-color):
-                -- since the overlay fades out entirely in phase 2 anyway, there's
-                -- no need to also blend its color toward the letter underneath.
-                local accent = color(120, 255, 255, 255)
-
-                if elapsed < growSeconds then
-                    local u = elapsed / growSeconds
-                    overlayScale = 1.0 + growBy * u  -- normal -> growScale
-                    overlayFill = accent
-                elseif elapsed < growSeconds + fadeSeconds then
-                    local u = (elapsed - growSeconds) / fadeSeconds
-                    overlayScale = growScale + growBy * u  -- keeps expanding past growScale
-                    overlayFill = color(accent.r, accent.g, accent.b, accent.a * (1 - u))
-                else
-                    rerollAnim[r][c] = nil
-                end
-
-                if overlayScale then
-                    pushMatrix()
-                    translate(x + jx, y + jy)
-                    if angle ~= 0 then rotate(angle) end
-                    scale(overlayScale)
-                    font("Helvetica-Bold")
-                    fill(overlayFill)
-                    text(label, 0, 0)
-                    popMatrix()
-                end
+            if ranim and not drawRerollLetterOverlay(label, ranim.startTime, x + jx, y + jy, angle) then
+                rerollAnim[r][c] = nil
             end
         end
     end
 
     popStyle()
+end
+
+-- The letter-change effect, shared by the game board and the menu's preview board:
+-- a bold copy of the new letter grows from normal size to growScale, then keeps
+-- expanding past it while fading out, over the stable letter drawn underneath.
+-- Uses the caller's font size. Returns false (drawing nothing) once it's over.
+function drawRerollLetterOverlay(label, startTime, x, y, angle)
+    local elapsed = ElapsedTime - startTime
+    local growScale   = rerollTune.growScale
+    local growSeconds = rerollTune.growSeconds
+    local fadeSeconds = rerollTune.fadeSeconds
+    local growBy      = growScale - 1.0  -- phase 2 extends by the same amount again
+    -- Same bright cyan as the drag-selection line (drawSelectionPath) -- visible on
+    -- every theme, unlike Color.uiAccent2 against the normal letter color. Held
+    -- constant: the overlay fades out entirely in phase 2 anyway.
+    local accent = color(120, 255, 255, 255)
+    local overlayScale, overlayFill
+    if elapsed < growSeconds then
+        overlayScale = 1.0 + growBy * (elapsed / growSeconds)  -- normal -> growScale
+        overlayFill = accent
+    elseif elapsed < growSeconds + fadeSeconds then
+        local u = (elapsed - growSeconds) / fadeSeconds
+        overlayScale = growScale + growBy * u  -- keeps expanding past growScale
+        overlayFill = color(accent.r, accent.g, accent.b, accent.a * (1 - u))
+    else
+        return false
+    end
+    pushMatrix()
+    translate(x, y)
+    if angle ~= 0 then rotate(angle) end
+    scale(overlayScale)
+    font("Helvetica-Bold")
+    fill(overlayFill)
+    text(label, 0, 0)
+    popMatrix()
+    return true
+end
+
+-- The menu's preview board changes letters the way a game board does: real dice
+-- from a seed, and each tick the same number of tiles the selected difficulty
+-- changes in a game of that board size (computeRerollPlan -- Hard changes them all).
+-- `state` persists between calls; returns the indices that changed this call (empty
+-- if the tick hasn't advanced). A new board size, or a first call, starts a fresh
+-- board without animating it. Missed ticks (app in the background) collapse into one.
+function menuPreviewBoardStep(state, n, cycleIndex, seed)
+    if state.n ~= n or not state.tiles then
+        state.n, state.k = n, cycleIndex
+        state.tiles = generateBoardTilesSeeded(seed + n, n)
+        return {}
+    end
+    if cycleIndex <= state.k then return {} end
+    state.k = cycleIndex
+    local plan = computeRerollPlan(seed + n, n, cycleIndex)
+    for _, idx in ipairs(plan.positions) do
+        state.tiles[idx] = plan.letters[idx]
+    end
+    return plan.positions
 end
 
 function drawReadyMessage()
