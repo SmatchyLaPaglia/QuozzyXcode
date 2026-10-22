@@ -1,2 +1,5 @@
 Quozzy.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcuserstate
+
+# tools/dbg.sh --pull output (debug screenshots, pulled logs)
+dbg_pull/
