@@ -63,6 +63,9 @@ local function buildFinalTurnDataAndOutcome(commentText)
     end
   end
   if not (oppId and oppData and oppData.didPlay and q.players[pid].didPlay) then return nil, nil, nil end
+  -- Both comments must be decided before GameKit's match ends: after that nobody can send
+  -- anything into it, so an undecided comment would be lost for good.
+  if not (oppData.commentDecided == true and q.players[pid].commentDecided == true) then return nil, nil, nil end
 
   q.players[pid].words = q.players[pid].words or {}
   q.players[pid].wordTimes = q.players[pid].wordTimes or {}
@@ -921,6 +924,15 @@ function attemptPendingLegSend(matchId)
   -- every attempt with currentMatch nil before this guard existed). Reload
   -- first rather than trusting it.
   tbm:ensureCurrentMatch(matchId, function()
+    -- Nothing can be sent into a match GameKit has already ended -- every attempt
+    -- would fail forever (seen: queued sends retried 40+ times). Drop it.
+    if tbm.currentMatch and tbm._getEndStateFromMatch and tbm:_getEndStateFromMatch(tbm.currentMatch) then
+      devLog("attemptPendingLegSend: match already ended, dropping queued send", matchId, pending.kind)
+      pendingTurnSendsByMatchId[matchId] = nil
+      persistPendingTurnSends()
+      return
+    end
+
     -- A score/comment queued on disk by a build that still passed the turn
     -- for those -- send it the current way instead, or it would pass the
     -- turn (and banner the opponent) once after upgrading.

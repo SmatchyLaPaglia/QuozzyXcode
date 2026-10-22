@@ -445,7 +445,20 @@ end
 -- an end screen showing them has been opened. Same shape EndScreenFP records.
 function snapshotFromQMatch(q, oppId, oppAlias)
   local myId = localPID and localPID()
-  if not (q and q.id and q.players and oppId and myId and q.boardTiles) then return nil end
+  if not (q and q.id and q.players and oppId and myId) then return nil end
+  -- Only the handshake carries the board, so a decode after any later save has no
+  -- boardTiles. Without a fallback, Records never took another update for the match
+  -- (an opponent's comment showed the badge but never the text).
+  local tiles = q.boardTiles
+  if not tiles then
+    for _, s in ipairs((matchHistoryByOpponent and matchHistoryByOpponent[oppId]) or {}) do
+      if s.id == q.id then tiles = s.boardTiles end
+    end
+  end
+  if not tiles and q.seed and generateBoardTilesSeeded then
+    tiles = generateBoardTilesSeeded(q.seed, q.boardSize or 4)
+  end
+  if not tiles then return nil end
   local me, opp = q.players[myId], q.players[oppId]
   if not (me and me.didPlay) then return nil end
   local complete = (opp and opp.didPlay == true) or false
@@ -456,7 +469,7 @@ function snapshotFromQMatch(q, oppId, oppAlias)
   end
   local snap = {
     id = q.id, oppId = oppId, oppAlias = oppAlias or "",
-    boardSize = q.boardSize, minWordLen = q.minWordLen, boardTiles = q.boardTiles,
+    boardSize = q.boardSize, minWordLen = q.minWordLen, boardTiles = tiles,
     endedAt = math.floor(tonumber(q.lastUpdated) or os.time()),
     complete = complete, localScore = localScore, oppScore = oppScore,
     localWords = me.words or {}, oppWords = (opp and opp.words) or {},

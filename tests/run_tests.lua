@@ -466,6 +466,8 @@ test("buildFinalTurnDataAndOutcome: finalize payload does not carry boardTiles",
   currentQMatch.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
   currentQMatch.players["local-player-id"].didPlay = true
   currentQMatch.players["opp"].didPlay = true
+  currentQMatch.players["local-player-id"].commentDecided = true
+  currentQMatch.players["opp"].commentDecided = true
   local ok = finalizeCompletedTurnBasedMatch(nil)
   check("finalize actually ran", ok == true)
   -- Equal (default 0) scores -> a tie -> tiedCalls; whichever of
@@ -473,6 +475,58 @@ test("buildFinalTurnDataAndOutcome: finalize payload does not carry boardTiles",
   local sent = tbm.tiedCalls[1] or tbm.wonCalls[1] or tbm.lostCalls[1]
   check("a finalize call happened", sent ~= nil)
   check("no boardTiles on the finalize payload", sent and sent.boardTiles == nil)
+end)
+
+test("finalizeCompletedTurnBasedMatch: refuses while the opponent's comment is undecided", function()
+  useTurnBased = true
+  tbm.isMyTurn = true
+  tbm.currentMatch = {}
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 999)
+  currentQMatch.players["local-player-id"].didPlay = true
+  currentQMatch.players["local-player-id"].commentDecided = true
+  currentQMatch.players["opp"].didPlay = true
+  check("refused", finalizeCompletedTurnBasedMatch(nil) == false)
+  check("match not ended", #tbm.wonCalls + #tbm.lostCalls + #tbm.tiedCalls == 0)
+end)
+
+test("closing the end screen as turn holder doesn't end the match before the opponent comments (live bug 10-22)", function()
+  -- Invitee holds the turn, both played, my comment already locked, the
+  -- creator still hasn't commented. Closing used to end the match on the
+  -- spot, so the creator's comment could never be sent.
+  useTurnBased = true
+  tbm.isMyTurn = true
+  tbm.currentMatch = {}
+  state = STATE_END
+  justFinishedLiveGame = false
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 999)
+  local me, opp = currentQMatch.players["local-player-id"], currentQMatch.players["opp"]
+  me.didPlay, me.scoreSent, me.commentDecided, me.commentSent = true, true, true, true
+  opp.didPlay = true
+
+  disposeEndScreenAndReturnToMenu()
+
+  check("match not ended", #tbm.wonCalls + #tbm.lostCalls + #tbm.tiedCalls == 0)
+  check("back at the menu", state == STATE_MENU)
+
+  -- ...and the creator's comment arriving later still finalizes it normally.
+  state = STATE_MENU
+  opp.commentDecided, opp.comment = true, "nice one"
+  attemptLegSend(currentQMatch)
+  check("finalizes once both comments are in", #tbm.wonCalls + #tbm.lostCalls + #tbm.tiedCalls == 1)
+end)
+
+test("attemptPendingLegSend: a send queued for a match GameKit already ended is dropped, not retried forever", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  tbm.currentMatch = { matchID = "m1" }
+  tbm._getEndStateFromMatch = function() return "win" end
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  pendingTurnSendsByMatchId["m1"] = { kind = "comment", via = "exchange", attempts = 46, turnData = { players = {} } }
+
+  attemptPendingLegSend("m1")
+
+  check("dropped", pendingTurnSendsByMatchId["m1"] == nil)
+  check("no send attempted", #tbm.exchangeSentCalls == 0)
 end)
 
 test("makeQMatchFromGK: seed falls back to the cached boardGeneratedForMatchId value when the leg omits it", function()
@@ -1738,6 +1792,31 @@ test("records row picks up a comment that arrives after the match was viewed", f
   recordMatchSnapshot(snapshotFromQMatch(q, "opp", "Opp"))
   local row = findMatchHistoryEntry("opp", "mr")
   check("row has the later comment", row and row.oppComment == "That seems unlikely", row and row.oppComment)
+end)
+
+test("records row picks up a later comment even though later match data carries no board", function()
+  -- Only the handshake carries boardTiles; every later save/exchange decode lacks
+  -- them. Records used to refuse those decodes, so the comment never showed.
+  useTurnBased = true
+  matchHistoryByOpponent = {}
+  local board = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
+  local q = { id = "mb", boardSize = 4, minWordLen = 3, lastUpdated = 10, boardTiles = board,
+    players = { ["local-player-id"] = { didPlay = true, score = 1, words = {"CAT"}, comment = "" },
+                ["opp"] = { didPlay = true, score = 1, words = {"DOG"}, comment = "" } } }
+  recordMatchSnapshot(snapshotFromQMatch(q, "opp", "Opp"))
+  q.boardTiles = nil
+  q.players["opp"].comment = "arrived later"; q.lastUpdated = 20
+  local snap = snapshotFromQMatch(q, "opp", "Opp")
+  check("snapshot built without boardTiles", snap ~= nil)
+  recordMatchSnapshot(snap)
+  local row = findMatchHistoryEntry("opp", "mb")
+  check("row has the later comment", row and row.oppComment == "arrived later", row and row.oppComment)
+  check("row keeps the board it already had", row and row.boardTiles == board)
+
+  local fresh = { id = "mc", boardSize = 4, minWordLen = 3, lastUpdated = 10, seed = 321,
+    players = { ["local-player-id"] = { didPlay = true, score = 1, words = {} }, ["opp"] = { didPlay = true } } }
+  local s2 = snapshotFromQMatch(fresh, "opp", "Opp")
+  check("no stored board: rebuilt from the seed", s2 and eq(s2.boardTiles, generateBoardTilesSeeded(321, 4)))
 end)
 
 test("tapping the comment composer balloon focuses it instead of hiding it", function()

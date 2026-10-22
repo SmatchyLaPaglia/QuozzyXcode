@@ -670,8 +670,12 @@ function disposeEndScreenAndReturnToMenu()
   if commitEndScreenCommentAndExit and shouldShowFinalCommentComposer and shouldShowFinalCommentComposer() then
     return commitEndScreenCommentAndExit() and true or false
   end
-  if finalizeCompletedTurnBasedMatch then
-    finalizeCompletedTurnBasedMatch(nil)   -- safe no-op for a historical match (no live tbm.currentMatch)
+  -- Never end the match straight from here: closing the screen says nothing about the
+  -- opponent's comment. attemptLegSend only finalizes once both comments are decided
+  -- (computeNextOwedAction); ending earlier strands the opponent's comment, since an
+  -- exchange can't be sent into an ended match.
+  if attemptLegSend and currentQMatch then
+    attemptLegSend(currentQMatch)
   end
   if teardownEndScreenCommentField then teardownEndScreenCommentField() end
   endScrollY,endScrollTouchId,endScrollPrevY = 0,nil,0
