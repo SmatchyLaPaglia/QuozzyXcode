@@ -560,7 +560,7 @@ menuPreviewBoard        = menuPreviewBoard or {}
 menuPreviewBoardAnim    = menuPreviewBoardAnim or {}  -- tile index -> effect start time
 menuPreviewBoardAnimN   = menuPreviewBoardAnimN or nil
 
-MENU_SPIN_CYCLE         = 2.6   -- seconds per board-preview tick / spin -> resolve -> hold -> respin loop
+MENU_SPIN_CYCLE         = 0.9   -- seconds per board-preview tick / spin -> resolve -> hold -> respin loop
 MENU_SPIN_RESOLVE_START = 0.55  -- seconds into the cycle when tile #1 locks in
 MENU_SPIN_RESOLVE_SPAN  = 0.55  -- seconds over which the LAST tile locks in, after RESOLVE_START
 MENU_SPIN_FLIP_INTERVAL = 0.045 -- how often a still-spinning tile's shown glyph changes
@@ -765,7 +765,7 @@ function drawMenu()
       textAlign(CENTER)
       text(letter, tx, ty)
       local started = menuPreviewBoardAnim[idx]
-      if started and not drawRerollLetterOverlay(letter, started, tx, ty, 0) then
+      if started and not drawRerollLetterOverlay(letter, started, tx, ty, 0, "Georgia-Bold", Color.menuChangeAccent) then
         menuPreviewBoardAnim[idx] = nil
       end
     end
@@ -1247,12 +1247,15 @@ function handleMenuTouch(t)
 
   elseif key == "diffEasy" then
     if setRerollDifficulty then setRerollDifficulty("easy") end
+    menuPreviewBoard.forceTick = true   -- show this level's tile count changing right away
 
   elseif key == "diffNormal" then
     if setRerollDifficulty then setRerollDifficulty("normal") end
+    menuPreviewBoard.forceTick = true   -- show this level's tile count changing right away
 
   elseif key == "diffHard" then
     if setRerollDifficulty then setRerollDifficulty("hard") end
+    menuPreviewBoard.forceTick = true   -- show this level's tile count changing right away
 
   elseif key == "solo" then
     openSoloChoiceDialog()

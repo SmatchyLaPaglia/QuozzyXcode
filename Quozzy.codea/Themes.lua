@@ -54,6 +54,7 @@ local SeasonPalettes = {
         selectLineAlsoWeirdlyTileHighlight= color(210, 120, 60, 255),
         uiAccent  = color(210, 140, 70, 255),
         uiAccent2 = color(180, 80, 90, 255),
+        uiSelect  = color(215, 60, 15, 255),     -- selected difficulty: vivid red-orange vs the brown ink
         invalid   = color(200, 60, 60, 255),
         valid     = color(80, 130, 60, 255),
         panelBG   = color(255, 250, 240, 235),
@@ -70,6 +71,8 @@ local SeasonPalettes = {
         selectLineAlsoWeirdlyTileHighlight= color(104, 202, 210),
         uiAccent  = color(104, 202, 210),
         uiAccent2 = color(200, 170, 230, 255),
+        uiSelect  = color(200, 30, 115, 255),    -- selected difficulty: raspberry vs the navy ink
+        menuChangeAccent = color(255, 200, 40, 255),  -- menu board letter-change flash: gold, since cyan vanishes on the teal tiles
         invalid   = color(210, 70, 70, 255),
         valid     = color(70, 150, 110, 255),
         panelBG   = color(243, 244, 245, 235),
@@ -112,6 +115,7 @@ end
 
 function applySeasonPalette()
     local palette = buildEffectivePaletteForSeason(seasonIndex)
+    Color.uiSelect, Color.menuChangeAccent = nil, nil   -- optional per-season keys; don't leak across a season change
     for k, v in pairs(palette) do
         Color[k] = v
     end

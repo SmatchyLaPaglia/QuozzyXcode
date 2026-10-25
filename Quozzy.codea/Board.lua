@@ -777,8 +777,9 @@ end
 -- The letter-change effect, shared by the game board and the menu's preview board:
 -- a bold copy of the new letter grows from normal size to growScale, then keeps
 -- expanding past it while fading out, over the stable letter drawn underneath.
--- Uses the caller's font size. Returns false (drawing nothing) once it's over.
-function drawRerollLetterOverlay(label, startTime, x, y, angle)
+-- Uses the caller's font size; overlayFont defaults to the game board's bold Helvetica
+-- (the bold of its dice font), overlayAccent to cyan. Returns false (drawing nothing) once it's over.
+function drawRerollLetterOverlay(label, startTime, x, y, angle, overlayFont, overlayAccent)
     local elapsed = ElapsedTime - startTime
     local growScale   = rerollTune.growScale
     local growSeconds = rerollTune.growSeconds
@@ -787,7 +788,7 @@ function drawRerollLetterOverlay(label, startTime, x, y, angle)
     -- Same bright cyan as the drag-selection line (drawSelectionPath) -- visible on
     -- every theme, unlike Color.uiAccent2 against the normal letter color. Held
     -- constant: the overlay fades out entirely in phase 2 anyway.
-    local accent = color(120, 255, 255, 255)
+    local accent = overlayAccent or color(120, 255, 255, 255)
     local overlayScale, overlayFill
     if elapsed < growSeconds then
         overlayScale = 1.0 + growBy * (elapsed / growSeconds)  -- normal -> growScale
@@ -803,7 +804,7 @@ function drawRerollLetterOverlay(label, startTime, x, y, angle)
     translate(x, y)
     if angle ~= 0 then rotate(angle) end
     scale(overlayScale)
-    font("Helvetica-Bold")
+    font(overlayFont or "Helvetica-Bold")
     fill(overlayFill)
     text(label, 0, 0)
     popMatrix()
@@ -820,7 +821,12 @@ function menuPreviewBoardStep(state, n, cycleIndex, seed)
     if state.n ~= n or not state.tiles then
         state.n, state.k = n, cycleIndex
         state.tiles = generateBoardTilesSeeded(seed + n, n)
+        state.forceTick = nil
         return {}
+    end
+    if state.forceTick then   -- a difficulty button was just pressed: change tiles right now
+        state.forceTick = nil
+        cycleIndex = math.max(cycleIndex, state.k + 1)
     end
     if cycleIndex <= state.k then return {} end
     state.k = cycleIndex

@@ -72,6 +72,7 @@ local function roleColor(role)
   if role == "black"  then return color(0, 0, 0, 255) end
   if role == "accent" then return Color.uiAccent end
   if role == "accent2" then return Color.uiAccent2 end
+  if role == "select" then return Color.uiSelect or Color.uiAccent2 end   -- selected-difficulty highlight
   if role == "paper"  then return Color.tileFill end
   return Color.tileText   -- "ink"
 end
@@ -259,24 +260,27 @@ local function panelSpecs()
       label = c.diceLabel, num = tostring(MIN_WORD_LEN) },
     { id = "diffEasy", show = c.showDifficulty, z = c.zDifficulty, r = diffPlates.easy, u = u, tilt = 0,
       label = "Easy", lsize = 15, hitKey = "diffEasy",
-      hairRole = ((rerollDifficulty or "normal") == "easy") and "accent2" or nil,
-      textRole = ((rerollDifficulty or "normal") == "easy") and "accent2" or nil },
+      hairRole = ((rerollDifficulty or "normal") == "easy") and "select" or nil,
+      strokeRole = ((rerollDifficulty or "normal") == "easy") and "select" or nil,
+      textRole = ((rerollDifficulty or "normal") == "easy") and "select" or nil },
     { id = "diffNormal", show = c.showDifficulty, z = c.zDifficulty, r = diffPlates.normal, u = u, tilt = 0,
       label = "Normal", lsize = 15, hitKey = "diffNormal",
-      hairRole = ((rerollDifficulty or "normal") == "normal") and "accent2" or nil,
-      textRole = ((rerollDifficulty or "normal") == "normal") and "accent2" or nil },
+      hairRole = ((rerollDifficulty or "normal") == "normal") and "select" or nil,
+      strokeRole = ((rerollDifficulty or "normal") == "normal") and "select" or nil,
+      textRole = ((rerollDifficulty or "normal") == "normal") and "select" or nil },
     { id = "diffHard", show = c.showDifficulty, z = c.zDifficulty, r = diffPlates.hard, u = u, tilt = 0,
       label = "Hard", lsize = 15, hitKey = "diffHard",
-      hairRole = ((rerollDifficulty or "normal") == "hard") and "accent2" or nil,
-      textRole = ((rerollDifficulty or "normal") == "hard") and "accent2" or nil },
+      hairRole = ((rerollDifficulty or "normal") == "hard") and "select" or nil,
+      strokeRole = ((rerollDifficulty or "normal") == "hard") and "select" or nil,
+      textRole = ((rerollDifficulty or "normal") == "hard") and "select" or nil },
     { id = "game", show = c.showGame, z = c.zGame, r = Lay.gamePlate, u = u, tilt = c.gtilt,
       label = c.gameLabel, lsize = c.gameSize },
   }
 end
 
 -- Per-spec fillRole/strokeRole/hairRole/textRole overrides (the difficulty
--- buttons' selected-vs-not indicator -- just the text and outer hairline
--- change color; the fill stays the same solid white as every other plate)
+-- buttons' selected-vs-not indicator -- the text and both outlines (inner
+-- line + outer hairline) change color; the fill stays the same solid white as every other plate)
 -- layered onto the shared cfg.
 local function resolvedCfg(sp, c)
   if not (sp.fillRole or sp.strokeRole or sp.hairRole or sp.textRole) then return c end
