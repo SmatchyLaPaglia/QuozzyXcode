@@ -214,8 +214,9 @@ GameKit calls through the objc bridge, `tools/notify_trial.lua`):
   - The holder can read an unreplied exchange's payload from `activeExchanges` (`ex.data`), absorb it
     with a silent save, and end the match; an unreplied ACTIVE exchange does not block the end
     call (only completed ones do). So the reply, and its banner, can be skipped.
-  - Untested: reply banner text, quit/clear-all (`_quitThenRemoveMatch`, which passes the turn
-    to the opponent on an in-turn quit and likely banners them), the OS "Welcome back" toast.
+  - Untested: reply banner text (the app no longer replies), quit/clear-all (`_quitThenRemoveMatch`: passes
+    the turn to the opponent on an in-turn quit, so likely banners them; dev-menu only, not player-reachable),
+    the OS "Welcome back" toast (not suppressible).
 
 Testing notifications across two devices: `DBG_DEVICE=<id> tools/dbg.sh` per device;
 `objc.UIApplication.sharedApplication:suspend()` (private, dev builds only) sends the app to the
