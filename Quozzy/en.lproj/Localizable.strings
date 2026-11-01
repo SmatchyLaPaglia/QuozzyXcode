@@ -1,10 +1,13 @@
 /*
   GameKit shows these keys to the other player as notification text whenever an
   exchange is sent (XCHG_UPDATE) or answered (XCHG_REPLY) -- see
-  CodeaTurnBasedMatches.lua sendExchangeWithDataTable / replyToActiveExchanges.
-  Exchanges only carry scores and comments for a match the player already has,
-  and banners are reserved for a newly received, unplayed match, so both map to
-  empty text. Without an entry, iOS shows the raw key itself.
+  CodeaTurnBasedMatches.lua sendExchangeWithDataTable. An empty value does NOT
+  hide the banner: iOS treats it as a missing entry and shows the raw key
+  (confirmed on device 2026-10-31). So both need real wording.
+
+  XCHG_UPDATE is the only one the app sends now: the non-holder's finished round
+  (score + comment together). The app no longer replies to exchanges, so
+  XCHG_REPLY only matters for exchanges answered by older builds.
 */
-"XCHG_UPDATE" = "";
-"XCHG_REPLY" = "";
+"XCHG_UPDATE" = "Your opponent has finished their round.";
+"XCHG_REPLY" = "Your opponent has seen your update.";

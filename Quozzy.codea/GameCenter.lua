@@ -593,17 +593,8 @@ function refreshCurrentMatchFromGK(reason)
         end
         -- Read-only with respect to the send machinery: never swap tbm.currentMatch
         -- or start a send from here (a poll shouldn't race the real send path).
-        -- Only answer the opponent's pending exchange, on this freshly loaded
-        -- object, when there actually is one.
-        local active = o__match.activeExchanges
-        if active and #active > 0 and not pendingTurnSendsByMatchId[matchId] then
-          for _, ex in ipairs(active) do
-            pcall(function()
-              ex:replyWithLocalizableMessageKey_arguments_data_completionHandler_(
-                "XCHG_REPLY", {}, tbm:_dataTableToNSData({}), function(o__err) end)
-            end)
-          end
-        end
+        -- Never reply to the opponent's pending exchange: that banners them (the
+        -- payload is already folded into `fresh` by makeQMatchFromGK).
       end, o__match, o__err)
     end)
   end)
@@ -1013,22 +1004,18 @@ function onExchangeDataReceived(gkMatch, dataTable)
     end
   end
 
-  tbm:replyToActiveExchanges(nil, function(repliedCount)
-    devLog("onExchangeDataReceived: replied to", repliedCount, "exchange(s)", "matchId=", matchId)
-    -- The opponent's data just applied above might be the last missing piece
-    -- (e.g. their comment, arriving via exchange because they didn't hold the
-    -- turn) -- if I already hold the turn and have everything else done,
-    -- that makes the match finalize-eligible right now. Nothing else
-    -- re-checks this on receipt of an exchange specifically (a normal
-    -- turn-pass receipt already gets this for free via enterQMatch's own
-    -- attemptLegSend call) -- re-check here too, after the reply has
-    -- actually round-tripped so a finalize's merge step sees this exchange
-    -- as resolved. Called with the same frozen-payload-reuse/dedup semantics
-    -- as every other attemptLegSend call, not a special case.
-    if tbm.isMyTurn and currentQMatch and currentQMatch.id == matchId then
-      attemptLegSend(currentQMatch)
-    end
-  end)
+  -- No reply: a reply banners the sender, and the payload was just applied above (and
+  -- is re-read from the match's unmerged exchanges by makeQMatchFromGK on any reload).
+  --
+  -- The opponent's data just applied above might be the last missing piece (e.g. their
+  -- comment, arriving via exchange because they didn't hold the turn) -- if I already
+  -- hold the turn and have everything else done, that makes the match finalize-eligible
+  -- right now. Nothing else re-checks this on receipt of an exchange specifically (a
+  -- normal turn-pass receipt already gets this for free via enterQMatch's own
+  -- attemptLegSend call).
+  if tbm.isMyTurn and currentQMatch and currentQMatch.id == matchId then
+    attemptLegSend(currentQMatch)
+  end
 
   if refreshVsMatchesList then refreshVsMatchesList("exchangeReceived") end
 end

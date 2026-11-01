@@ -531,6 +531,7 @@ function vsStartNewMatchWithFriend(friendEntry)
   request.minPlayers = 2
   request.maxPlayers = 2
   request.recipients = { friendEntry.player }
+  pcall(function() request.inviteMessage = GAME_INVITE_MESSAGE end)
   local ok = pcall(function()
     GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(request, function(o__match, o__err)
       handOff(function()

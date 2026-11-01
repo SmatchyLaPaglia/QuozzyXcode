@@ -121,7 +121,6 @@ function FakeTBM.new()
     failNextExchangeSends = 0,  -- same, for sendExchangeWithDataTable
     failNextMerges = 0,         -- same, for mergeCompletedExchanges
     completedExchangeCount = 0, -- how many "completed exchanges" mergeCompletedExchanges reports consuming
-    activeExchangeCount = 0,    -- how many "active exchanges" replyToActiveExchanges reports replying to
   }, FakeTBM)
 end
 
@@ -186,12 +185,6 @@ function FakeTBM:sendExchangeWithDataTable(t, onError, onSuccess)
   end
   self.exchangeSentCalls[#self.exchangeSentCalls+1] = t
   if onSuccess then onSuccess({}) end
-end
-
-function FakeTBM:replyToActiveExchanges(dataTable, onDone)
-  local n = self.activeExchangeCount or 0
-  self.activeExchangeCount = 0
-  if onDone then onDone(n) end
 end
 
 function FakeTBM:_getEndStateFromMatch(m) return nil end

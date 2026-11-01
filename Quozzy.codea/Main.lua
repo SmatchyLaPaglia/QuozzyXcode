@@ -395,6 +395,7 @@ local function _tryRematchForLastReplay(settings)
           request.minPlayers = 2
           request.maxPlayers = 2
           request.recipients  = {gkOpponent}
+          pcall(function() request.inviteMessage = GAME_INVITE_MESSAGE end)
           GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(
             request,
             function(o__match, o__matchErr)

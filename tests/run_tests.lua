@@ -1036,6 +1036,52 @@ test("onExchangeDataReceived: finalizes immediately if the opponent's data arriv
   check("pending entry cleared after finalize", pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
+-- Banner regressions (XCODE_CODEA.md "Banner ledger"): every one of these costs the
+-- other player a notification for nothing, so they are pinned at the source level.
+test("onExchangeDataReceived: never replies to the exchange (a reply is a banner for the sender)", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  local replied = false
+  tbm.replyToActiveExchanges = function() replied = true end
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  tbm.currentMatch = { matchID = "m1" }
+  onExchangeDataReceived({ matchID = "m1" }, { players = { opp = { didPlay = true } } })
+  tbm.replyToActiveExchanges = nil
+  check("no reply sent", replied == false)
+  check("payload still applied", currentQMatch.players["opp"].didPlay == true)
+end)
+
+local function readSource(rel)
+  local f = assert(io.open(ROOT .. "/" .. rel, "r")); local t = f:read("a"); f:close(); return t
+end
+
+test("source guard: exchanges never expire and nothing replies to one", function()
+  local ctbm = readSource("Quozzy.codea/CodeaTurnBasedMatches.lua")
+  check("timeout constant is 0", ctbm:find("CTBM.EXCHANGE_TIMEOUT_NONE = 0", 1, true) ~= nil)
+  check("sendExchange passes the constant", ctbm:find("CTBM.EXCHANGE_TIMEOUT_NONE,", 1, true) ~= nil)
+  for _, f in ipairs({ "CodeaTurnBasedMatches", "GameCenter", "Main", "MatchSelection", "qMatch_qPlayer" }) do
+    local src = readSource("Quozzy.codea/" .. f .. ".lua")
+    check(f .. " never calls replyWithLocalizableMessageKey", src:find("replyWithLocalizableMessageKey", 1, true) == nil)
+  end
+end)
+
+test("source guard: every opponent-naming match request carries the invite message", function()
+  for _, f in ipairs({ "CodeaTurnBasedMatches", "MatchSelection", "Main" }) do
+    local src = readSource("Quozzy.codea/" .. f .. ".lua")
+    local requests = select(2, src:gsub("objc%.GKMatchRequest%(%)", ""))
+    local invites = select(2, src:gsub("request%.inviteMessage = GAME_INVITE_MESSAGE", ""))
+    check(f .. ": " .. requests .. " request(s), " .. invites .. " invite message(s)", requests == invites)
+  end
+end)
+
+test("source guard: the exchange banner keys have real text (empty falls back to the raw key)", function()
+  local strings = readSource("Quozzy/en.lproj/Localizable.strings")
+  for _, key in ipairs({ "XCHG_UPDATE", "XCHG_REPLY" }) do
+    local v = strings:match('"' .. key .. '"%s*=%s*"([^"]*)"')
+    check(key .. " has non-empty text", v ~= nil and v ~= "")
+  end
+end)
+
 test("decideComment: sends via exchange when not holding the turn, rather than waiting for it", function()
   useTurnBased = true
   tbm.isMyTurn = false -- e.g. the match creator, right after sending the handshake

@@ -1,5 +1,16 @@
 --CTMB stands for Codea Turn-Based Matches
 CTBM = class()
+
+-- Exchanges never expire: GameKit banners the SENDER ("An action was completed")
+-- when an unanswered exchange times out, and we never answer them (a reply is
+-- itself a banner). Confirmed on device 2026-10-31, XCODE_CODEA.md "Banner ledger".
+CTBM.EXCHANGE_TIMEOUT_NONE = 0
+
+-- Shown to the invitee as "<alias> invited you to play: <this>" -- the ONE banner
+-- a new game causes (it arrives with the handshake turn pass). Set it on every
+-- GKMatchRequest that names an opponent.
+GAME_INVITE_MESSAGE = "Join me for a round of Vivaldi-ku"
+
 CTBM.ENDSTATE = {
   WIN  = "win",
   LOSS = "loss",
@@ -811,6 +822,7 @@ function CTBM:findOrMakeMatch()
   local request = objc.GKMatchRequest()
   request.minPlayers = 2
   request.maxPlayers = 2
+  pcall(function() request.inviteMessage = GAME_INVITE_MESSAGE end)
   
   objc.GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(
   request,
@@ -991,8 +1003,10 @@ end
 -- Sends an exchange carrying t to every other participant -- unlike
 -- endTurnWithDataTable, this does NOT require holding the turn (see
 -- MULTIPLAYER_DESIGN.md "GameKit exchange trial": confirmed working on real
--- hardware against an accepted participant). The recipient must reply
--- (replyToActiveExchanges) before the turn holder can merge it in.
+-- hardware against an accepted participant). The recipient deliberately does NOT
+-- reply: a reply banners the sender, and the payload is readable from the match's
+-- unmerged exchanges anyway (makeQMatchFromGK folds it in). Never expires, for
+-- the same reason (see EXCHANGE_TIMEOUT_NONE).
 function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
   if not self.currentMatch then
     self:log("CTBM: can't send exchange because currentMatch is nil")
@@ -1020,7 +1034,7 @@ function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
   data,
   "XCHG_UPDATE",
   {},
-  7 * 24 * 60 * 60, -- a week; GameKit's own exchange timeout isn't relied on (see design doc)
+  CTBM.EXCHANGE_TIMEOUT_NONE,
   function(o__exchange, o__err) handOff(function(o__exchange, o__err)
     if o__err then
       self:log("CTBM:sendExchange error:", o__err.localizedDescription)
@@ -1031,39 +1045,6 @@ function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
     end
   end, o__exchange, o__err) end
   )
-end
-
--- Replies to every currently-active exchange on currentMatch (recipient side;
--- doesn't require holding the turn). Moves each from active -> complete.
--- onDone(repliedCount) fires once every reply attempt has returned, success or not.
-function CTBM:replyToActiveExchanges(dataTable, onDone)
-  if not self.currentMatch then
-    if onDone then onDone(0) end
-    return
-  end
-  local active = self.currentMatch.activeExchanges
-  local total = active and #active or 0
-  if total == 0 then
-    if onDone then onDone(0) end
-    return
-  end
-
-  local data = self:_dataTableToNSData(dataTable)
-  local remaining = total
-  for _, ex in ipairs(active) do
-    ex:replyWithLocalizableMessageKey_arguments_data_completionHandler_(
-    "XCHG_REPLY", {}, data,
-    function(o__err) handOff(function(o__err)
-      if o__err then
-        self:log("CTBM:replyToActiveExchanges error:", o__err.localizedDescription)
-      else
-        self:log("CTBM: exchange reply succeeded")
-      end
-      remaining = remaining - 1
-      if remaining <= 0 and onDone then onDone(total) end
-    end, o__err) end
-    )
-  end
 end
 
 -- Merges every completed exchange into matchData (turn-holder only -- GameKit
