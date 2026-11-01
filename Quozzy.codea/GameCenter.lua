@@ -793,7 +793,7 @@ function attemptLegSend(q)
     if action.kind == "handshake" then
       awaitingHandshakeSend = true
       attachRecordSync()
-    elseif action.kind == "score" or action.kind == "comment" then
+    elseif action.kind == "result" or action.kind == "score" or action.kind == "comment" then
       attachRecordSync()
     end
     pending = { kind = action.kind, via = action.via, turnData = payload, attempts = 0 }

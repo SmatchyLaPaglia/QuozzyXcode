@@ -221,9 +221,9 @@ COMMENT_WINDOW_SECONDS = COMMENT_WINDOW_SECONDS or 24 * 60 * 60
 -- No tbm/objc access here -- the caller supplies iHoldTurn (from tbm.isMyTurn) and
 -- picks the actual send mechanism. Returns one of:
 --   { kind = "handshake" }                        -- board has never gone out.
---   { kind = "score",   via = "save"|"exchange" }  -- my score hasn't gone out yet.
---   { kind = "comment", via = "save"|"exchange" }  -- my locked comment hasn't gone
---                                                      out yet (only once decided).
+--   { kind = "result",  via = "save"|"exchange" }  -- my round (score + comment, together)
+--                                                      hasn't gone out yet; only owed once
+--                                                      my comment is decided.
 -- The handshake is the only send that passes the turn: passing it makes Apple
 -- show the recipient a "your turn" banner, and banners are reserved for a newly
 -- received, unplayed match. Score/comment never pass it -- the turn holder
@@ -263,12 +263,14 @@ function computeNextOwedAction(q, myId, iHoldTurn, now)
     end
   end
 
-  if me.didPlay and not me.scoreSent then
-    return { kind = "score", via = iHoldTurn and "save" or "exchange" }
-  end
-
-  if me.commentDecided and not me.commentSent then
-    return { kind = "comment", via = iHoldTurn and "save" or "exchange" }
+  -- My round's result goes out as ONE send, once my comment is decided (a blank
+  -- decision counts): score and comment together. Two sends meant two exchanges for
+  -- the non-holder, and every exchange banners the other player. Until the comment
+  -- is decided nothing is owed -- the comment prompt (EndScreenFP.lua) is what
+  -- forces that decision straight after the round. `not me.commentSent` also
+  -- re-sends the odd match an older build left with the score out and the comment not.
+  if me.didPlay and me.commentDecided and not (me.scoreSent and me.commentSent) then
+    return { kind = "result", via = iHoldTurn and "save" or "exchange" }
   end
 
   return nil

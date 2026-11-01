@@ -472,18 +472,19 @@ end)
 -- can diverge per player, a sender's own (possibly-rerolled) board has no
 -- business overwriting the recipient's independent one.
 
-test("attemptLegSend: a score leg (in-place save) does not carry boardTiles or seed", function()
+test("attemptLegSend: a result leg (in-place save) does not carry boardTiles or seed", function()
   useTurnBased = true
   tbm.isMyTurn = true
   local q = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3, 999)
   q.boardTiles = {"A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"}
   q.players["local-player-id"].didPlay = true
+  q.players["local-player-id"].commentDecided = true
   attemptLegSend(q)
   check("one save recorded", #tbm.saveCalls == 1, tostring(#tbm.saveCalls))
   check("turn not passed", #tbm.sentCalls == 0 and tbm.isMyTurn == true)
   local sent = tbm.saveCalls[1].dataTable
-  check("no boardTiles on a score leg", sent.boardTiles == nil)
-  check("no seed on a score leg", sent.seed == nil)
+  check("no boardTiles on a result leg", sent.boardTiles == nil)
+  check("no seed on a result leg", sent.seed == nil)
   check("players table still carried", sent.players ~= nil)
 end)
 
@@ -726,7 +727,7 @@ test("endGameRound: single player just records local score, no GK involvement", 
   check("no GK sends", #tbm.sentCalls == 0)
 end)
 
-test("endGameRound: multiplayer sends the score immediately when isMyTurn (MULTIPLAYER_DESIGN.md rule 2)", function()
+test("endGameRound: multiplayer holds the result until the comment is decided, then sends it in one save", function()
   useTurnBased = true
   tbm.isMyTurn = true
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
@@ -736,9 +737,31 @@ test("endGameRound: multiplayer sends the score immediately when isMyTurn (MULTI
   check("local score recorded", currentQMatch.players["local-player-id"].score == 23)
   check("didPlay true", currentQMatch.players["local-player-id"].didPlay == true)
   check("awaiting comment flag set", currentQMatch.awaitingCommentBeforeFinalization == true)
-  check("score saved into the match immediately, independent of comment status",
-    #tbm.saveCalls == 1 and tbm.saveCalls[1].dataTable.players["local-player-id"].score == 23)
+  check("nothing sent while the comment is undecided (one send per round, not two)",
+    #tbm.saveCalls == 0 and #tbm.exchangeSentCalls == 0 and #tbm.sentCalls == 0)
+  decideComment("nice board")
+  check("score and comment saved together in one write",
+    #tbm.saveCalls == 1
+    and tbm.saveCalls[1].dataTable.players["local-player-id"].score == 23
+    and tbm.saveCalls[1].dataTable.players["local-player-id"].comment == "nice board")
   check("turn not passed (no banner for the opponent)", #tbm.sentCalls == 0)
+end)
+
+test("result send: marks score AND comment sent so nothing is re-sent; a second comment decision is a no-op", function()
+  useTurnBased = true
+  tbm.isMyTurn = false
+  currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
+  score, foundWords = 4, {"CAT"}
+  endGameRound()
+  decideComment("gg")
+  local me = currentQMatch.players["local-player-id"]
+  check("one exchange for the whole round", #tbm.exchangeSentCalls == 1)
+  check("exchange carries score and comment together",
+    tbm.exchangeSentCalls[1].players["local-player-id"].score == 4
+    and tbm.exchangeSentCalls[1].players["local-player-id"].comment == "gg")
+  check("scoreSent and commentSent both set", me.scoreSent == true and me.commentSent == true)
+  attemptLegSend(currentQMatch)
+  check("nothing more owed", #tbm.exchangeSentCalls == 1 and pendingTurnSendsByMatchId["m1"] == nil)
 end)
 
 -- ---- enterQMatch: needsInitialHandshake flag threading (hazard #1) -------
@@ -1374,35 +1397,35 @@ test("computeNextOwedAction: nothing owed before I've finished playing", functio
   check("nil", computeNextOwedAction(q, "me", true, os.time()) == nil)
 end)
 
-test("computeNextOwedAction: score owed via in-place save the instant I finish, even if my comment isn't decided", function()
+test("computeNextOwedAction: nothing owed after I finish until my comment is decided (result is one send)", function()
+  for _, iHold in ipairs({ true, false }) do
+    local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
+    q.players["me"].didPlay = true
+    q.players["me"].commentDecided = false
+    check("nil (hold=" .. tostring(iHold) .. ")", computeNextOwedAction(q, "me", iHold, os.time()) == nil)
+  end
+end)
+
+test("computeNextOwedAction: result owed via in-place save once the comment is decided", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay = true
-  q.players["me"].commentDecided = false
+  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
   local a = computeNextOwedAction(q, "me", true, os.time())
-  check("score via save", a and a.kind == "score" and a.via == "save")
+  check("result via save", a and a.kind == "result" and a.via == "save")
 end)
 
-test("computeNextOwedAction: score owed via exchange when I don't hold the turn", function()
+test("computeNextOwedAction: result owed via exchange when I don't hold the turn", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay = true
+  q.players["me"].didPlay, q.players["me"].commentDecided = true, true
   local a = computeNextOwedAction(q, "me", false, os.time())
-  check("score via exchange", a and a.kind == "score" and a.via == "exchange")
+  check("result via exchange", a and a.kind == "result" and a.via == "exchange")
 end)
 
-test("computeNextOwedAction: comment owed once decided, after score already sent", function()
+test("computeNextOwedAction: a match an older build left with the score out but the comment not is re-sent as a result", function()
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
   q.players["me"].didPlay, q.players["me"].scoreSent = true, true
   q.players["me"].commentDecided = true
   local a = computeNextOwedAction(q, "me", true, os.time())
-  check("comment via save", a and a.kind == "comment" and a.via == "save")
-end)
-
-test("computeNextOwedAction: comment owed via exchange when I don't hold the turn", function()
-  local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
-  q.players["me"].commentDecided = true
-  local a = computeNextOwedAction(q, "me", false, os.time())
-  check("comment via exchange", a and a.kind == "comment" and a.via == "exchange")
+  check("result via save", a and a.kind == "result" and a.via == "save")
 end)
 
 test("computeNextOwedAction: nothing owed once score+comment both sent and opponent unresolved", function()
@@ -1443,15 +1466,15 @@ test("computeNextOwedAction: nothing owed if both resolved but I don't hold the 
   check("nil", computeNextOwedAction(q, "me", false, os.time()) == nil)
 end)
 
-test("computeNextOwedAction: 'comment' (not finalize) if opponent played but hasn't decided -- saved in place, never a turn pass", function()
+test("computeNextOwedAction: 'result' (not finalize) if opponent played but hasn't decided -- saved in place, never a turn pass", function()
   -- The case that used to pass the turn to an opponent with nothing left to
   -- play, making Apple show them a "your turn" banner for a finished match.
   local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
-  q.players["me"].didPlay, q.players["me"].scoreSent = true, true
+  q.players["me"].didPlay = true
   q.players["me"].commentDecided = true
   q.players["opp"].didPlay, q.players["opp"].commentDecided = true, false
   local a = computeNextOwedAction(q, "me", true, os.time())
-  check("comment via save", a and a.kind == "comment" and a.via == "save")
+  check("result via save", a and a.kind == "result" and a.via == "save")
 end)
 
 test("computeNextOwedAction: no score/comment action ever passes the turn", function()
@@ -1460,13 +1483,10 @@ test("computeNextOwedAction: no score/comment action ever passes the turn", func
       local q = freshQMatch("m1", "gameCenter", "me", "opp", "Opp", 4, 3)
       q.players["opp"].didPlay = oppPlayed
       q.players["me"].didPlay = true
+      q.players["me"].commentDecided = true
       local a = computeNextOwedAction(q, "me", iHold, os.time())
-      check("score not via turn (hold=" .. tostring(iHold) .. ", oppPlayed=" .. tostring(oppPlayed) .. ")",
-        a and a.kind == "score" and a.via ~= "turn")
-      q.players["me"].scoreSent, q.players["me"].commentDecided = true, true
-      a = computeNextOwedAction(q, "me", iHold, os.time())
-      check("comment not via turn (hold=" .. tostring(iHold) .. ", oppPlayed=" .. tostring(oppPlayed) .. ")",
-        a and a.kind == "comment" and a.via ~= "turn")
+      check("result not via turn (hold=" .. tostring(iHold) .. ", oppPlayed=" .. tostring(oppPlayed) .. ")",
+        a and a.kind == "result" and a.via ~= "turn")
     end
   end
 end)
@@ -1646,9 +1666,9 @@ test("quit, close end screen (blank comment via exchange), reload stale server d
   currentQMatch = freshQMatch("m1", "gameCenter", "local-player-id", "opp", "Opp", 4, 3)
   score, foundWords = 7, {"CAT"}
   endGameRound()
-  check("score went out via exchange", #tbm.exchangeSentCalls == 1)
-  decideComment("")  -- closing the end screen
-  check("blank comment went out via exchange", #tbm.exchangeSentCalls == 2)
+  check("nothing went out before the comment was decided", #tbm.exchangeSentCalls == 0)
+  decideComment("")  -- the comment prompt's "no"
+  check("score and blank comment went out as ONE exchange", #tbm.exchangeSentCalls == 1)
   check("snapshot survives an exchange-sent comment", finishedAwaitingDecisionByMatchId["m1"] ~= nil)
   state = STATE_MENU
 
