@@ -185,10 +185,11 @@ GameKit calls through the objc bridge, `tools/notify_trial.lua`):
   (`match.message`), not whether. Exchanges, exchange replies and reminders each carry a
   `localizableMessageKey` (+ `arguments`) that becomes the recipient's notification text. There
   is no "silent" variant of any of them. Only the holder's in-place save is silent (see ledger).
-- **The key is localized on the recipient's device**, from the app's own `Localizable.strings`.
-  It has to sit in the app bundle (`Quozzy/en.lproj/Localizable.strings`, added to the Xcode
-  project as a variant group) — files inside `Quozzy.codea` don't count. A key with no entry is
-  shown raw (e.g. "XCHG_UPDATE"). The recipient needs a build that has the entry.
+- **The exchange "localizableMessageKey" is NOT looked up** in the app's `Localizable.strings`
+  (confirmed 2026-11-01: real text mapped for the key, recipient build contained it, banner still
+  showed the raw key). Game Center shows the key itself, so send the English sentence AS the key
+  (`CTBM.EXCHANGE_MESSAGE`). Banner reads "Vivaldi-ku: <key>" under the title "Vivaldi-ku | Game
+  Center". `Quozzy/en.lproj/Localizable.strings` only mirrors it.
 - **Banner ledger, confirmed on iPad + XR (2026-10-31, `tools/notify_trial.lua`):**
   - Creating a match with `recipients` is silent, and the invitee can't see the match at all
     (`loadMatchWithID` returns nil, no error) until the turn is passed. So the handshake turn
@@ -196,8 +197,10 @@ GameKit calls through the objc bridge, `tools/notify_trial.lua`):
     "<alias> invited you to play: <GKMatchRequest.inviteMessage>" (we control the text; a
     `match.message` set on the pass did not replace it). No second "your turn" banner.
   - A holder's `saveCurrentTurnWithMatchData` is silent.
-  - An exchange banners the recipient as "Vivaldi-ku: <localized key>". Mapping the key to `""`
-    does NOT hide it: an empty value is treated as missing and the raw key is shown.
+  - An exchange banners the recipient as "Vivaldi-ku: <key>" (the key is shown verbatim, see above;
+    mapping it to `""` in Localizable.strings does not hide it). A recipient who has NOT yet accepted
+    the match (participant status 1, "invited") got NO banner for an exchange, though the exchange was
+    delivered and readable; after accepting, the next exchange banners. Seen once, simulator sender.
   - `endMatchInTurn` banners the OTHER player with system text "The game is over."
   - An exchange that nobody replies to banners its SENDER with "An action was completed" when
     its timeout expires, even after the match has ended. Timeout 0 (`GKExchangeTimeoutNone`)

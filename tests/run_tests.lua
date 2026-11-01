@@ -1074,12 +1074,12 @@ test("source guard: every opponent-naming match request carries the invite messa
   end
 end)
 
-test("source guard: the exchange banner keys have real text (empty falls back to the raw key)", function()
-  local strings = readSource("Quozzy/en.lproj/Localizable.strings")
-  for _, key in ipairs({ "XCHG_UPDATE", "XCHG_REPLY" }) do
-    local v = strings:match('"' .. key .. '"%s*=%s*"([^"]*)"')
-    check(key .. " has non-empty text", v ~= nil and v ~= "")
-  end
+test("source guard: the exchange message key is the human-readable banner text", function()
+  local ctbm = readSource("Quozzy.codea/CodeaTurnBasedMatches.lua")
+  local msg = ctbm:match('CTBM%.EXCHANGE_MESSAGE = "([^"]+)"')
+  check("EXCHANGE_MESSAGE is a sentence, not a token", msg ~= nil and msg:find(" ", 1, true) ~= nil)
+  check("the exchange is sent with it", ctbm:find("CTBM.EXCHANGE_MESSAGE,\n  {},", 1, true) ~= nil)
+  check("no raw XCHG_ token is sent", ctbm:find('"XCHG_', 1, true) == nil)
 end)
 
 test("decideComment: sends via exchange when not holding the turn, rather than waiting for it", function()

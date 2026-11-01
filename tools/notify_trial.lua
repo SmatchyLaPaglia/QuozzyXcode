@@ -264,6 +264,23 @@ function QT.readActive()
   return "read"
 end
 
+-- Counts every kind of exchange on a match (by matchID fragment), as seen by THIS device.
+function QT.exchanges(fragment)
+  objc.GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+    handOff(function(o__matches, o__err)
+      if o__err then L("exchanges", err(o__err)) return end
+      for i = 1, cnt(o__matches) do
+        local m = get(o__matches, i)
+        if s(m.matchID):find(fragment, 1, true) then
+          L(string.format("exchanges %s: all=%d active=%d completed=%d myStatus=?", s(m.matchID),
+            cnt(m.exchanges), cnt(m.activeExchanges), cnt(m.completedExchanges)))
+        end
+      end
+    end, o__matches, o__err)
+  end)
+  return "counting"
+end
+
 function QT.dump(n)
   n = n or 25
   return table.concat(QT.log, "\n", math.max(1, #QT.log - n + 1), #QT.log)

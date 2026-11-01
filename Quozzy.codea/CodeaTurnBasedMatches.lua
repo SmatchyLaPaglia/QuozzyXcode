@@ -6,6 +6,11 @@ CTBM = class()
 -- itself a banner). Confirmed on device 2026-10-31, XCODE_CODEA.md "Banner ledger".
 CTBM.EXCHANGE_TIMEOUT_NONE = 0
 
+-- The exchange's "localizableMessageKey". Game Center does NOT look this up in the app's
+-- Localizable.strings (confirmed on device 2026-11-01: real text mapped, banner still showed the
+-- raw key), it shows the key itself -- so the key IS the banner text, a plain English sentence.
+CTBM.EXCHANGE_MESSAGE = "Your opponent has finished their round."
+
 -- Shown to the invitee as "<alias> invited you to play: <this>" -- the ONE banner
 -- a new game causes (it arrives with the handshake turn pass). Set it on every
 -- GKMatchRequest that names an opponent.
@@ -1032,7 +1037,7 @@ function CTBM:sendExchangeWithDataTable(t, onError, onSuccess)
   self.currentMatch:sendExchangeToParticipants_data_localizableMessageKey_arguments_timeout_completionHandler_(
   recipients,
   data,
-  "XCHG_UPDATE",
+  CTBM.EXCHANGE_MESSAGE,
   {},
   CTBM.EXCHANGE_TIMEOUT_NONE,
   function(o__exchange, o__err) handOff(function(o__exchange, o__err)
