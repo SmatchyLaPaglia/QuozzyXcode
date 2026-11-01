@@ -848,6 +848,44 @@ function CTBM:findOrMakeMatch()
   )
 end
 
+-- GameKit only delivers (and announces) an opponent's exchange to a participant who has
+-- ACCEPTED the match, and nothing in this app ever accepted one: an invitee stayed
+-- "invited" indefinitely, so the creator's result never reached them until something else
+-- happened to accept for them (found on device 2026-11-01: exchange sent, iPad status 1,
+-- iPad saw zero exchanges; one explicit acceptInvite and it appeared). So accept the moment
+-- I see a match I'm invited to -- no system UI. Once per match per launch.
+-- (The completion handler only hands off; params are type-prefixed. See CLAUDE.md.)
+function CTBM:acceptInviteIfNeeded(o__match)
+  if not o__match then return end
+  local ok, err = pcall(function()
+    local matchId = o__match.matchID
+    self._acceptRequested = self._acceptRequested or {}
+    if not matchId or self._acceptRequested[matchId] then return end
+    local E = objc.enum and objc.enum.GKTurnBasedParticipantStatus
+    local localId = self.localPlayer and self.localPlayer.playerID
+    if not (E and E.invited and localId and o__match.participants) then return end
+    for _, p in ipairs(o__match.participants) do
+      if p and p.playerID == localId then
+        if p.status == E.invited then
+          self._acceptRequested[matchId] = true
+          o__match:acceptInviteWithCompletionHandler_(function(o__accepted, o__error)
+            handOff(function(o__accepted, o__error)
+              if o__error then
+                self._acceptRequested[matchId] = nil
+                self:log("CTBM: acceptInvite error:", o__error.localizedDescription)
+              else
+                self:log("CTBM: accepted invite for match", matchId)
+              end
+            end, o__accepted, o__error)
+          end)
+        end
+        return
+      end
+    end
+  end)
+  if not ok then self:log("CTBM: acceptInviteIfNeeded failed:", err) end
+end
+
 function CTBM:_setCurrentMatch(o__match, setterString)
   if not o__match then
     self:_logMatchmakingEvent("SET_MATCH_SKIPPED_NIL", nil, "from=" .. tostring(setterString))
@@ -857,6 +895,7 @@ function CTBM:_setCurrentMatch(o__match, setterString)
   self:_logMatchmakingEvent("SET_MATCH_ACCEPTED", o__match, "called from " .. tostring(setterString))
   
   self.currentMatch = o__match
+  self:acceptInviteIfNeeded(o__match)
   
   -- recompute turn ownership
   self.isMyTurn = self:vernacularForTurnOwner() == "me" or false

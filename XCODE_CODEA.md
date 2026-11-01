@@ -199,8 +199,13 @@ GameKit calls through the objc bridge, `tools/notify_trial.lua`):
   - A holder's `saveCurrentTurnWithMatchData` is silent.
   - An exchange banners the recipient as "Vivaldi-ku: <key>" (the key is shown verbatim, see above;
     mapping it to `""` in Localizable.strings does not hide it). A recipient who has NOT yet accepted
-    the match (participant status 1, "invited") got NO banner for an exchange, though the exchange was
-    delivered and readable; after accepting, the next exchange banners. Seen once, simulator sender.
+    the match (participant status 1, "invited") gets NO banner AND no data: the creator's exchange is
+    invisible to them (`exchanges` = 0 on their device, though the sender's send succeeded and the
+    sender sees it) until they call `acceptInviteWithCompletionHandler_` (no system UI); the
+    exchange then appears and an "exchange request" event fires. Nothing in the app accepted
+    before 2026-11-01; `CTBM:acceptInviteIfNeeded` now does, on `_setCurrentMatch` and on every
+    vs-list refresh. So an invitee who has not run the app since being invited gets no exchange
+    banner at all; one who has (so is accepted) gets exactly one per creator result.
   - `endMatchInTurn` banners the OTHER player with system text "The game is over."
   - An exchange that nobody replies to banners its SENDER with "An action was completed" when
     its timeout expires, even after the match has ended. Timeout 0 (`GKExchangeTimeoutNone`)

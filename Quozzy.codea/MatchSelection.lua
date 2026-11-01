@@ -307,6 +307,8 @@ function refreshVsMatchesList(reason)
           for i = 1, n do
             local m = _vsSafeArrayGet(o__matches, i)
             if m then
+              -- An invite I haven't accepted never receives the opponent's exchanges.
+              if tbm.acceptInviteIfNeeded then tbm:acceptInviteIfNeeded(m) end
               local dataTable = tbm._matchWithNSDataToDataTable and tbm:_matchWithNSDataToDataTable(m) or nil
               local q = makeQMatchFromGK and makeQMatchFromGK(m, dataTable) or nil
               if q then
