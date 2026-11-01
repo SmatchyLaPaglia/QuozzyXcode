@@ -139,7 +139,7 @@ colorInspectorOverlay = false
 GLOBAL_UI_FONT      = "HelveticaNeue-BoldItalic"
 GLOBAL_UI_FONT_DICE = "Helvetica"  -- what dice/tile letters rendered as before this change (no font() was ever set for them)
 BALLOON_MOCKUP_DEV = false  -- dev-only: true auto-opens the balloon mockup at launch (and forces teal).
-SHOW_DEBUG_BUTTON = false  -- dev-only: true shows the 🐛 button on the main menu (opens the Debug Menu/Clear All Matches panel, HaikuMenu.lua debugDialog). FALSE for shipped builds — flip off before App Store/TestFlight builds.
+SHOW_DEBUG_BUTTON = true  -- dev-only: true shows the 🐛 button on the main menu (opens the Debug Menu/Clear All Matches panel, HaikuMenu.lua debugDialog). FALSE for shipped builds — flip off before App Store/TestFlight builds.
 balloonMockupOverlay = BALLOON_MOCKUP_DEV == true
 mockupScenarioIndex = mockupScenarioIndex or 1  -- which of the 7 BALLOON_MOCKUP_STATES is showing
 mockupChipRects = nil           -- hit rects for the 7 scenario chips, set each frame
@@ -1101,6 +1101,7 @@ function setup()
   loadBoardGeneratedForMatchId()
   if loadRerollTune then loadRerollTune() end
   if loadRerollDifficulty then loadRerollDifficulty() end
+  if loadMenuFlipTune then loadMenuFlipTune() end
   requestPendingHandshakeResendCheck("setup")
   setupGCDebugParameters()
   if FORCE_COMMENT_PHASE_BOOT_PREVIEW and openDebugCommentPhasePreview then
@@ -1392,6 +1393,7 @@ function drawFrame()
     drawInfoOverlay()
     drawRipplePickerOverlay()
     drawRippleTuneOverlay()
+    drawMenuFlipTuneOverlay()
     drawPlatePlacementOverlay()
     drawColorInspectorOverlay()
     drawGCSignInOverlay()
@@ -1517,6 +1519,10 @@ function touchedFrame(t)
   end
 
   if rippleTuneOverlay and handleRippleTuneTouch(t) then
+    return
+  end
+
+  if menuFlipTuneOverlay and handleMenuFlipTuneTouch(t) then
     return
   end
 

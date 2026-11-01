@@ -250,6 +250,25 @@ test("computeRerollPlan: a single reroll event never produces more Qu than there
   end
 end)
 
+test("computeRerollPlan: every tile changes about equally often (no bottom-row bias)", function()
+  -- seededValue used to be linear in its salt, so the position shuffle picked the
+  -- low indices (the bottom row) for 63-78% of rerolls at 30%.
+  local savedPercent = rerollTune.percent
+  rerollTune.percent = 30
+  for _, n in ipairs({ 4, 5, 6 }) do
+    local K, hits = 3000, {}
+    for i = 1, n * n do hits[i] = 0 end
+    for k = 1, K do
+      for _, idx in ipairs(computeRerollPlan(7331 + n, n, k).positions) do hits[idx] = hits[idx] + 1 end
+    end
+    local expected = computeRerollPlan(7331 + n, n, 1).count / (n * n)
+    local worst = 0
+    for i = 1, n * n do worst = math.max(worst, math.abs(hits[i] / K - expected)) end
+    check(n .. "x" .. n .. ": per-tile rate within 0.04 of " .. expected, worst < 0.04, "worst deviation " .. worst)
+  end
+  rerollTune.percent = savedPercent
+end)
+
 test("computeRerollPlan: different k produces a different plan", function()
   local p1 = computeRerollPlan(999, 4, 1)
   local p2 = computeRerollPlan(999, 4, 2)

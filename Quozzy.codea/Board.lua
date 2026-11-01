@@ -223,17 +223,40 @@ local function seededHashString(s)
   return h
 end
 
-function seededValue(seed, k, salt)
-  local function step(a, b)
-    local x = (a + b) % SEEDED_MODULUS
-    if x == 0 then x = 1 end
-    return (x * SEEDED_MULTIPLIER) % SEEDED_MODULUS
+local function seededStep(a, b)
+  local x = (a + b) % SEEDED_MODULUS
+  if x == 0 then x = 1 end
+  return (x * SEEDED_MULTIPLIER) % SEEDED_MODULUS
+end
+
+-- Exact a*b mod 2^31-1 with every intermediate below 2^53 (doubles-safe).
+local function seededMulMod(a, b)
+  local bh, bl = math.floor(b / 65536), b % 65536
+  return ((a * bh) % SEEDED_MODULUS * 65536 + a * bl) % SEEDED_MODULUS
+end
+
+-- Nonlinear scramble between inputs. Lehmer steps alone are LINEAR, so
+-- salts that hash to neighbouring integers ("rerollPos:2".."rerollPos:9")
+-- came out as nearly identical values -- seededShuffle then picked the
+-- low indices (the bottom row) for 63-78% of rerolls instead of the
+-- percent asked for (2026-11-01). Multiplying x by a half-swapped copy of
+-- itself breaks that; two rounds measured uniform per tile.
+local function seededMix(x)
+  for _ = 1, 2 do
+    local rot = (x % 65536) * 32768 + math.floor(x / 65536)
+    x = seededStep(seededMulMod(x, rot + 1), 0)
   end
+  return x
+end
+
+function seededValue(seed, k, salt)
   local s  = math.floor(tonumber(seed) or 0) % SEEDED_MODULUS
   local kk = math.floor(tonumber(k) or 0) % SEEDED_MODULUS
   local saltN = (type(salt) == "string") and seededHashString(salt)
              or (math.floor(tonumber(salt) or 0) % SEEDED_MODULUS)
-  local x = step(s, 0); x = step(x, kk); x = step(x, saltN)
+  local x = seededMix(seededStep(s, 0))
+  x = seededMix(seededStep(x, kk))
+  x = seededMix(seededStep(x, saltN))
   return x / SEEDED_MODULUS
 end
 
@@ -778,20 +801,24 @@ end
 -- a bold copy of the new letter grows from normal size to growScale, then keeps
 -- expanding past it while fading out, over the stable letter drawn underneath.
 -- Uses the caller's font size; overlayFont defaults to the game board's bold Helvetica
--- (the bold of its dice font), overlayAccent to cyan. Returns false (drawing nothing) once it's over.
-function drawRerollLetterOverlay(label, startTime, x, y, angle, overlayFont, overlayAccent)
+-- (the bold of its dice font), overlayAccent to cyan. tune (optional, the menu's
+-- menuFlipTune) supplies growScale/growSeconds/fadeSeconds/endScale instead of the game's
+-- rerollTune. Returns false (drawing nothing) once it's over.
+function drawRerollLetterOverlay(label, startTime, x, y, angle, overlayFont, overlayAccent, tune)
     local elapsed = ElapsedTime - startTime
-    local growScale   = rerollTune.growScale
-    local growSeconds = rerollTune.growSeconds
-    local fadeSeconds = rerollTune.fadeSeconds
-    local growBy      = growScale - 1.0  -- phase 2 extends by the same amount again
+    local T = tune or rerollTune
+    local growScale   = T.growScale
+    local growSeconds = T.growSeconds
+    local fadeSeconds = T.fadeSeconds
+    -- phase 2 keeps going to endScale (default: extends by the same amount again)
+    local growBy      = (T.endScale or (2 * growScale - 1.0)) - growScale
     -- Same bright cyan as the drag-selection line (drawSelectionPath) -- visible on
     -- every theme, unlike Color.uiAccent2 against the normal letter color. Held
     -- constant: the overlay fades out entirely in phase 2 anyway.
     local accent = overlayAccent or color(120, 255, 255, 255)
     local overlayScale, overlayFill
     if elapsed < growSeconds then
-        overlayScale = 1.0 + growBy * (elapsed / growSeconds)  -- normal -> growScale
+        overlayScale = 1.0 + (growScale - 1.0) * (elapsed / growSeconds)  -- normal -> growScale
         overlayFill = accent
     elseif elapsed < growSeconds + fadeSeconds then
         local u = (elapsed - growSeconds) / fadeSeconds

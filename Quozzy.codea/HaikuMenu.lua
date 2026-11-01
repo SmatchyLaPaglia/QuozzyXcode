@@ -550,20 +550,104 @@ end
 -- min-word-length dice (Section 3). Every tile spins through random letters fast, then
 -- resolves to its real letter one at a time in index order, holds there, then spins
 -- again. (2026-09-27, replacing an instant once-per-second swap.) The board preview
--- (Section 2) only uses the MENU_SPIN_CYCLE clock as its tick now: its letters change
--- like a game board's (menuPreviewBoardStep, Board.lua), not by spinning.
+-- (Section 2) doesn't spin: its letters change like a game board's
+-- (menuPreviewBoardStep, Board.lua) every menuFlipTune.interval seconds.
 ------------------------------------------------------------
 
 -- Board preview state for menuPreviewBoardStep (Board.lua). Any fixed seed works.
 MENU_PREVIEW_BOARD_SEED = 7331
 menuPreviewBoard        = menuPreviewBoard or {}
-menuPreviewBoardAnim    = menuPreviewBoardAnim or {}  -- tile index -> effect start time
+menuPreviewBoardAnim    = menuPreviewBoardAnim or {}  -- tile index -> { start = effect start time, old = letter shown until then }
 menuPreviewBoardAnimN   = menuPreviewBoardAnimN or nil
+menuPreviewNextTick     = menuPreviewNextTick or nil  -- ElapsedTime of the board preview's next letter change
 
-MENU_SPIN_CYCLE         = 0.9   -- seconds per board-preview tick / spin -> resolve -> hold -> respin loop
-MENU_SPIN_RESOLVE_START = 0.55  -- seconds into the cycle when tile #1 locks in
-MENU_SPIN_RESOLVE_SPAN  = 0.55  -- seconds over which the LAST tile locks in, after RESOLVE_START
-MENU_SPIN_FLIP_INTERVAL = 0.045 -- how often a still-spinning tile's shown glyph changes
+-- Live-tunable look of the menu's changing letters (Debug Menu > "Menu Letters",
+-- RipplePicker.lua). page = which tab of that overlay shows the setting. Board: the
+-- preview's letter-change effect (same shape as the game's drawRerollLetterOverlay, but
+-- its own values so tuning the menu never changes a game). Dice: the min-length dice
+-- row's slot-machine spin. Persisted with saveLocalData. Copy final values into `def`.
+menuFlipTuneDefs = {
+  { page = "board", key = "interval",    label = "Tick sec",   def = 0.9,  step = 0.1,  min = 0.2,  max = 6.0 },
+  { page = "board", key = "stagger",     label = "Stagger",    def = 0,    step = 0.05, min = 0,    max = 3.0 },
+  { page = "board", key = "percent",     label = "Tiles %",    def = 0,    step = 5,    min = 0,    max = 100 },  -- 0 = the difficulty's
+  { page = "board", key = "growSeconds", label = "Grow sec",   def = 0.4,  step = 0.05, min = 0.05, max = 3.0 },
+  { page = "board", key = "fadeSeconds", label = "Fade sec",   def = 0.4,  step = 0.05, min = 0.05, max = 3.0 },
+  { page = "board", key = "growScale",   label = "Peak x",     def = 1.6,  step = 0.1,  min = 0.5,  max = 4.0 },
+  { page = "board", key = "endScale",    label = "End x",      def = 2.2,  step = 0.1,  min = 0.5,  max = 6.0 },
+  { page = "board", key = "letterSize",  label = "Letter %",   def = 55,   step = 5,    min = 20,   max = 95 },
+  { page = "board", key = "customColor", label = "Own color",  def = 0,    step = 1,    min = 0,    max = 1 },    -- 0 = season's
+  { page = "board", key = "red",         label = "Red",        def = 255,  step = 15,   min = 0,    max = 255 },
+  { page = "board", key = "green",       label = "Green",      def = 200,  step = 15,   min = 0,    max = 255 },
+  { page = "board", key = "blue",        label = "Blue",       def = 40,   step = 15,   min = 0,    max = 255 },
+  { page = "board", key = "alpha",       label = "Opacity",    def = 255,  step = 15,   min = 0,    max = 255 },
+  { page = "dice",  key = "diceCycle",   label = "Cycle sec",  def = 3.3,  step = 0.1,  min = 0.5,  max = 10.0 },
+  { page = "dice",  key = "flipSeconds", label = "Flip sec",   def = 0.045, step = 0.005, min = 0.01, max = 0.5 },
+  { page = "dice",  key = "resolveAt",   label = "Lock at",    def = 0.55, step = 0.05, min = 0,    max = 5.0 },
+  { page = "dice",  key = "resolveSpan", label = "Lock span",  def = 0.55, step = 0.05, min = 0,    max = 5.0 },
+  { page = "dice",  key = "diceLetter",  label = "Letter %",   def = 50,   step = 5,    min = 20,   max = 95 },
+}
+menuFlipTune = menuFlipTune or {}
+for _, d in ipairs(menuFlipTuneDefs) do
+  if menuFlipTune[d.key] == nil then menuFlipTune[d.key] = d.def end
+end
+
+MENU_FLIP_TUNE_KEY = "Q_MenuFlipTune"
+
+function loadMenuFlipTune()
+  local raw = readLocalData(MENU_FLIP_TUNE_KEY)
+  if type(raw) ~= "string" or raw == "" then
+    -- Never tuned: start from the game's effect (rerollTune, loaded just before this),
+    -- which is what the menu used before it had its own settings.
+    menuFlipTune.growScale   = rerollTune.growScale
+    menuFlipTune.growSeconds = rerollTune.growSeconds
+    menuFlipTune.fadeSeconds = rerollTune.fadeSeconds
+    menuFlipTune.endScale    = 2 * rerollTune.growScale - 1
+    return
+  end
+  local ok, saved = pcall(json.decode, raw)
+  if not (ok and type(saved) == "table") then return end
+  for _, d in ipairs(menuFlipTuneDefs) do
+    if type(saved[d.key]) == "number" then menuFlipTune[d.key] = saved[d.key] end
+  end
+end
+
+local function saveMenuFlipTune()
+  local ok, s = pcall(json.encode, menuFlipTune)
+  if ok and s then saveLocalData(MENU_FLIP_TUNE_KEY, s) end
+end
+
+function menuFlipTuneNudge(key, dir)
+  for _, d in ipairs(menuFlipTuneDefs) do
+    if d.key == key then
+      local v = menuFlipTune[key] + dir * d.step
+      menuFlipTune[key] = math.floor(math.max(d.min, math.min(d.max, v)) * 1000 + 0.5) / 1000
+      print("menuFlipTune." .. key .. " = " .. menuFlipTune[key])
+    end
+  end
+  if key == "interval" then menuPreviewNextTick = nil end  -- apply the new pace from now
+  saveMenuFlipTune()
+end
+
+function menuFlipTuneReset(page)
+  for _, d in ipairs(menuFlipTuneDefs) do
+    if not page or d.page == page then menuFlipTune[d.key] = d.def end
+  end
+  menuPreviewNextTick = nil
+  saveMenuFlipTune()
+end
+
+-- The board preview's accent: the season's (or the game's cyan), unless "Own color" is on.
+local function menuFlipAccent()
+  local T = menuFlipTune
+  local base = (T.customColor >= 1) and color(T.red, T.green, T.blue, 255)
+            or Color.menuChangeAccent or color(120, 255, 255, 255)
+  return color(base.r, base.g, base.b, base.a * T.alpha / 255)
+end
+
+-- Spin timing (menuFlipTune, above): diceCycle = seconds per spin -> resolve -> hold ->
+-- respin loop; resolveAt = seconds into the cycle when tile #1 locks in; resolveSpan =
+-- seconds over which the LAST tile locks in after that; flipSeconds = how often a
+-- still-spinning tile's shown glyph changes.
 
 local MENU_SPIN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -575,17 +659,15 @@ end
 -- Which cycle we're in (decides the target letters) and how far into it we are (decides
 -- what's still spinning vs. already resolved). Pure function of ElapsedTime, so the board
 -- preview and dice row call this independently yet stay perfectly in sync.
--- period/offset default to the shared MENU_SPIN_CYCLE clock; the dice row passes its own so
--- the board and the min-length dice respin on independent schedules.
+-- period defaults to the dice row's spin cycle.
 function menuSpinCycleClock(period, offset)
-  period = period or MENU_SPIN_CYCLE
+  period = period or menuFlipTune.diceCycle
   local t = ElapsedTime + (offset or 0)
   local cycleIndex = math.floor(t / period)
   local cycleT = t - cycleIndex * period
   return cycleIndex, cycleT
 end
 
-MENU_DICE_SPIN_CYCLE  = 3.3   -- min-length dice: deliberately not a multiple of the board's 2.6
 MENU_DICE_SPIN_OFFSET = 1.1
 
 -- tileIndex/tileCount: this tile's 1-based position in the reveal order. targetLetter:
@@ -593,14 +675,14 @@ MENU_DICE_SPIN_OFFSET = 1.1
 -- actually draw this frame — a fast-changing random glyph before this tile's resolve time,
 -- targetLetter from then on.
 function menuSpinLetter(cycleIndex, cycleT, tileIndex, tileCount, targetLetter)
-  local resolveT = MENU_SPIN_RESOLVE_START
+  local resolveT = menuFlipTune.resolveAt
   if tileCount > 1 then
-    resolveT = resolveT + (tileIndex - 1) / (tileCount - 1) * MENU_SPIN_RESOLVE_SPAN
+    resolveT = resolveT + (tileIndex - 1) / (tileCount - 1) * menuFlipTune.resolveSpan
   end
   if cycleT >= resolveT then
     return targetLetter
   end
-  local flipIndex = math.floor(cycleT / MENU_SPIN_FLIP_INTERVAL)
+  local flipIndex = math.floor(cycleT / menuFlipTune.flipSeconds)
   local v = _menuSpinRand(cycleIndex * 97 + tileIndex * 31, flipIndex)
   local idx = math.floor(v * 26) + 1
   return MENU_SPIN_ALPHABET:sub(idx, idx)
@@ -735,15 +817,33 @@ function drawMenu()
   end
 
   -- Preview letters change the way a game board's do (menuPreviewBoardStep, Board.lua):
-  -- each MENU_SPIN_CYCLE tick, as many tiles as the selected difficulty changes in a game
-  -- of this size, with the game's letter-change effect.
-  local spinCycleIndex = menuSpinCycleClock()
-  for _, idx in ipairs(menuPreviewBoardStep(menuPreviewBoard, boardSize, spinCycleIndex, MENU_PREVIEW_BOARD_SEED)) do
-    menuPreviewBoardAnim[idx] = ElapsedTime
+  -- every menuFlipTune.interval seconds, as many tiles as the selected difficulty changes
+  -- in a game of this size (or menuFlipTune.percent when set), with the game's letter-change
+  -- effect. Ticks count from a timer, not ElapsedTime / interval, so retuning the interval
+  -- can't push the tick index backwards and stall the board.
+  local FT = menuFlipTune
+  local tick = menuPreviewBoard.k or 0
+  if not menuPreviewNextTick or menuPreviewBoard.forceTick then
+    menuPreviewNextTick = ElapsedTime + FT.interval
+  elseif ElapsedTime >= menuPreviewNextTick then
+    tick = tick + 1
+    menuPreviewNextTick = ElapsedTime + FT.interval
   end
+  local prevTiles = {}
+  for i, l in ipairs(menuPreviewBoard.tiles or {}) do prevTiles[i] = l end
+  local savedPercent = rerollTune.percent
+  if FT.percent > 0 then rerollTune.percent = FT.percent end
+  local changed = menuPreviewBoardStep(menuPreviewBoard, boardSize, tick, MENU_PREVIEW_BOARD_SEED)
+  rerollTune.percent = savedPercent
   if menuPreviewBoard.n ~= menuPreviewBoardAnimN then
     menuPreviewBoardAnim, menuPreviewBoardAnimN = {}, menuPreviewBoard.n
   end
+  for _, idx in ipairs(changed) do
+    -- Stagger: each changed tile starts at its own random moment within the window and
+    -- keeps showing its old letter until then.
+    menuPreviewBoardAnim[idx] = { start = ElapsedTime + math.random() * FT.stagger, old = prevTiles[idx] }
+  end
+  local flipAccent = menuFlipAccent()
 
   local gridLeft = -gridW * 0.5
   local gridBot  = -gridH * 0.5
@@ -758,14 +858,16 @@ function drawMenu()
       drawDie(tx, ty, cellPx, cellPx, r, Color.uiAccent, -boardAngle)
 
       local letter = menuPreviewBoard.tiles[idx] or ""
+      local anim = menuPreviewBoardAnim[idx]
+      local waiting = anim and ElapsedTime < anim.start
       font("Georgia-Bold")
-      fontSize(cellPx * 0.55)
+      fontSize(cellPx * FT.letterSize / 100)
       fill(255, 255, 255, 255)
       textMode(CENTER)
       textAlign(CENTER)
-      text(letter, tx, ty)
-      local started = menuPreviewBoardAnim[idx]
-      if started and not drawRerollLetterOverlay(letter, started, tx, ty, 0, "Georgia-Bold", Color.menuChangeAccent) then
+      text(waiting and (anim.old or letter) or letter, tx, ty)
+      if anim and not waiting
+        and not drawRerollLetterOverlay(letter, anim.start, tx, ty, 0, "Georgia-Bold", flipAccent, FT) then
         menuPreviewBoardAnim[idx] = nil
       end
     end
@@ -839,7 +941,7 @@ function drawMenu()
 
   -- Cycle to a new SOWPODS word once per dice spin cycle — on its own clock, independent of
   -- the board preview's.
-  local diceSpinCycleIndex, diceSpinCycleT = menuSpinCycleClock(MENU_DICE_SPIN_CYCLE, MENU_DICE_SPIN_OFFSET)
+  local diceSpinCycleIndex, diceSpinCycleT = menuSpinCycleClock(menuFlipTune.diceCycle, MENU_DICE_SPIN_OFFSET)
   if menuDiceWordSec ~= diceSpinCycleIndex or not menuDiceDisplayWord or #menuDiceDisplayWord ~= MIN_WORD_LEN then
     menuDiceWordSec = diceSpinCycleIndex
     menuDiceDisplayWord = randomMenuDiceWord(MIN_WORD_LEN)
@@ -857,7 +959,7 @@ function drawMenu()
     local target = string.sub(menuDiceDisplayWord or string.rep("?", MIN_WORD_LEN), i, i)
     local letter = menuSpinLetter(diceSpinCycleIndex, diceSpinCycleT, i, MIN_WORD_LEN, target)
     font("Georgia-Bold")
-    fontSize(dicePx * 0.5)
+    fontSize(dicePx * menuFlipTune.diceLetter / 100)
     fill(255, 255, 255, 255)
     textMode(CENTER)
     textAlign(CENTER)
