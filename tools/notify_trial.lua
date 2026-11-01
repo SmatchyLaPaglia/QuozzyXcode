@@ -1,5 +1,10 @@
 -- Notification trial harness: which GameKit sends show the other player a banner?
 -- Load with DBG_DEVICE=<id> tools/dbg.sh -f tools/notify_trial.lua, then QT.mute() first.
+-- Handshake-less test (A = creator, B = invitee; QT.mute() both, QT.background() B first):
+--   A: QT.findB("<B alias>"); QT.create("Vivaldi-ku: new game"); wait, watch B; QT.saveBoard()
+--   B: QT.peek()  -> is the match visible before accept? is the board readable?
+--   Count B's banners: after create (invite), after saveBoard (should be none).
+--   Optional: B: QT.acceptById(id); QT.reload().
 -- Callbacks only handOff (CLAUDE.md hard rule); results land in QT.log (QT.dump()).
 -- Never add a notification-settings/delivered query here: those froze the app (XCODE_CODEA.md).
 QT = QT or {}
@@ -85,10 +90,12 @@ function QT.findB(alias)
   return "loading friends"
 end
 
-function QT.create()
+-- inviteMessage (optional) tests whether we control the invite banner's text.
+function QT.create(inviteMessage)
   local req = objc.GKMatchRequest()
   req.minPlayers, req.maxPlayers = 2, 2
   req.recipients = { QT.B }
+  if inviteMessage then req.inviteMessage = inviteMessage end
   objc.GKTurnBasedMatch:findMatchForRequest_withCompletionHandler_(req, function(o__match, o__err)
     handOff(function(o__match, o__err)
       if o__err or not o__match then L("create", err(o__err)) return end
@@ -144,9 +151,10 @@ function QT.passTurn(message)
   return "passing turn"
 end
 
-function QT.sendEx(key)
+-- timeout seconds; 0 = GKExchangeTimeoutNone (never expires). Default 600 so expiry is testable.
+function QT.sendEx(key, timeout)
   QT.m:sendExchangeToParticipants_data_localizableMessageKey_arguments_timeout_completionHandler_(
-    QT.others(), data({ qt = "exchange", key = key, at = os.time() }), key, {}, 600,
+    QT.others(), data({ qt = "exchange", key = key, at = os.time() }), key, {}, timeout or 600,
     function(o__exchange, o__err)
       handOff(function(o__exchange, o__err) L("sendEx " .. key, err(o__err)) end, o__exchange, o__err)
     end)
@@ -204,6 +212,57 @@ function QT.endMatch(message)
   return "ending"
 end
 
+
+-- Creator side, straight after QT.create(): write a fake board into matchData WITHOUT
+-- passing the turn. Question 2: does B see it, and does B get a second banner?
+function QT.saveBoard()
+  QT.m:saveCurrentTurnWithMatchData_completionHandler_(
+    data({ board = { "A", "QU", "N", "T" }, seed = 12345, at = os.time() }), function(o__err)
+      handOff(function(o__err) L("saveBoard", err(o__err)) end, o__err)
+    end)
+  return "saving board"
+end
+
+-- Invitee side, WITHOUT accepting: lists every match B can see, B's own participant
+-- status, and the decoded matchData. Question 1/2: does the match show up, is the
+-- board readable before any turn pass?
+function QT.peek()
+  objc.GKTurnBasedMatch:loadMatchesWithCompletionHandler_(function(o__matches, o__err)
+    handOff(function(o__matches, o__err)
+      if o__err then L("peek", err(o__err)) return end
+      L("peek: " .. cnt(o__matches) .. " match(es)")
+      for i = 1, cnt(o__matches) do
+        local m = get(o__matches, i)
+        local d = "?"
+        pcall(function()
+          local t = tbm:_matchWithNSDataToDataTable(m)
+          d = t and json.encode(t) or "nil/empty"
+        end)
+        local mine = "?"
+        for j = 1, cnt(m.participants) do
+          local p = get(m.participants, j)
+          if p.player and s(p.player.gamePlayerID) == s(myId()) then mine = s(p.status) end
+        end
+        L(string.format("  %s status=%s myParticipantStatus=%s data=%s", s(m.matchID), s(m.status), mine, d))
+      end
+    end, o__matches, o__err)
+  end)
+  return "peeking"
+end
+
+-- Holder side: read every active exchange's payload WITHOUT replying. Question: is the
+-- data there for the taking, so a silent save can absorb it and no reply banner is sent?
+function QT.readActive()
+  local active = QT.m.activeExchanges
+  L("readActive: " .. cnt(active) .. " active, " .. cnt(QT.m.completedExchanges) .. " completed")
+  for i = 1, cnt(active) do
+    local ex = get(active, i)
+    local d = "?"
+    pcall(function() d = json.encode(tbm:_nsDataToDataTable(ex.data)) end)
+    L("  exchange " .. i .. " status=" .. s(ex.status) .. " data=" .. d)
+  end
+  return "read"
+end
 
 function QT.dump(n)
   n = n or 25

@@ -184,13 +184,30 @@ GameKit calls through the objc bridge, `tools/notify_trial.lua`):
 - **What notifies:** every turn pass pushes the recipient a banner; the app only picks the text
   (`match.message`), not whether. Exchanges, exchange replies and reminders each carry a
   `localizableMessageKey` (+ `arguments`) that becomes the recipient's notification text. There
-  is no "silent" variant of any of them.
+  is no "silent" variant of any of them. Only the holder's in-place save is silent (see ledger).
 - **The key is localized on the recipient's device**, from the app's own `Localizable.strings`.
   It has to sit in the app bundle (`Quozzy/en.lproj/Localizable.strings`, added to the Xcode
   project as a variant group) — files inside `Quozzy.codea` don't count. A key with no entry is
   shown raw (e.g. "XCHG_UPDATE"). The recipient needs a build that has the entry.
-- **Still to confirm by eye:** whether a key mapped to `""` hides the banner or shows a blank one
-  (likely a title-only "Vivaldi-ku"), and whether saves / match end show anything at all.
+- **Banner ledger, confirmed on iPad + XR (2026-10-31, `tools/notify_trial.lua`):**
+  - Creating a match with `recipients` is silent, and the invitee can't see the match at all
+    (`loadMatchWithID` returns nil, no error) until the turn is passed. So the handshake turn
+    pass can't be replaced: it is what makes the match appear. It is ONE banner:
+    "<alias> invited you to play: <GKMatchRequest.inviteMessage>" (we control the text; a
+    `match.message` set on the pass did not replace it). No second "your turn" banner.
+  - A holder's `saveCurrentTurnWithMatchData` is silent.
+  - An exchange banners the recipient as "Vivaldi-ku: <localized key>". Mapping the key to `""`
+    does NOT hide it: an empty value is treated as missing and the raw key is shown.
+  - `endMatchInTurn` banners the OTHER player with system text "The game is over."
+  - An exchange that nobody replies to banners its SENDER with "An action was completed" when
+    its timeout expires, even after the match has ended. Timeout 0 (`GKExchangeTimeoutNone`)
+    never expires and gives no such banner (checked for 35 min). The app's current 7-day timeout
+    would fire it a week later.
+  - The holder can read an unreplied exchange's payload from `activeExchanges` (`ex.data`), absorb it
+    with a silent save, and end the match; an unreplied ACTIVE exchange does not block the end
+    call (only completed ones do). So the reply, and its banner, can be skipped.
+  - Untested: reply banner text, quit/clear-all (`_quitThenRemoveMatch`, which passes the turn
+    to the opponent on an in-turn quit and likely banners them), the OS "Welcome back" toast.
 
 Testing notifications across two devices: `DBG_DEVICE=<id> tools/dbg.sh` per device;
 `objc.UIApplication.sharedApplication:suspend()` (private, dev builds only) sends the app to the
