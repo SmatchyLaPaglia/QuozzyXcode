@@ -406,6 +406,16 @@ end
 
 function drawEndScreen()
   ensureEndScreenLayout()
+  -- vs: my comment is decided BEFORE the end screen (and before anything is sent).
+  if commentPromptActive and commentPromptActive() then
+    drawCommentPrompt()
+    return
+  end
+  if commentPromptMatchId then
+    -- Prompt just resolved (or never applied): drop its native field and reset for the next match.
+    commentPromptMatchId = nil
+    if teardownCommentPromptField then teardownCommentPromptField() end
+  end
   if true then
     drawEndScreenFP()
     return
@@ -740,6 +750,9 @@ function handleEndScreenTouch(t)
   local g,r
 
   if state ~= STATE_END then return false end
+  if commentPromptActive and commentPromptActive() then
+    return handleCommentPromptTouch(t)
+  end
   ensureEndScreenLayout()
   g = endScreenLayout
 

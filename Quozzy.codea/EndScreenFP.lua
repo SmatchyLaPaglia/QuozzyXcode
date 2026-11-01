@@ -1018,6 +1018,147 @@ function positionEndScreenCommentField(model, layout)
   positionCommentField(3, endScreenLocalBalloonRect, shown, active, ui and ui.placeholder, balloonFontSize, true, nil)
 end
 
+-- ---------------------------------------------------------------------------
+-- Comment prompt (vs games). Shown straight after my round, in place of the end
+-- screen, until I've decided on a comment (yes + text, or no -- a blank comment).
+-- My score and comment then go out TOGETHER as one send (computeNextOwedAction's
+-- "result"): two sends meant two exchanges, and every exchange banners the other
+-- player. Nothing is sent while this is up. The decision is a property of the match
+-- (me.commentDecided), so closing the app mid-prompt just brings it back next time.
+-- Uses commentFields slot 4 (slot 3 is the old end-screen composer).
+-- ---------------------------------------------------------------------------
+commentPromptStage   = commentPromptStage   or "ask"   -- "ask" | "write"
+commentPromptMatchId = commentPromptMatchId or nil
+commentPromptRects   = commentPromptRects   or {}
+local COMMENT_PROMPT_FIELD = 4
+
+function commentPromptActive()
+  if not (useTurnBased and state == STATE_END and currentQMatch and currentQMatch.players) then
+    return false
+  end
+  -- A reconstructed historical view never carries commentDecided (RecordsUI.lua).
+  if currentQMatch.recordOutcomeApplied == true then return false end
+  local me = currentQMatch.players[localPID()]
+  return (me ~= nil and me.didPlay == true and me.commentDecided ~= true)
+end
+
+function teardownCommentPromptField()
+  local F = commentFields and commentFields[COMMENT_PROMPT_FIELD]
+  if not F then return end
+  if F.tv then
+    pcall(function() F.tv:resignFirstResponder_() end)
+    pcall(function() F.tv:removeFromSuperview_() end)
+    F.tv = nil
+  end
+  -- updateCommentField only writes properties that changed; a recreated view starts blank.
+  F.focused, F.cHidden, F.cEnabled, F.cColor, F.cTint, F.cFrame = false, nil, nil, nil, nil, nil
+  F.lastValid, F.autoFocused = nil, nil
+end
+
+function decideCommentFromPrompt(text)
+  teardownCommentPromptField()
+  commentPromptStage = "ask"
+  return decideComment(text or "")
+end
+
+local function commentPromptButton(label, cx, cy, w, h, key, filled)
+  -- Opaque, and stroke == fill: drawRoundedRect paints most of the body with the STROKE
+  -- colour (round-capped lines), and any alpha shows the seams between its pieces.
+  local fillCol = filled and Color.uiAccent or color(72, 78, 88, 255)
+  drawRoundedRect(cx, cy, w, h, h * 0.35, fillCol, fillCol)
+  pushStyle()
+  fill(255); textMode(CENTER); textAlign(CENTER)
+  font(GLOBAL_UI_FONT or "HelveticaNeue-BoldItalic")
+  fontSize(h * 0.36)
+  text(label, cx, cy)
+  popStyle()
+  commentPromptRects[#commentPromptRects + 1] = { key = key, x = cx - w * 0.5, y = cy - h * 0.5, w = w, h = h }
+end
+
+function drawCommentPrompt()
+  local qid = currentQMatch and currentQMatch.id
+  if commentPromptMatchId ~= qid then
+    commentPromptMatchId = qid
+    commentPromptStage = "ask"
+    teardownCommentPromptField()
+  end
+  commentPromptRects = {}
+
+  -- The board, dimmed.
+  if drawBoard then pcall(drawBoard) end
+  pushStyle()
+  rectMode(CORNER)
+  fill(0, 0, 0, 215)
+  rect(0, 0, WIDTH, HEIGHT)
+  popStyle()
+
+  local me = currentQMatch.players[localPID()]
+  local n = me and me.words and #me.words or 0
+  local unit = math.min(WIDTH, HEIGHT)
+  local headline = (n == 1) and "You found 1 word!" or (n == 0 and "No words this time" or ("You found " .. n .. " words!"))
+
+  pushStyle()
+  fill(255); textMode(CENTER); textAlign(CENTER)
+  font(GLOBAL_UI_FONT or "HelveticaNeue-BoldItalic")
+  textWrapWidth(WIDTH * 0.86)
+  if commentPromptStage == "ask" then
+    fontSize(unit * 0.095)
+    text(headline, WIDTH * 0.5, HEIGHT * 0.68)
+    fontSize(unit * 0.05)
+    text("Do you want to comment on the board?", WIDTH * 0.5, HEIGHT * 0.58)
+  else
+    fontSize(unit * 0.07)
+    text("Your comment", WIDTH * 0.5, HEIGHT * 0.86)
+  end
+  textWrapWidth(0)
+  popStyle()
+
+  local bw, bh = WIDTH * 0.34, unit * 0.15
+  if commentPromptStage == "ask" then
+    commentPromptButton("Yes", WIDTH * 0.5 - bw * 0.6, HEIGHT * 0.42, bw, bh, "yes", true)
+    commentPromptButton("No",  WIDTH * 0.5 + bw * 0.6, HEIGHT * 0.42, bw, bh, "no", false)
+    updateCommentField(COMMENT_PROMPT_FIELD, nil, false)
+  else
+    -- Kept in the upper half so the keyboard never covers the field or its buttons.
+    local scheme = currentBalloonColorScheme()
+    local fw, fh = WIDTH * 0.86, HEIGHT * 0.17
+    local fx, fy = WIDTH * 0.5, HEIGHT * 0.66
+    drawRoundedRect(fx, fy, fw, fh, 24, scheme.fill, scheme.fill)
+    local fontPx = unit * 0.05
+    updateCommentField(COMMENT_PROMPT_FIELD, { x = fx - fw * 0.5 + 8, y = fy - fh * 0.5 + 8, w = fw - 16, h = fh - 16 }, true, fontPx, true)
+    enforceCommentFieldLineCap(COMMENT_PROMPT_FIELD, fontPx, fw - 32)
+    local F = commentFields[COMMENT_PROMPT_FIELD]
+    if F and F.tv and not F.autoFocused then
+      F.autoFocused = true
+      pcall(function() F.tv:becomeFirstResponder_() end)
+    end
+    commentPromptButton("Send", WIDTH * 0.5 - bw * 0.6, HEIGHT * 0.46, bw, bh * 0.9, "send", true)
+    commentPromptButton("Back", WIDTH * 0.5 + bw * 0.6, HEIGHT * 0.46, bw, bh * 0.9, "back", false)
+  end
+end
+
+function handleCommentPromptTouch(t)
+  if t.state ~= ENDED then return true end
+  for _, r in ipairs(commentPromptRects) do
+    if t.x >= r.x and t.x <= r.x + r.w and t.y >= r.y and t.y <= r.y + r.h then
+      if r.key == "yes" then
+        commentPromptStage = "write"
+      elseif r.key == "no" then
+        decideCommentFromPrompt("")
+      elseif r.key == "back" then
+        teardownCommentPromptField()
+        commentPromptStage = "ask"
+      elseif r.key == "send" then
+        local F = commentFields[COMMENT_PROMPT_FIELD]
+        local typed = F and (F.lastValid or (F.tv and tostring(F.tv.text or ""))) or ""
+        decideCommentFromPrompt(normalizeCommentDraft(typed))
+      end
+      return true
+    end
+  end
+  return true
+end
+
 -- The 7 real situations the end-screen comment balloons can be in (see
 -- STRUCTURE.md "Turn-Based Comment Speech Balloons"). Each entry is a
 -- complete, valid snapshot rather than an independent combination of
